@@ -176,38 +176,63 @@ mechanics rather than building a parallel damage system:
   this session; the next person to actually attack a mob should confirm damage/speed/crits feel
   right, not just that nothing crashes.
 
-### Target nameplate — mob name + health bar, top-center
+### Target nameplate — mob name + level + health bar, top-center
 
-New client-only HUD element, `ui/MobNameplateHud.java`, registered via
+Client-only HUD element, `ui/MobNameplateHud.java`, registered via
 `HudElementRegistry.addLast(...)` (a new, independent element — not attached to or replacing
-`VanillaHudElements.BOSS_BAR`). Shows the name and a current/max health bar of whatever living
-entity the player is currently looking at:
+`VanillaHudElements.BOSS_BAR`). Shows the name, level, and a current/max health bar of a
+targeted living entity.
 
-- Reads `MinecraftClient.crosshairTarget` (a public field, confirmed still present in 1.21.11,
-  already updated every frame by vanilla's own raycast for interaction purposes) — if it's an
-  `EntityHitResult` wrapping a `LivingEntity` that isn't the local player and is alive, render
-  its name + health bar; otherwise render nothing.
-- **No networking needed** — confirmed via decompiled `LivingEntity`/`DataTracker` source that
-  `HEALTH` is an ordinary `TrackedData<Float>` with no special-casing, synced to every client
-  tracking that entity (not just boss-bar-eligible ones), so `target.getHealth()`/
-  `getMaxHealth()`/`getDisplayName()` are reliably readable client-side for *any* nearby entity,
-  exactly like they are for the local player.
+- **Fixed a real bug, reported by the user**: attacking a `minecraft:spider` didn't show its
+  name. Root cause — the original version only read live `MinecraftClient.crosshairTarget`
+  each render frame; fast/erratic mobs (spiders climb walls, jump unpredictably) often aren't
+  precisely under the crosshair by the time a frame samples it, even though the hit landed.
+  Fixed by also registering `net.fabricmc.fabric.api.event.player.AttackEntityCallback`
+  (confirmed via decompiled Fabric API source that this **does** fire client-side — it's
+  Mixin'd into `ClientPlayerInteractionManager.attackEntity`, the real "attack packet about to
+  send" moment, not a render-frame sample; it also fires server-side in singleplayer, so the
+  listener is guarded with `world.isClient()` to avoid double-processing) and caching the
+  attacked entity for 5 seconds. `resolveTarget()` now prefers this recently-attacked entity,
+  falling back to live crosshair-target if nothing was attacked recently — so the nameplate
+  shows reliably right when you land a hit, not just while precisely aimed.
+- **Added "Lvl. X" after the name**, per user request. No mob-leveling system exists in this
+  codebase yet, so `getMonsterLevelText()` currently always returns `"Lvl. 1"` for every
+  entity — a single, clearly-marked placeholder method to extend once a real per-mob level
+  concept exists, not a full system built prematurely.
+- No networking needed — confirmed via decompiled `LivingEntity`/`DataTracker` source that
+  `HEALTH` is an ordinary `TrackedData<Float>`, synced to every client tracking that entity
+  (not just boss-bar-eligible ones), so `getHealth()`/`getMaxHealth()`/`getDisplayName()` are
+  reliably readable client-side for any nearby entity.
 - Positioned at vanilla's own boss-bar starting y (12px from top, confirmed via decompiled
-  `BossBarHud.render()`), horizontally centered — chosen because a real boss bar and this
-  nameplate rarely coexist in practice; **not** dynamically avoided if they do (would need
-  reading the live boss-bar count, not attempted, flagged as a known simplification).
-  `ui/PlayerStatusHud.java` (Class System's own HUD panel) sits top-*left*, so no collision
-  there either.
-- Bar styling reuses the Life bar's exact ember/coral hexes (`#E2574B`/`#8E1F1F`) from
-  `docs/visual-style-guide.md` — "red = health" stays consistent whether it's the player's own
-  Life bar or a targeted mob's. Shows both a visual bar *and* the literal `current / max`
-  number as text (unlike the player's own HUD bars, which are deliberately bar-only per the
-  style guide) — chosen because the user explicitly asked to "show current life," which reads
-  as wanting the actual number, not just a bar.
-- Verified: builds, boots cleanly. **Not visually confirmed** — same limitation as everything
-  else UI-related this session; next person to look at a mob in-game should confirm it appears,
-  positioned sensibly, and doesn't visually clash with the Class System's HUD panel or a real
-  boss bar if one happens to be active.
+  `BossBarHud.render()`), horizontally centered — not dynamically avoided if a real boss bar is
+  also active (known simplification). `ui/PlayerStatusHud.java` sits top-left, no collision.
+- Bar styling reuses the Life bar's exact ember/coral hexes (`#E2574B`/`#8E1F1F`) — "red =
+  health" stays consistent whether it's the player's own Life bar or a targeted mob's. Shows
+  both the bar and the literal `current / max` number (unlike the player's own HUD bars, which
+  are bar-only per the style guide) since the user explicitly asked to see the actual number.
+- **Second real bug, found immediately after the fix above**: user tested and reported "Monster
+  name and level was not shown. No Crash." — i.e. the attack-trigger fix alone wasn't enough;
+  text never rendered at all (the health bar, drawn via plain `fill()`, presumably still did,
+  since only the two `drawText*`-based elements were reported missing). **Root cause: this
+  project's own `docs/fabric-modding.md` already documented the exact bug** (found and written
+  down in an earlier session, from the dead `ui/ProgressionHud.java`'s investigation) —
+  `DrawContext`'s `drawText*` methods **silently no-op with no exception** if the passed
+  color's alpha byte is `0`. Both of `MobNameplateHud`'s text calls passed `0xFFFFFF` (plain
+  RGB, alpha byte `0x00`) instead of `0xFFFFFFFF` (opaque white) — the exact documented
+  mistake, made fresh in new code despite being written down. Fixed by using
+  `net.minecraft.util.Colors.WHITE` (a pre-built, already-correct constant vanilla's own
+  `BossBarHud` uses for the same purpose) instead of a hand-typed hex literal, which both
+  fixes this instance and removes the temptation to retype a bare hex value in future text
+  calls in this file. **General lesson, worth internalizing rather than re-discovering a third
+  time**: any raw `int` color passed directly as an argument to a `DrawContext.drawText*`
+  method (not applied via `Text.styled(style -> style.withColor(...))`, which is a separate,
+  unaffected code path already used safely elsewhere in this project, e.g.
+  `CharacterStatsScreen`) must include a non-zero alpha byte — prefer `Colors.WHITE` or an
+  explicit `0xFFxxxxxx` literal, never a bare 6-digit hex.
+- Verified: builds, boots cleanly, played a short manual session with no crashes after both
+  fixes. **Not yet re-confirmed against an actual spider with the alpha fix applied** — next
+  person should attack one in-game and confirm the name and "Lvl. 1" both actually render this
+  time, not just that nothing crashes.
 
 ### Class System v1 — 4 classes, command + GUI selection
 

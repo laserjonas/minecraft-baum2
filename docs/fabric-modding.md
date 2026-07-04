@@ -1327,4 +1327,129 @@ against the named `minecraft-clientOnly-6dd721cd7d-...-sources.jar`
   matters, compute it the same way `BossBarHud` does (`12 + bossBars.size() * 19`, capped at
   `screenHeight/3`) rather than hardcoding a single y.
 
+### "Last entity the local player actually attacked" — `AttackEntityCallback` fires client-side, confirmed (researched 2026-07-04)
+
+Researched for a real bug report: attacking a `minecraft:spider` sometimes shows no
+`MobNameplateHud` nameplate. Root cause: `MobNameplateHud.render()` only reads
+`MinecraftClient.crosshairTarget` live, once per rendered frame — spiders are fast/erratic
+(wall-climbing, jumping), so the crosshair frequently isn't exactly on the spider by the time
+a given `render()` call runs, even on a tick where the attack itself landed. Fix direction:
+cache "the last entity the local player actually attacked" (with a short expiry, e.g. a few
+seconds) as a HUD fallback, driven by an actual attack event instead of re-sampling
+`crosshairTarget`. Verified against the decompiled `fabric-events-interaction-v0`
+`4.1.1+3b89ecf63e` **client and common** source jars (both pulled in transitively by
+`fabric-api-0.141.4+1.21.11`, found at
+`.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-events-interaction-v0-16c8840d-{client,common}/4.1.1+3b89ecf63e/...-sources.jar`) and the named
+`minecraft-clientOnly-6dd721cd7d-...-sources.jar` (`ClientPlayerInteractionManager.java`,
+`MinecraftClient.java`).
+
+- **Yes — `net.fabricmc.fabric.api.event.player.AttackEntityCallback` fires on the CLIENT
+  logical side for the local player's own attack, confirmed by reading the actual call
+  site.** It is invoked from **two** separate Mixin call sites, not one:
+  - **Client-side**: `net.fabricmc.fabric.mixin.event.interaction.client.MultiPlayerGameModeMixin`
+    (`@Mixin(ClientPlayerInteractionManager.class)`), injected into the Yarn-mapped
+    `ClientPlayerInteractionManager.attackEntity(PlayerEntity player, Entity target)` method,
+    right before the interact packet is sent:
+    ```java
+    // MultiPlayerGameModeMixin (client jar), @Inject before ClientPlayNetworkHandler.sendPacket(...)
+    public void attackEntity(PlayerEntity player, Entity entity, CallbackInfo info) {
+        ActionResult result = AttackEntityCallback.EVENT.invoker().interact(player, player.getEntityWorld(), Hand.MAIN_HAND, entity, null);
+        if (result != ActionResult.PASS) {
+            if (result == ActionResult.SUCCESS) {
+                this.connection.sendPacket(PlayerInteractEntityC2SPacket.attack(entity, player.isSneaking()));
+            }
+            info.cancel();
+        }
+    }
+    ```
+    Confirmed real, current Yarn 1.21.11 method it targets by reading
+    `ClientPlayerInteractionManager.java` directly:
+    ```java
+    public void attackEntity(PlayerEntity player, Entity target) {
+        this.syncSelectedSlot();
+        this.networkHandler.sendPacket(PlayerInteractEntityC2SPacket.attack(target, player.isSneaking()));
+        if (this.gameMode != GameMode.SPECTATOR) {
+            player.attack(target);
+            player.resetTicksSince();
+        }
+    }
+    ```
+    And confirmed the only caller of that method, `MinecraftClient.doAttack()` (called once per
+    queued left-click from `handleInputEvents()`, i.e. the real "player just attacked" moment,
+    not a render-frame sample):
+    ```java
+    switch (this.crosshairTarget.getType()) {
+        case ENTITY:
+            AttackRangeComponent attackRangeComponent = (AttackRangeComponent) itemStack.get(DataComponentTypes.ATTACK_RANGE);
+            if (attackRangeComponent == null || attackRangeComponent.isWithinRange(this.player, this.crosshairTarget.getPos())) {
+                this.interactionManager.attackEntity(this.player, ((EntityHitResult) this.crosshairTarget).getEntity());
+            }
+            break;
+        ...
+    }
+    ```
+    **Important nuance**: this is still gated on `this.crosshairTarget.getType() == ENTITY` at
+    the moment `doAttack()` runs — it's the *same* `crosshairTarget` field the HUD already
+    reads, not an independent raycast. The reliability win isn't a different targeting method;
+    it's that `doAttack()`/`AttackEntityCallback` fires exactly once, exactly at the instant the
+    game itself resolved "you just attacked this entity" (once per queued attack-key press,
+    each client tick), whereas `MobNameplateHud.render()` re-samples the same field on every
+    rendered frame and can catch it mid-flicker right before/after a fast entity moves off
+    crosshair. Caching the entity at the moment `AttackEntityCallback` fires (instead of only
+    trusting whatever `render()` currently sees) is what actually fixes the "landed the hit but
+    no nameplate" symptom.
+  - **Server-side**: `net.fabricmc.fabric.mixin.event.interaction.ServerPlayerMixin`
+    (`@Mixin(ServerPlayerEntity.class)`), injected at `HEAD` of `ServerPlayerEntity.attack(Entity target)`:
+    ```java
+    public void onPlayerInteractEntity(Entity target, CallbackInfo info) {
+        ServerPlayerEntity player = (ServerPlayerEntity) (Object) this;
+        ActionResult result = AttackEntityCallback.EVENT.invoker().interact(player, player.getEntityWorld(), Hand.MAIN_HAND, target, null);
+        if (result != ActionResult.PASS) info.cancel();
+    }
+    ```
+  - **Practical consequence — the same static `Event<AttackEntityCallback>` is shared per JVM,
+    so in singleplayer (integrated server in the same process) a listener registered once fires
+    TWICE per attack**: once from the client-side mixin (`world.isClient()` true, fires first,
+    before the packet is even sent) and once from the server-side mixin when the integrated
+    server processes that packet (`world.isClient()` false). On a real dedicated-server +
+    remote-client setup this doesn't happen (the server-side mixin only runs in the server's own
+    JVM, which a remote client never shares) — but code should not assume single-fire. **Guard
+    with `world.isClient()`** and only react to the client-side firing for a client-only HUD
+    cache (it's also the earliest, most input-latency-free of the two).
+- **No Mixin needed — `AttackEntityCallback` is the correct, sufficient, already-available
+  hook.** Since it's already invoked from the real client-side attack path
+  (`ClientPlayerInteractionManager.attackEntity`), there's no need for a custom Mixin into
+  `ClientPlayerInteractionManager`/`MinecraftClient.doAttack()` just to observe "the local
+  player attacked entity X" — register a listener on the existing Fabric API event instead.
+- **Exact functional interface signature, confirmed** (`net.fabricmc.fabric.api.event.player.AttackEntityCallback`, module `fabric-events-interaction-v0`, unchanged from the "Combat / Damage" section's earlier read of the same file):
+  ```java
+  public interface AttackEntityCallback {
+      Event<AttackEntityCallback> EVENT = EventFactory.createArrayBacked(...);
+      ActionResult interact(PlayerEntity player, World world, Hand hand, Entity entity, @Nullable EntityHitResult hitResult);
+  }
+  ```
+  Returning anything other than `ActionResult.PASS` **cancels the attack** (client: suppresses
+  the packet send + local `player.attack(target)` call; server: cancels `ServerPlayerEntity.attack`
+  processing) — a passive "just observe and cache the target" listener **must always return
+  `ActionResult.PASS`**, never `SUCCESS`/`FAIL`, or real combat breaks.
+- **`hitResult` is always passed as `null` at both current call sites** — confirmed, both
+  `MultiPlayerGameModeMixin` and `ServerPlayerMixin` call `.interact(player, world, hand, target, null)`
+  literally. Don't rely on a non-null `hitResult` from this event in practice, even though the
+  parameter exists on the interface.
+- **Recommended registration** (client-only code, e.g. `Baum2Client.onInitializeClient()`,
+  registering the common-module event from client code is fine — `AttackEntityCallback` lives
+  in `fabric-events-interaction-v0`'s common package and is usable from either environment):
+  ```java
+  AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
+      if (world.isClient() && player == MinecraftClient.getInstance().player && entity instanceof LivingEntity living) {
+          MobNameplateHud.setLastAttacked(living); // cache with a short expiry (e.g. a few seconds)
+      }
+      return ActionResult.PASS;
+  });
+  ```
+  `player == MinecraftClient.getInstance().player` is technically redundant given the
+  `ClientPlayerInteractionManager` call site can only ever be the physical client's own player,
+  but cheap and self-documenting against ever accidentally registering this in a
+  non-client-only file later.
+
 ## Open questions

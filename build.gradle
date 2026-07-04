@@ -70,10 +70,11 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 java {
-    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
-    if (JavaVersion.current() < javaVersion) {
-        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
-    }
+    // Pinned unconditionally (not just when the running JVM is older) so that
+    // Loom's runClient/runServer JavaExec tasks also resolve this toolchain,
+    // instead of falling back to auto-detecting the highest-versioned JDK
+    // installed on the machine (e.g. a stray IntelliJ-managed JDK 25).
+    toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
     // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
     // if it is present.
     // If you remove this line, sources will not be generated.

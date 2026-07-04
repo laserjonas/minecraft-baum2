@@ -25,3 +25,5 @@ crash-reports/
 # Secrets
 .env
 .env.*
+
+baum2_key*

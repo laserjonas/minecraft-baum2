@@ -2,7 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "de.baum2dev.baum2.mixin.client",
-  "compatibilityLevel": "JAVA_25",
+  "compatibilityLevel": "JAVA_21",
   "client": [
   ],
   "injectors": {

@@ -18,7 +18,7 @@ public class ExperienceManager {
     }
 
     public static long calculateExperienceForLevel(int level) {
-        return VanillaXpFormula.getXpRequiredForLevel(level);
+        return ProgressionCurve.getXpRequiredForLevel(level);
     }
 
     public static int getMaxLevel() {

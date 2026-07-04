@@ -5,7 +5,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
-import de.baum2dev.baum2.progression.VanillaXpFormula;
+import de.baum2dev.baum2.progression.ProgressionCurve;
 
 /**
  * Client-side networking handler for Baum2 custom packets.
@@ -49,7 +49,7 @@ public class ClientNetworkingHandler {
         float progress = payload.maxExperience() > 0
                 ? (float) payload.experience() / payload.maxExperience()
                 : 0f;
-        int totalExperience = (int) (VanillaXpFormula.getTotalXpForLevel(payload.level()) + payload.experience());
+        int totalExperience = (int) (ProgressionCurve.getTotalXpForLevel(payload.level()) + payload.experience());
 
         player.setExperience(progress, totalExperience, payload.level());
     }

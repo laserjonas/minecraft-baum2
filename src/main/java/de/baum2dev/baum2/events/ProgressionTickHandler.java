@@ -5,7 +5,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.PlayerProgressData;
-import de.baum2dev.baum2.progression.VanillaXpFormula;
+import de.baum2dev.baum2.progression.ProgressionCurve;
 import de.baum2dev.baum2.networking.Baum2Networking;
 
 public class ProgressionTickHandler {
@@ -22,7 +22,7 @@ public class ProgressionTickHandler {
             long maxExp = progress.getExperienceForNextLevel();
 
             player.setExperienceLevel(customLevel);
-            player.totalExperience = (int) (VanillaXpFormula.getTotalXpForLevel(customLevel) + currentExp);
+            player.totalExperience = (int) (ProgressionCurve.getTotalXpForLevel(customLevel) + currentExp);
 
             Baum2Networking.syncPlayerExperience(player, customLevel, currentExp, maxExp);
         }

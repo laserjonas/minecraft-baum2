@@ -58,6 +58,6 @@ public class PlayerLevelSystem {
         long currentExp = progress.getExperience();
 
         player.setExperienceLevel(customLevel);
-        player.totalExperience = (int) (VanillaXpFormula.getTotalXpForLevel(customLevel) + currentExp);
+        player.totalExperience = (int) (ProgressionCurve.getTotalXpForLevel(customLevel) + currentExp);
     }
 }

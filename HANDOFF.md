@@ -12,13 +12,11 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 - **Progression System — FULLY WORKING, including real-time client display:**
-  - Custom progression uses Minecraft's non-linear XP curve, centralized in
-    `progression/VanillaXpFormula.java` (single source of truth — `ExperienceManager`,
-    `ProgressionTickHandler`, `PlayerLevelSystem`, `LevelUpHandler`, and the client packet
-    handler all call into it instead of each having their own copy):
-    - Levels 0-15: L² + 6L
-    - Levels 16-31: 2.5L² - 40.5L + 360
-    - Levels 32+: 4.5L² - 162.5L + 2220
+  - Custom progression uses our own XP curve, centralized in `progression/ProgressionCurve.java`
+    (single source of truth — `ExperienceManager`, `ProgressionTickHandler`, `PlayerLevelSystem`,
+    `LevelUpHandler`, and the client packet handler all call into it instead of each having
+    their own copy): `xpRequiredForLevel(L) = 80 + 40L + 8L²` — a "hardcore grind" pace chosen
+    deliberately steeper than vanilla Minecraft's own curve (see "Last change" below for why).
   - Features: `/baum2 addxp <amount>`, `/baum2 level`, mob XP drops (10 + max_health/2), level-up
     broadcasts, vanilla XP orb drops disabled via Mixin.
   - **Real-time client sync now works** via a custom S2C packet sent every server tick — see
@@ -51,7 +49,40 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change (on `fischey_workbranch`, not yet merged to `master`)
 
-Fixed the *actual* persistence bug. The fixed dev-username change below (previous "Last change"
+Rebalanced the XP curve and renamed `VanillaXpFormula` → `ProgressionCurve`:
+
+- Why: with persistence and real-time sync finally both working (see entries below), the
+  underlying numbers became visible as a real problem — vanilla's own curve is calibrated for
+  vanilla's tiny XP sources (1-7 XP per pickup). Our `MobDeathHandler` grants 10-60+ XP per
+  kill and testing routinely used `/baum2 addxp` with amounts in the hundreds, so under the old
+  curve a handful of kills could jump a player from level 1 to level 8. User asked for the curve
+  to be rebalanced with the explicit requirement that every level cost strictly more than the
+  last (the old curve was *technically* already monotonic, just far too gently scaled for our
+  reward economy — see the numbers below).
+- Asked the user to pick a pacing philosophy with concrete kills-to-level numbers (assuming
+  ~20 XP/kill) rather than guessing — they picked "slow/hardcore grind."
+- New formula, in `progression/ProgressionCurve.java`:
+  `xpRequiredForLevel(level) = 80 + 40*level + 8*level²`. Concretely: Level 1 costs 128 XP
+  (~6 kills), Level 10 costs 1280 XP (~64 kills), Level 50 costs 22,080 XP (~1,104 kills),
+  Level 100 costs 84,080 XP (~4,200 kills for that one level). Cumulative total to reach
+  level 100 from scratch: ~2,916,800 XP (~146,000 kills lifetime) — reaching max level is meant
+  to be a serious, long-term achievement.
+  `getTotalXpForLevel(level)` is now a simple loop-sum of `getXpRequiredForLevel(1..level)`
+  rather than a closed-form cumulative formula — simpler and safer than deriving/maintaining a
+  closed form by hand, and `level` maxes out at 100 (`ExperienceManager.getMaxLevel()`) so the
+  loop is trivially cheap even though it's called every server tick per player (for the
+  `totalExperience` sync field — see "Networking API reference").
+- Renamed the class (and file) because it's no longer vanilla's actual formula — keeping the
+  old name would have misled a future reader, especially since this same file used to spell out
+  vanilla's real per-tier formula in comments/docs. Updated every reference (`ExperienceManager`,
+  `ProgressionTickHandler`, `PlayerLevelSystem`, `LevelUpHandler`, `ClientNetworkingHandler`).
+- Note: this change is purely about the *number* of XP required per level. It does not affect
+  the vanilla-bar-fill display mechanism at all — the client's bar-fill percentage is computed
+  directly from our own current/max XP values (see "Attachment"/"Networking" sections), never
+  from vanilla's actual formula, so any future curve rebalance is similarly safe to do freely.
+
+Earlier, still on `fischey_workbranch`: fixed the *actual* persistence bug. The fixed
+dev-username change below (previous "Last change"
 entry) was real and necessary but **not sufficient** — user re-tested with the stable `Baum2Dev`
 identity, gained XP, rebuilt, relaunched, and still lost progress. This is the real root cause:
 
@@ -268,9 +299,12 @@ from persistence).
   working copies of this repo (root directory, gitignored via `baum2_key*`). It has never been
   committed. If you don't know what it's for, don't commit it and ask before deleting it —
   another contributor may depend on it locally.
-- Vanilla XP curve is centralized in `VanillaXpFormula` — **do not** reimplement it elsewhere.
-  The bug that took several iterations to fix (level updated, progress bar didn't) was ultimately
-  caused by three separate copies of this formula drifting apart, not by a display API issue.
+- Our XP curve is centralized in `ProgressionCurve` (originally `VanillaXpFormula`, renamed once
+  it stopped actually being vanilla's formula — see "Last change") — **do not** reimplement it
+  elsewhere. The bug that took several iterations to fix (level updated, progress bar didn't) was
+  ultimately caused by three separate copies of this formula drifting apart, not a display API
+  issue. The curve's actual numbers are also deliberately rebalanced away from vanilla's own —
+  see "Last change" for the current formula and why.
 - Vanilla XP orb drops from hostile mobs are disabled via `LivingEntityMixin`. Experience bottles
   were reported to still spawn orbs in an earlier session — not re-verified since; low priority.
 - Progression persistence uses Fabric's Data Attachment API (see "Attachment API reference"

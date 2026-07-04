@@ -1094,3 +1094,447 @@ sync is a built-in Fabric API feature triggered automatically on change, not som
 hand-roll. This is a prerequisite for the Class screen to show accurate data and is not yet
 done — flagging it here so whoever builds the screen doesn't discover it by the screen just
 silently showing "no class selected" for a player who has, in fact, selected one.
+
+## Combat / Skill effects (researched for the Active Skill System — 8 spells / 4 classes, 2026-07-04)
+
+Researched ahead of writing the server-side spell-cast handler (damage, AoE query, knockback,
+status effects, healing, a dash/short-teleport, and cooldowns). **Verified directly against
+this project's own already-Yarn-mapped 1.21.11 jars** via `javap -p`, plus targeted Vineflower
+decompiles for a few methods where the *implementation* (not just the signature) mattered —
+not from training data, since this project has repeatedly hit stale-API issues this session.
+
+- Jars used: `.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-common-6dd721cd7d/1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.6-v2/...jar`
+  (the project's own local `1.21.11` + `1.21.11+build.6` mapped jar, hash `6dd721cd7d` — same
+  jar cited in the "Custom UI" section above; ignore the sibling `043a8b3edf`-hash jar, that's
+  the earlier abandoned 26.2 attempt).
+- Decompiled with Vineflower (`~/.gradle/caches/forge_gradle/maven_downloader/org/vineflower/vineflower/1.10.1/vineflower-1.10.1.jar`,
+  already present locally from an unrelated project — same tool/technique as the "Custom UI"
+  section): `net.minecraft.entity.Entity`, `net.minecraft.entity.LivingEntity`,
+  `net.minecraft.server.network.ServerPlayerEntity`,
+  `net.minecraft.server.network.ServerPlayNetworkHandler`,
+  `net.minecraft.server.network.EntityTrackerEntry` (the last one specifically to settle the
+  velocity-sync question below — the signature alone doesn't tell you when a packet actually
+  gets sent, only the decompiled tracker logic does).
+
+Quick-reference table:
+
+| Concept | Wrong name / stale assumption | Correct Yarn 1.21.11 name |
+|---|---|---|
+| Deal damage from code | `entity.damage(DamageSource, float)` (2-arg) | `livingEntity.damage(ServerWorld, DamageSource, float)` — confirmed, the `ServerWorld` param is real and required. The old 2-arg shape survives only as `@Deprecated` `Entity.serverDamage(DamageSource, float)` (void, silently no-ops off-thread) / `Entity.sidedDamage(DamageSource, float)` (boolean) — both are compatibility shims, not the current idiom; call the 3-arg method directly. |
+| AoE "entities near a point" query | `world.getEntitiesByClass(Class<T>, Box, Predicate)` | **Does not exist in this mapping at all.** Use `world.getEntitiesByType(TypeFilter<Entity, T>, Box, Predicate<? super T>)`, with `TypeFilter.instanceOf(LivingEntity.class)` as the filter. |
+| Push/knockback an entity | `entity.setVelocity(vec)` alone | Compiles and *does* move the entity server-side, but **silently fails to visually sync to already-connected clients** — see full gotcha below. Use `takeKnockback(strength, dx, dz)` for combat-style knockback (respects `EntityAttributes.KNOCKBACK_RESISTANCE` and self-marks the sync flag), or `addVelocity(Vec3d)` for a raw push (also self-marks the flag). Either way, if the target is a `ServerPlayerEntity`, you additionally need to manually push an `EntityVelocityUpdateS2CPacket` to that player's own connection — see below. |
+| Status effect duration | Assumed seconds | Ticks, unchanged (20 ticks = 1 second) — `StatusEffectInstance(RegistryEntry<StatusEffect>, int durationTicks, int amplifier)`. |
+| Heal an entity | Assumed renamed/moved like `damage` was | Unchanged: `LivingEntity.heal(float amount)`, still exactly this signature. |
+| Dash/reposition a player | Directly mutate position fields, or assume a packet must be hand-sent | `ServerPlayerEntity.requestTeleport(double, double, double)` (absolute) / `.requestTeleportOffset(double, double, double)` (relative — perfect for a dash) — both **self-syncing**, confirmed by decompile, no manual packet needed for this specific class. |
+
+### 1. Dealing damage — `LivingEntity.damage(ServerWorld, DamageSource, float)`, confirmed
+
+`javap -p` on `net.minecraft.entity.LivingEntity`:
+
+```java
+public boolean damage(net.minecraft.server.world.ServerWorld, net.minecraft.entity.damage.DamageSource, float);
+```
+
+Confirmed exact match to what the parent task suspected: yes, a `ServerWorld` first parameter
+is really there in 1.21.11 (this is the actual current shape — not a hypothetical). It's
+declared `public abstract boolean damage(ServerWorld, DamageSource, float)` on the base
+`Entity` class; `LivingEntity` supplies the concrete implementation. Returns `boolean` — whether
+the damage was actually applied (`false` if blocked, invulnerable, in creative mode, etc.), so
+check it if a spell effect (e.g. lifesteal) should only trigger on an actual hit.
+
+**Don't reach for the look-alike deprecated overloads.** Decompiled `Entity.java` also has:
+
+```java
+@Deprecated
+public final void serverDamage(DamageSource source, float amount) {
+    if (this.world instanceof ServerWorld serverWorld) { this.damage(serverWorld, source, amount); }
+}
+
+@Deprecated
+public final boolean sidedDamage(DamageSource source, float amount) {
+    return this.world instanceof ServerWorld serverWorld ? this.damage(serverWorld, source, amount) : this.clientDamage(source);
+}
+```
+
+Both exist purely as old-call-site compatibility shims (both explicitly `@Deprecated`) — new
+code should call the 3-arg `damage(ServerWorld, DamageSource, float)` directly, not either of
+these. Getting a `ServerWorld` from a `ServerPlayerEntity` needs no cast:
+`ServerPlayerEntity.getEntityWorld()` is overridden with a covariant return type of
+`ServerWorld` (confirmed via `javap`), unlike the base `Entity.getEntityWorld()` (returns plain
+`World`) — so inside a C2S packet handler, `context.player().getEntityWorld()` is already a
+`ServerWorld`, ready to pass straight into `damage(...)`. For an arbitrary `LivingEntity` target
+(e.g. a mob a spell just hit), cast: `(ServerWorld) target.getEntityWorld()` — safe since spell
+logic only ever runs on the server/logical-server thread.
+
+**`DamageSource` construction — no custom `DamageType`/tag needed for a spell.** Confirmed via
+`net.minecraft.entity.damage.DamageSources` (obtained via `world.getDamageSources()`, a
+per-world cached instance, `World.getDamageSources()` confirmed present): it already exposes a
+convenience factory built for exactly this case:
+
+```java
+public net.minecraft.entity.damage.DamageSource indirectMagic(Entity attacker, Entity source);
+public net.minecraft.entity.damage.DamageSource magic(); // no attacker attribution
+```
+
+`DamageTypes.INDIRECT_MAGIC` (backing `indirectMagic(...)`) is vanilla's own damage type for
+"magic damage attributed to a caster, but not a direct melee/projectile hit" — it's what
+Evokers' fangs/vex conjuring already use internally. It gives correct death messages ("Foo was
+killed by magic" style, attributed to the caster for kill-credit/aggro purposes) and reads
+correctly as "this is a spell/ability" cause with **zero custom registry content**. Practical
+call for a player-cast spell:
+
+```java
+DamageSource spellDamage = world.getDamageSources().indirectMagic(casterPlayer, casterPlayer);
+target.damage(world, spellDamage, damageAmount);
+```
+
+Use plain `.magic()` instead if a spell shouldn't give the caster kill-credit/aggro (rare for a
+player ability). A custom `DamageType` is only worth adding later if a *specific skill needs its
+own unique death message or resistance/scaling tag* — `DamageType` is a fully data-driven
+registry now (`DamageTypes.bootstrap(Registerable<DamageType>)`, confirmed present), so that
+would mean a datapack JSON under `data/baum2/damage_type/<name>.json` plus a `RegistryKey`
+constant, not a hardcoded enum entry — not needed for the initial 8 spells.
+
+### 2. AoE nearby-entity query — `World.getEntitiesByType`, `getEntitiesByClass` is gone
+
+Confirmed via `javap -p` on `net.minecraft.world.World`: there is **no method named
+`getEntitiesByClass` anywhere in this mapping** (a very common shape in older-version
+tutorials/training data). The two methods that exist for this purpose:
+
+```java
+public List<Entity> getOtherEntities(Entity except, Box box, Predicate<? super Entity> predicate);
+public <T extends Entity> List<T> getEntitiesByType(TypeFilter<Entity, T> filter, Box box, Predicate<? super T> predicate);
+```
+
+`getOtherEntities` returns plain `Entity` (needs manual `instanceof` filtering) and excludes one
+given entity (handy for "exclude the caster" but not type-safe). `getEntitiesByType` is the
+direct modern replacement for the old `getEntitiesByClass(Class<T>, ...)` shape — generic,
+returns `List<T>` directly. Build the type filter via `net.minecraft.util.TypeFilter` (confirmed
+present, functional-shaped):
+
+```java
+public static <B, T extends B> TypeFilter<B, T> instanceOf(Class<T> klass);
+```
+
+`net.minecraft.util.math.Box` has a convenience centered-box factory (confirmed via `javap`):
+
+```java
+public static Box of(Vec3d center, double xSize, double ySize, double zSize); // full side lengths, not radius/half-extent
+```
+
+Full AoE query for a spell, e.g. "all living entities within `radius` blocks of `centerPos`,
+excluding the caster":
+
+```java
+Box aoeBox = Box.of(centerPos, radius * 2, radius * 2, radius * 2);
+List<LivingEntity> targets = world.getEntitiesByType(
+    TypeFilter.instanceOf(LivingEntity.class),
+    aoeBox,
+    e -> e != casterPlayer && e.isAlive()
+);
+```
+
+(`getEntitiesByType` does its own box-intersection test internally — the predicate is an
+*additional* filter on top of the box, not a replacement for it, same as the old
+`getEntitiesByClass` behaved.)
+
+### 3. Knockback/velocity — the real "silent no-op" gotcha here
+
+This is the one place in this batch with a genuine DrawContext-alpha-style trap, confirmed by
+decompiling the actual tracker logic (`EntityTrackerEntry.tick()`), not just reading signatures.
+
+**Fact 1 — `Entity.setVelocity(Vec3d)` does NOT mark anything dirty.** Decompiled:
+
+```java
+public void setVelocity(Vec3d velocity) {
+    if (velocity.isFinite()) { this.velocity = velocity; }
+}
+```
+
+No `velocityDirty` write at all. Compare `addVelocity`:
+
+```java
+public void addVelocity(double deltaX, double deltaY, double deltaZ) {
+    if (Double.isFinite(deltaX) && Double.isFinite(deltaY) && Double.isFinite(deltaZ)) {
+        this.setVelocity(this.getVelocity().add(deltaX, deltaY, deltaZ));
+        this.velocityDirty = true;   // <- only addVelocity does this, not setVelocity
+    }
+}
+```
+
+`velocityDirty` is a **public** field (`public boolean velocityDirty` on `Entity`), so it's
+directly settable by mod code with no reflection if `setVelocity(...)` is used directly for some
+reason — but the simplest fix is to just call `addVelocity(...)` instead of `setVelocity(...)`
+for anything that's meant to be visible to observers, since it self-flags.
+
+**Fact 2 — even a correctly-dirtied push does not reach the pushed player's own client if the
+target is a player.** This is the subtle part. Decompiled `EntityTrackerEntry.tick()`:
+
+```java
+if (this.entity.velocityDirty || this.alwaysUpdateVelocity || (entity is LivingEntity && isGliding())) {
+    ...
+    this.packetSender.sendToListeners(new EntityVelocityUpdateS2CPacket(this.entity.getId(), this.velocity));
+    ...
+    this.entity.velocityDirty = false;
+}
+...
+if (this.entity.knockedBack) {
+    this.entity.knockedBack = false;
+    this.packetSender.sendToSelfAndListeners(new EntityVelocityUpdateS2CPacket(this.entity));
+}
+```
+
+`TrackerPacketSender` (confirmed inner interface of `EntityTrackerEntry`) has **two distinct
+methods**: `sendToListeners(...)` (other players who can see this entity — i.e. *observers*,
+NOT the entity's own controlling client) and `sendToSelfAndListeners(...)` (observers **plus**
+the entity's own client, if it's a `ServerPlayerEntity`). The `velocityDirty` path only uses
+`sendToListeners` — so **other nearby players will see a pushed player fly backward, but the
+pushed player's own client never gets told**, since their own client is authoritative over its
+own movement/physics and needs an explicit push to incorporate a server-side velocity change.
+The `sendToSelfAndListeners` path is gated behind a *different*, `protected` field/method
+(`entity.knockedBack`, set via `protected void scheduleVelocityUpdate()`) that mod code outside
+`net.minecraft.entity` **cannot call directly** (no Mixin used in this codebase currently). This
+is exactly the combo vanilla combat itself uses — decompiled `LivingEntity.damage(...)` calls
+both `this.scheduleVelocityUpdate()` *and* `this.takeKnockback(0.4F, d, e)` together; calling
+only the public `takeKnockback(...)` (or `addVelocity`) reproduces only half of that.
+
+**The fix**: after pushing a target that might be a player, manually send the same packet vanilla
+uses directly to that player's own connection:
+
+```java
+target.takeKnockback(strength, dx, dz);  // sets velocityDirty itself, pushes non-player observers fine
+if (target instanceof ServerPlayerEntity targetPlayer) {
+    targetPlayer.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(targetPlayer));
+}
+```
+
+`EntityVelocityUpdateS2CPacket(Entity)` has a public constructor (confirmed via `javap`) and
+`ServerPlayerEntity.networkHandler` (type `ServerPlayNetworkHandler`) is a public field whose
+`sendPacket(Packet<?>)` method is public (inherited from `ServerCommonNetworkHandler`, confirmed
+via `javap`) — no Mixin/reflection needed, this is all directly callable from ordinary mod code.
+**This self-sync step is only needed for `ServerPlayerEntity` targets** — mobs have no
+"controlling client" of their own, so `sendToListeners` alone already reaches every relevant
+observer for them; skip the extra packet for non-player targets, it's a no-op waste at best.
+
+**`LivingEntity.takeKnockback(double strength, double x, double z)`** — confirmed signature, and
+confirmed it already self-flags (`this.velocityDirty = true;` is the first line of its body) and
+respects `EntityAttributes.KNOCKBACK_RESISTANCE` automatically
+(`strength *= 1.0 - this.getAttributeValue(EntityAttributes.KNOCKBACK_RESISTANCE)`) — prefer it
+over raw `addVelocity` for anything that should feel like "combat knockback" and honor armor/
+attributes. **Sign convention** (confirmed from vanilla's own call site inside
+`LivingEntity.damage(...)`): `(x, z)` is a vector pointing **from the target toward the
+knockback source** — the method pushes the target in the *opposite* direction internally. For an
+outward AoE knockback from a spell's effect center:
+
+```java
+double dx = centerPos.getX() - target.getX();
+double dz = centerPos.getZ() - target.getZ();
+target.takeKnockback(strength, dx, dz); // pushes target away from centerPos; magnitude of (dx,dz) doesn't matter, only direction — takeKnockback normalizes internally
+```
+
+### 4. Status effects — `StatusEffectInstance` + `LivingEntity.addStatusEffect`, unchanged shape
+
+Confirmed via `javap -p` on `net.minecraft.entity.effect.StatusEffectInstance`, several
+constructor overloads, the two simplest:
+
+```java
+public StatusEffectInstance(RegistryEntry<StatusEffect> type);                              // duration/amplifier default
+public StatusEffectInstance(RegistryEntry<StatusEffect> type, int duration);                 // amplifier 0
+public StatusEffectInstance(RegistryEntry<StatusEffect> type, int duration, int amplifier);  // the one to use
+```
+
+**Duration is in ticks, not seconds** — unchanged from every prior version (20 ticks = 1 real
+second at normal tick rate). `amplifier` is 0-based (0 = level I / "no numeral shown", matching
+vanilla's own potion effect display convention).
+
+Vanilla effect constants are `RegistryEntry<StatusEffect>` (confirmed via `javap` on
+`net.minecraft.entity.effect.StatusEffects` — e.g. `StatusEffects.RESISTANCE`, `.SPEED`,
+`.SLOWNESS`, `.LUCK` are all `RegistryEntry<StatusEffect>`, not a raw `StatusEffect`), so they
+plug directly into the constructor above with no unwrapping needed.
+
+Applying it: `LivingEntity.addStatusEffect(StatusEffectInstance)` — confirmed present, `final`,
+returns `boolean` (whether it was actually applied; can be blocked by
+`canHaveStatusEffect(...)`, e.g. Undead mobs rejecting Regeneration in vanilla). Example:
+
+```java
+target.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, 20 * 5, 1)); // Resistance II, 5 seconds
+```
+
+(There's also a 2-arg overload `addStatusEffect(StatusEffectInstance, Entity source)` if a
+death/log message should attribute the effect to the caster — not required for basic use.)
+
+### 5. Healing — `LivingEntity.heal(float)` is unchanged
+
+Confirmed via `javap -p` and a Vineflower decompile of the actual body:
+
+```java
+public void heal(float amount) {
+    float f = this.getHealth();
+    if (f > 0.0F) { this.setHealth(f + amount); }
+}
+```
+
+Exact same signature and behavior as older Minecraft versions — no change to verify against
+here, this one really is as simple as it looks. Note it silently no-ops if the entity is already
+at/below 0 health (dead) — fine for spell logic, no extra dead-check needed before calling it.
+
+### 6. Dash/short teleport for a caster — `ServerPlayerEntity.requestTeleport`/`requestTeleportOffset`, confirmed self-syncing
+
+This is the other place with a real, confirmed version-current gotcha, but it resolves in the
+project's favor: **for `ServerPlayerEntity` specifically, the safe method already handles
+syncing internally — no manual packet needed**, which is *not* true of the equivalent method on
+the base `Entity` class (relevant if this ever gets reused for a non-player caster).
+
+Confirmed via `javap -p` on `net.minecraft.entity.Entity` and
+`net.minecraft.server.network.ServerPlayerEntity`, both declare these (the player class
+overrides them):
+
+```java
+// Entity (base) — NOT self-syncing on its own:
+public void requestTeleport(double destX, double destY, double destZ);
+public void requestTeleportOffset(double offsetX, double offsetY, double offsetZ);
+
+// ServerPlayerEntity — overridden, IS self-syncing:
+public void requestTeleport(double destX, double destY, double destZ);          // @Override
+public void requestTeleportOffset(double offsetX, double offsetY, double offsetZ); // @Override
+```
+
+Decompiled bodies confirm the difference matters. Base `Entity.requestTeleport(...)`:
+
+```java
+public void requestTeleport(double destX, double destY, double destZ) {
+    if (this.getEntityWorld() instanceof ServerWorld) {
+        this.refreshPositionAndAngles(destX, destY, destZ, this.getYaw(), this.getPitch());
+        this.teleportPassengers();
+    }
+}
+```
+
+— this only mutates the entity's own internal position fields; it does **not** send any packet
+itself. For a non-player entity this is fine because the normal per-tick entity-tracker position
+sync (the same system covered in the knockback section above) will pick up the new position and
+broadcast it as a move packet on the next tracker tick. But `ServerPlayerEntity` overrides both
+methods to route through the network handler instead of calling `super`:
+
+```java
+// ServerPlayerEntity.requestTeleport (decompiled)
+public void requestTeleport(double destX, double destY, double destZ) {
+    this.networkHandler.requestTeleport(
+        new EntityPosition(new Vec3d(destX, destY, destZ), Vec3d.ZERO, 0.0F, 0.0F),
+        PositionFlag.combine(PositionFlag.DELTA, PositionFlag.ROT)
+    );
+}
+
+// ServerPlayerEntity.requestTeleportOffset (decompiled) — relative move, exactly a "dash"
+public void requestTeleportOffset(double offsetX, double offsetY, double offsetZ) {
+    this.networkHandler.requestTeleport(
+        new EntityPosition(new Vec3d(offsetX, offsetY, offsetZ), Vec3d.ZERO, 0.0F, 0.0F),
+        PositionFlag.VALUES
+    );
+}
+```
+
+And `ServerPlayNetworkHandler.requestTeleport(EntityPosition, Set<PositionFlag>)` (decompiled)
+is what actually does the work — **updates the real server-side position immediately AND sends
+the client-sync packet, in the same call**:
+
+```java
+public void requestTeleport(EntityPosition pos, Set<PositionFlag> flags) {
+    this.lastTeleportCheckTicks = this.ticks;
+    if (++this.requestedTeleportId == Integer.MAX_VALUE) { this.requestedTeleportId = 0; }
+    this.player.setPosition(pos, flags);                 // server-side position updated synchronously, no waiting on client ack
+    this.requestedTeleportPos = this.player.getEntityPos();
+    this.sendPacket(PlayerPositionLookS2CPacket.of(this.requestedTeleportId, pos, flags)); // client sync, sent here
+}
+```
+
+So calling `player.requestTeleportOffset(dx, dy, dz)` on a **`ServerPlayerEntity`** is
+sufficient by itself — the position is authoritative server-side immediately, and the client is
+notified in the same call, no extra packet, no dirty flag, no waiting for a teleport-confirm
+round-trip before the server's own state reflects the move. (The client does still send back a
+`TeleportConfirmC2SPacket`, but that's purely a display-side "stop resisting the correction"
+acknowledgement — it doesn't gate the server-side position, which was already updated.)
+
+**`requestTeleportOffset` uses `PositionFlag.VALUES`** (confirmed via `javap` on
+`net.minecraft.network.packet.s2c.play.PositionFlag`: `X, Y, Z, Y_ROT, X_ROT, DELTA_X, DELTA_Y,
+DELTA_Z, ROTATE_DELTA` individual flags, plus pre-combined sets `VALUES`, `ROT`, `DELTA`) — i.e.
+every component of the given `EntityPosition` is interpreted as a delta relative to the player's
+current position/rotation, which is exactly "dash offset" semantics: pass a small vector, not an
+absolute destination.
+
+**Computing the forward-dash offset**: `Entity.getRotationVector()` (confirmed via `javap`, a
+no-arg overload distinct from `getRotationVector(float, float)`) returns the entity's current
+look-direction unit `Vec3d`. Full dash sketch:
+
+```java
+Vec3d look = casterPlayer.getRotationVector();
+Vec3d offset = new Vec3d(look.x, 0, look.z).normalize().multiply(5.0); // flatten to horizontal-only 5-block dash
+casterPlayer.requestTeleportOffset(offset.x, offset.y, offset.z);
+```
+
+(Flattening the Y component to 0 before normalizing keeps a dash from launching the player into
+the sky/ground while looking up/down — a deliberate design choice, not an API requirement; drop
+the flattening if a skill should let players look-angle their dash vertically too, e.g. a
+"blink" spell.)
+
+There's also a heavier `teleport(ServerWorld, double, double, double, Set<PositionFlag>, float, float, boolean)` (confirmed present on both `Entity` and overridden on `ServerPlayerEntity`) —
+this is the full cross-dimension-capable teleport pipeline (goes through `TeleportTarget`/
+`teleportTo(...)`, wakes sleeping players, can reset the camera entity, handles portal-adjacent
+bookkeeping). It's also confirmed self-syncing (its `ServerPlayerEntity.teleportTo(...)`
+implementation calls the same `networkHandler.requestTeleport(...)` + `syncWithPlayerPosition()`
+pair internally), but it's meaningfully heavier machinery than a same-dimension short dash needs
+— **`requestTeleportOffset` is the right-sized tool for this specific ability**, reach for the
+full `teleport(...)` only if a future skill needs to move a player across dimensions or reset
+their camera.
+
+### 7. Per-player-per-ability cooldowns — plain in-memory map is the right call, not Attachment API
+
+This one is a design judgment, not an API-signature question, but it's worth confirming
+explicitly since the project already has a documented precedent (the old `PlayerLevelSystem`'s
+`HashMap<UUID, PlayerProgressData>`, since migrated to the Attachment API — see "Player data /
+attributes" above) and cooldowns look superficially similar (per-player, keyed by UUID).
+
+**Confirmed reasoning for why cooldowns should NOT follow progression data onto the Attachment
+API**: the entire point of `AttachmentRegistry.createPersistent(...)` (used for class selection,
+attribute points, etc.) is that the value survives relog and server restart, backed by NBT
+read/write vanilla already wires up for `AttachmentTarget`s. A cooldown is explicitly the
+opposite requirement — it's *supposed* to reset on relog/restart (nobody expects a spell
+cooldown to persist through a server reboot), so reaching for the persistent-by-design API and
+then working around its persistence would be fighting the tool. A non-persistent attachment
+(`AttachmentRegistry.create(id, builder -> {})` with no `.persistent(...)` call) is closer, but
+still adds registration ceremony (an `AttachmentType`, a generic value type) for a feature this
+project's own `HashMap<UUID, PlayerProgressData>` pattern already proved sufficient for
+in-memory per-player state before persistence was ever a requirement.
+
+**Recommended shape**: `Map<UUID, Map<Identifier, Long>>` (or a per-player small class if
+preferred), storing the *server tick* of the last cast per (player, ability) pair, compared
+against `MinecraftServer.getTicks()` — confirmed present via `javap` on
+`net.minecraft.server.MinecraftServer`:
+
+```java
+public int getTicks(); // total ticks since server start — monotonic, NOT affected by /time set or sleep-skipped nights
+```
+
+`getTicks()` (not `ServerWorld.getTime()`/day-time) is the right clock to compare against
+specifically because it can't be manipulated by `/time set` or day-skipping, unlike world time —
+a cooldown gate should be immune to those.
+
+```java
+private static final Map<UUID, Map<Identifier, Long>> LAST_CAST_TICK = new HashMap<>();
+
+boolean isOnCooldown(ServerPlayerEntity player, Identifier abilityId, int cooldownTicks, MinecraftServer server) {
+    long last = LAST_CAST_TICK.getOrDefault(player.getUuid(), Map.of()).getOrDefault(abilityId, Long.MIN_VALUE);
+    return server.getTicks() - last < cooldownTicks;
+}
+```
+
+**One hygiene note, not a correctness issue**: unlike the Attachment-backed data, nothing
+automatically cleans up a departed player's entry here — over a very long-running server with
+many distinct players this map grows unboundedly (bounded only by total distinct UUIDs ever
+seen, not concurrent players). Not a real problem at this project's scale, but if it's ever
+worth tidying, clear a player's sub-map on `ServerPlayConnectionEvents.DISCONNECT` (already used
+elsewhere in this project, see "Events" section above) — purely optional cleanup, not required
+for correctness since a stale entry for an offline player is harmless (just a few bytes sitting
+in a map keyed by a UUID nobody will look up again unless that exact player rejoins, at which
+point the entry becomes useful again — arguably not even worth clearing since it'd have to be
+recreated on their next cast anyway).

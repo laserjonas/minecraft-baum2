@@ -6,13 +6,14 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Current state
 
-This is the state after merging `origin/master` (Fischey's Vitals/Attribute/Character-Stats
-work) into `jonas_workbranch` (Class System v1 + Custom UI v1) — see "Last change" below for
-the merge itself.
+This reflects `jonas_workbranch` after merging `origin/master` (Fischey's Vitals/Attribute/
+Character-Stats work) and then adding a Skill System + Class Sub-specializations on top — see
+"Last change" below for both.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
-  (verified clean boot, no Mixin/payload/HUD-registration errors, both pre- and post-merge).
+  (verified clean boot, no Mixin/payload/HUD-registration errors; user-confirmed working
+  in-game for spell casting via keybind and command).
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 
@@ -134,38 +135,107 @@ the merge itself.
   reselection lets a player capture all four bonuses' benefit contextually; Runenwirker's luck
   has no loot system yet to act on.
 
-### Custom UI v1 — HUD overlay + Class Screen
+### Custom UI v1 — Class tab merged into Character Stats Screen, top-left HUD removed
 
 - **Started from a request for a "Metin2 look"**, rejected as conflicting with
   `MASTERPROMPT.md`'s "no MMORPG UI imitation" rule; resolved with the user in favor of an
   original look using only generic, non-distinctive genre conventions —
   `docs/visual-style-guide.md` section 0 records why.
 - `docs/visual-style-guide.md` — "Deepwood & Verdigris" art direction (flat, square-cornered
-  panels, slate/verdigris/rune-cyan palette), per-class accent colors/icon motifs, HUD and
-  Class Screen layout specs. **This doc was independently created on both branches this same
-  day and merged together at merge time** — see "Last change" below; it now has a "two owners,
-  two palettes" reconciliation note in its own Section 1 that's worth reading before further
-  UI work (the Vitals/Stats-screen colors and the Class-System colors are not yet unified).
-- `ui/PlayerStatusHud.java` — top-left HUD panel: class icon/name (accent-colored), level, a
-  slim 3px rune-cyan XP sliver. Distinct region from `VitalsHud` (top-left vs. left status-bar
-  column near the hotbar) — confirmed no collision.
-- `ui/ClassScreen.java` — "Klassenübersicht", a full hand-drawn `Screen` listing all 4 classes
-  with click-to-select, opened via a new **K** keybind (own `KeyBinding.Category.create
-  (baum2:main)`, separate convention from `CharacterStatsScreen`'s vanilla `MISC` category —
-  see the structural question below).
-  - New C2S `networking/ClassSelectPayload.java` (mirrors `ExperienceSyncPayload`'s pattern in
-    the other direction) lets clicking a card actually select a class server-side.
-- Dead code removed: a duplicate, never-registered `Baum2Client` (in a `client` subpackage),
-  and the old unwired `ui/ProgressionHud.java` prototype (superseded by `PlayerStatusHud`).
-  **Both branches independently deleted these same two files** — confirmed clean convergent
-  double-delete during the merge.
-- **Open structural question, flagged by `merge-integration-reviewer` during this merge, not
-  resolved**: the mod now has two "per-player identity/build" screens on separate keybinds
-  ('K' → `ClassScreen`, hand-drawn chrome; 'C' → `CharacterStatsScreen`, vanilla tab/scroll
-  chrome). `CharacterStatsScreen`'s own design already anticipated more tabs ("Skills, Class,
-  etc."). Whether `ClassScreen`'s content should become a tab inside `CharacterStatsScreen`,
-  or whether keeping them permanently separate is the right call, is a product decision for
-  the contributors — not blocking, both work fine independently today.
+  panels, slate/verdigris/rune-cyan palette), per-class accent colors/icon motifs. **This doc
+  was independently created on both branches the same day and merged together at merge time**
+  — it has a "two owners, two palettes" reconciliation note in its own Section 1 worth reading
+  before further UI work (the Vitals/Stats-screen colors and the Class-System colors are not
+  yet unified).
+- **The standalone `ClassScreen` ('K' keybind) and the top-left `PlayerStatusHud` are both
+  gone**, resolving the "two competing identity screens" structural question a prior session
+  flagged: `CharacterStatsScreen` ('C' key) now has a second tab, **"Class"**, built the same
+  way as its existing "Stats" tab (a `GridScreenTab` + `TabNavigationWidget`, per-class-card
+  `ClickableWidget`s in a single-column `GridWidget`) — same click-to-select behavior the old
+  `ClassScreen` had (icon/name/description/bonus per card, "Aktiv" tag + colored border/wash
+  on the selected card), just relocated. The top-left HUD panel was removed outright rather
+  than kept as a level-only indicator, since vanilla's own XP bar already shows level/XP and
+  the panel's only other job (showing class) moved into the new tab.
+  - `networking/ClassSelectPayload.java` (C2S, unchanged) still backs the tab's
+    click-to-select.
+- Dead code removed earlier this session (during the master-merge): a duplicate,
+  never-registered `Baum2Client` (in a `client` subpackage), and the old unwired
+  `ui/ProgressionHud.java` prototype.
+
+### Skill System v1 — 8 active spells, keybind + command casting
+
+- `skills/Spell.java` (enum, 8 values, 2 per class) + `skills/SpellEffects.java` (the actual
+  gameplay effects) + `skills/SkillCooldownManager.java` (in-memory per-player-per-spell
+  cooldown tracker, deliberately not Attachment-backed — cooldowns are supposed to reset on
+  relog/restart) + `skills/SpellCaster.java` (shared cast-attempt logic used by both entry
+  points below, so they can't drift apart).
+- **Names are this project's own original placeholders from `MASTERPROMPT.md`'s own
+  "Skill-System" section**, now actually implemented for the first time: Eisenwächter
+  (Schildstoß, Standhafte Aura), Schattenläufer (Nebelschritt, Klingenwirbel), Runenwirker
+  (Runenfunke, Arkaner Kreis), Wesenswahrer (Lebensband, Geisterwoge).
+- **Two ways to cast, both calling the same `SpellCaster.attemptCast`**:
+  - **Primary: keybinds.** `ui/SpellCastKeyBindings.java` registers **V** ("Cast Spell 1") and
+    **B** ("Cast Spell 2") — pressing one casts whichever spell is slot 0/1 for the player's
+    *current* class (`SpellCaster.spellForSlot`), not a fixed spell — so only 2 keybinds are
+    needed total, not 8. New C2S `networking/CastSpellPayload.java` (carries just a slot int)
+    backs this.
+  - **Fallback/testing: `/baum2 cast <spell>`** — kept for direct testing access (e.g. casting
+    a spell not on your current class's slot 0/1 for debugging), same pattern as this project
+    keeping both a command and a GUI for class selection.
+- This started from an explicit request to "get inspired by Metin2's Warrior/Sura/Shaman/Ninja
+  classes and their sub-specs" — that was rejected as direct IP copying (Metin2 named
+  specifically), and resolved with the user in favor of building original spells/sub-specs
+  from this project's *own* already-established class identities instead. See the Class
+  Sub-specializations entry below for the naming-compliance detail (3 of the sub-spec names
+  were independently caught resembling specific WoW spec names and renamed before landing).
+
+### Class Sub-specializations v1 — 2 per class, layered on top of the base class bonus
+
+- `classes/ClassSubspec.java` (enum, 8 values, 2 per `PlayerClass`) + `classes/
+  SubspecDefinition.java` (record, mirrors `ClassDefinition`) + `classes/SubspecRegistry.java`.
+  `ClassManager` gained a second `AttachmentType` (`SELECTED_SUBSPEC`, same
+  persistent+copyOnDeath+syncWith pattern as `SELECTED_CLASS`) and `selectSubspec(...)`, which
+  validates the chosen sub-spec actually belongs to the player's current class and clears the
+  old sub-spec's bonus/attachment whenever the base class changes (a stale sub-spec would
+  otherwise silently linger, invalid, after switching classes).
+- Commands: `/baum2 class subspec list`, `/baum2 class subspec select <subspec>` — no GUI yet
+  (see "Next recommended step").
+- Final names, after one naming-compliance round caught 3 problems (see below): Eisenwächter
+  (Bollwerk +armor, Stahlfaust +attack damage), Schattenläufer (Schattenpirscher +attack
+  damage, Sturmklinge +attack speed), Runenwirker (Splitterrune +attack damage, Glücksrune
+  +luck), Wesenswahrer (Wurzelwall +knockback resistance, Wesensfülle +max health).
+- **`ip-naming-compliance-checker` flagged and got 3 of the original 8 sub-spec names
+  renamed** before anything shipped — these weren't generic-word overlaps, they were exact or
+  near-exact matches to specific, well-known WoW German spec/spell names: "Vergelter" (→
+  Stahlfaust — matched WoW Paladin's actual "Vergeltung"/community "Vergelter-Paladin" shorthand,
+  same "defensive class turns offensive" concept too), "Wildwuchs" (→ Wesensfülle — exact,
+  unmodified match to WoW Druid's real spell "Wild Growth"), "Zerstörungsrune" (→
+  Splitterrune — contained WoW Warlock's actual "Zerstörung"/Destruction spec name; the
+  replacement reuses this project's own pre-existing "Splitter" motif from Rissobelisk/
+  Sternsplitter/Splitterwächter instead). All 3 replacements re-checked clean. Also
+  double-checked: the "4 classes × 2 sub-specs" *structure* itself doesn't read as
+  Metin2-specific (that shape is shared by multiple genre-wide games), and each class's
+  specific offense/defense-or-utility split was deliberately varied per class rather than
+  applying one uniform template, so it doesn't read as "Metin2's 4 classes with new names."
+- **`balance-reviewer` found and fixed one real bug**: Wurzelwall was `ADD_MULTIPLIED_BASE`
+  while Wesenswahrer's own class bonus (which it's meant to stack with, like Glücksrune
+  correctly does with Runenwirker's luck) is `ADD_VALUE` — vanilla's attribute formula means
+  those two operations don't combine the way "+10% on top of +10%" suggests (nets ~11%, not
+  20%). Fixed to `ADD_VALUE` to match, and to match Glücksrune's already-correct pattern.
+- **`balance-reviewer` also found Lebensband (the "heal" spell) was non-functional**: a flat
+  6 HP heal against Life's new post-Vitals-rework scale (500-2480, see Vitals System above) is
+  outpaced by passive Life Regen after just ~3 Endurance points — the dedicated heal spell was
+  *worse than doing nothing* for most of the game. Fixed to heal 12% of max life instead of a
+  flat amount, so it scales with the player.
+- **Logged, not fixed (design/judgment calls)**: no spell costs Mana despite a Mana system
+  existing specifically to be spent (currently 100% inert/display-only); sub-spec reselection
+  is free/instant/uncapped, same known gap as base-class reselection; none of the 4 AoE/damage
+  spells do a line-of-sight/raycast check, so they can hit through walls; `Nebelschritt`'s dash
+  has no collision check (can clip through thin walls or land inside terrain); AoE effects
+  (`Geisterwoge`, `Schildstoß`, `Klingenwirbel`, `Arkaner Kreis`) don't filter out other
+  players, so they hit friend and foe alike; `Arkaner Kreis`'s 25s cooldown / 15s duration lets
+  2 coordinated players keep its Luck buff at 100% uptime (currently low-impact only because
+  Luck has no loot-system consumer yet — revisit once one exists).
 
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `jonas_workbranch` just merged `origin/master` (which had already absorbed all
@@ -201,7 +271,27 @@ the merge itself.
 
 ## Last change (on `jonas_workbranch`)
 
-**Merged `origin/master` into `jonas_workbranch`.** Master had moved substantially since the
+Three things in one session, building on the merge below: (1) moved the standalone
+`ClassScreen` ('K') into `CharacterStatsScreen` as a new "Class" tab and removed the top-left
+`PlayerStatusHud`, resolving the two-competing-screens question the merge had flagged; (2)
+built Skill System v1 (8 spells) and Class Sub-specialization v1 (8 sub-specs) from scratch,
+after explicitly declining a request to base them on Metin2's actual class roster; (3) added
+keybind casting (V/B) after `/baum2 cast <spell>`-only turned out to not make sense as the
+primary way to fight. Used `fabric-docs-researcher` (combat/effect API research — a genuine
+knockback-sync gotcha found, see "Networking API reference" below), `ip-naming-compliance-
+checker` (caught 3 WoW-spec-name collisions in the sub-spec names before they shipped), and
+`balance-reviewer` (found and fixed a stacking-operation bug and a non-functional heal spell)
+proactively per `CLAUDE.md`. Also fixed a real self-found bug during testing: the cooldown
+tracker's original "never cast yet" sentinel was `Long.MIN_VALUE`, which overflows signed
+64-bit arithmetic in the elapsed-time subtraction and made every spell falsely report as
+already on cooldown (with a nonsense multi-trillion-second remaining time) on its very first
+cast — fixed by using `Long.MIN_VALUE / 2` instead, which leaves enough headroom that the
+subtraction can't overflow for any realistic server uptime.
+
+Verified: `./gradlew build` passes; user tested in a real client and confirmed casting via
+both V/B keybinds and the command path work.
+
+Earlier, still on `jonas_workbranch`: **merged `origin/master` into `jonas_workbranch`.** Master had moved substantially since the
 last sync — Fischey's branch added progression persistence, an XP curve rebalance +
 `VanillaXpFormula`→`ProgressionCurve` rename, a full Vitals (Life/Mana) system with a HUD
 rework, and a 4-attribute system with a Character Stats Screen — while `jonas_workbranch` had
@@ -299,7 +389,18 @@ Registration pattern that actually compiles:
   — `context.player()` gives the sending `ServerPlayerEntity`.
 
 If you add more custom payloads, follow `ExperienceSyncPayload.java` (S2C) or
-`ClassSelectPayload.java` / `SpendAttributePointPayload.java` (C2S) as templates.
+`ClassSelectPayload.java` / `SpendAttributePointPayload.java` / `CastSpellPayload.java` (C2S)
+as templates.
+
+**Combat/skill-effect APIs** (dealing damage, AoE entity queries, knockback, status effects,
+healing, dashing — used by the new Skill System's `SpellEffects.java`) are documented
+separately in `docs/fabric-modding.md`'s "Combat / Skill effects" section, not duplicated
+here. The one gotcha worth calling out at this level since it's easy to reintroduce: pushing a
+**player** target with `takeKnockback(...)`/`addVelocity(...)` alone silently never reaches
+that player's own client (only nearby *observers* see them fly back) — you must additionally
+send `new EntityVelocityUpdateS2CPacket(targetPlayer)` to `targetPlayer.networkHandler`
+yourself. `SpellEffects.pushAwayFrom(...)` already does this; reuse it rather than calling
+`takeKnockback` directly for any future spell/effect.
 
 ## Attachment API reference (persistent per-player/entity data)
 
@@ -388,12 +489,14 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-1. **In-game verification of everything merged this session** — no GUI-automation tool exists
-   here (see "Current state"), so this needs a human: confirm the Class Screen ('K') and
-   Character Stats Screen ('C') both still open correctly and don't visually collide with each
-   other or with the two HUD elements (`PlayerStatusHud` top-left, `VitalsHud` left status-bar
-   column); confirm the Stats screen's scrollbar/`+1` buttons still work; confirm class
-   selection still works via both the command and `ClassScreen`'s click-to-select.
+1. **Human decisions needed on the Skill System's logged (not auto-fixed) balance findings** —
+   see "Class Sub-specializations v1" above for full detail: (a) should spells cost Mana now
+   that a real consumer for it would exist, or stay cooldown-only by design; (b) should
+   sub-spec reselection get a cost/cooldown (same open question as base-class reselection);
+   (c) should the 4 AoE/damage spells gain a line-of-sight check, and should `Nebelschritt`'s
+   dash gain a collision check, or are both acceptable as "short blink through thin obstacles"
+   for v1; (d) should AoE effects exclude other players (friendly fire currently on); (e)
+   revisit `Arkaner Kreis`'s cooldown/duration once Luck has an actual loot-system consumer.
 2. **Fine-grained `/attribute` verification of the Class System** (older, still-pending item):
    `/baum2 class select eisenwaechter` → `/attribute @s minecraft:max_health modifier value
    get baum2:class_bonus/eisenwaechter_max_health` (expect `4.0`) → `/attribute @s
@@ -403,21 +506,19 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 3. **Fresh `balance-reviewer` pass on the new `ProgressionCurve` + attribute system together**
    — the old curve was reviewed, the new one hasn't been, and the attribute system's own
    caps/formulas were only reviewed via a workaround-agent, not the real subagent.
-4. **The `ClassScreen`/`CharacterStatsScreen` structural question** (see "Current state") —
-   needs a product decision from the contributors, not more code.
-5. **The biggest gap in the whole progression stack**: no `combat/` package exists, so Base
-   Attack/Magic Attack/Physical/Magic Defence/Attack-Cast Speed/Crit Chance are all
-   computed-and-displayed only, with zero actual gameplay effect. The first real combat/skill
-   system should read them via `VitalsCurve`'s getters, not invent parallel numbers.
-6. **Class-name banner + level-diamond badge** (deferred in an earlier Vitals-work session
-   because "no `classes/` package exists yet") — that's no longer true; worth revisiting now
-   that the Class System exists, possibly as a `CharacterStatsScreen` tab per point 4 above.
-7. `ip-naming-compliance-checker` hasn't been run against the newer player-facing strings
-   (Stats screen row labels, attribute names) — only the Class System's names have been
-   checked so far.
-8. Get real (non-placeholder) art for the 4 class icons — see `docs/visual-style-guide.md`
-   section 9.
-9. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
-   skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
-   `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
-   unclear. Use `graphics-designer` for the texture/model/icon each of these will need.
+4. **The biggest gap in the whole progression stack**: no `combat/` package exists, so Base
+   Attack/Magic Attack/Physical/Magic Defence/Attack-Cast Speed/Crit Chance (and now the Skill
+   System's damage numbers) are all separate from each other — a real combat system should
+   unify them (e.g. spell damage scaling off Strength/Intelligence) rather than staying two
+   parallel, non-interacting number sets.
+5. **Sub-spec selection has no GUI yet** (`/baum2 class subspec list|select` only) — the new
+   "Class" tab in `CharacterStatsScreen` shows/selects the base class but not sub-specs; a
+   natural next step once the tab's card layout is proven out.
+6. Get real (non-placeholder) art for the 4 class icons, and consider whether the 8 spells/8
+   sub-specs want icons too once there's a GUI surface to show them in — see
+   `docs/visual-style-guide.md` section 9.
+7. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first
+   world-event block (the first active skill is now done — see Skill System v1 above). Consult
+   `fabric-docs-researcher` / `docs/fabric-modding.md` before implementing any of these if the
+   relevant Fabric API is unclear. Use `graphics-designer` for the texture/model/icon each of
+   these will need.

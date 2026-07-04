@@ -3,10 +3,12 @@ package de.baum2dev.baum2.networking;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
 import de.baum2dev.baum2.classes.ClassManager;
 import de.baum2dev.baum2.progression.AttributeManager;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.PlayerProgressData;
+import de.baum2dev.baum2.skills.SpellCaster;
 
 /**
  * Central networking registry and utility class for all Baum2 custom packets.
@@ -40,6 +42,10 @@ public class Baum2Networking {
                 SpendAttributePointPayload.TYPE,
                 SpendAttributePointPayload.CODEC
         );
+        PayloadTypeRegistry.playC2S().register(
+                CastSpellPayload.TYPE,
+                CastSpellPayload.CODEC
+        );
     }
 
     /**
@@ -58,6 +64,25 @@ public class Baum2Networking {
                     if (AttributeManager.trySpendPoint(progress, payload.attribute())) {
                         PlayerLevelSystem.savePlayerProgress(player, progress);
                     }
+                }
+        );
+
+        ServerPlayNetworking.registerGlobalReceiver(
+                CastSpellPayload.TYPE,
+                (payload, context) -> {
+                    ServerPlayerEntity player = context.player();
+                    ClassManager.getSelectedClass(player).ifPresent(playerClass ->
+                        SpellCaster.spellForSlot(playerClass, payload.slot()).ifPresent(spell -> {
+                            SpellCaster.CastAttempt attempt = SpellCaster.attemptCast(player, spell);
+                            switch (attempt.result()) {
+                                case SUCCESS -> player.sendMessage(Text.literal("You cast " + spell.displayName() + "."), true);
+                                case ON_COOLDOWN -> player.sendMessage(Text.literal(String.format(
+                                    "%s is on cooldown (%.1fs remaining).", spell.displayName(), attempt.remainingCooldownTicks() / 20.0
+                                )), true);
+                                case WRONG_CLASS -> { /* stale client-side spell for a class the player no longer has - ignore silently */ }
+                            }
+                        })
+                    );
                 }
         );
     }

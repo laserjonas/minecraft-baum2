@@ -1,12 +1,17 @@
 package de.baum2dev.baum2.ui;
 
+import java.util.List;
 import java.util.function.Consumer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.ScreenRect;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
+import net.minecraft.client.gui.screen.narration.NarrationPart;
 import net.minecraft.client.gui.tab.GridScreenTab;
 import net.minecraft.client.gui.tab.TabManager;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -17,7 +22,16 @@ import net.minecraft.client.gui.widget.TextWidget;
 import net.minecraft.client.gui.widget.TabNavigationWidget;
 import net.minecraft.client.input.KeyInput;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.entity.attribute.EntityAttribute;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
+import net.minecraft.util.Identifier;
+import de.baum2dev.baum2.classes.ClassDefinition;
+import de.baum2dev.baum2.classes.ClassManager;
+import de.baum2dev.baum2.classes.ClassRegistry;
+import de.baum2dev.baum2.classes.PlayerClass;
+import de.baum2dev.baum2.networking.ClassSelectPayload;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.networking.SpendAttributePointPayload;
 import de.baum2dev.baum2.progression.AttributeType;
@@ -43,6 +57,7 @@ public class CharacterStatsScreen extends Screen {
     private final TabManager tabManager = new TabManager(this::addDrawableChild, this::remove);
     private TabNavigationWidget tabNavigationWidget;
     private StatsTab statsTab;
+    private ClassTab classTab;
 
     public CharacterStatsScreen() {
         super(Text.literal("Character Stats"));
@@ -51,8 +66,9 @@ public class CharacterStatsScreen extends Screen {
     @Override
     protected void init() {
         this.statsTab = new StatsTab(this.textRenderer);
+        this.classTab = new ClassTab();
         this.tabNavigationWidget = TabNavigationWidget.builder(this.tabManager, this.width)
-                .tabs(this.statsTab)
+                .tabs(this.statsTab, this.classTab)
                 .build();
         this.addDrawableChild(this.tabNavigationWidget);
         this.tabNavigationWidget.selectTab(0, false);
@@ -88,6 +104,7 @@ public class CharacterStatsScreen extends Screen {
         // background before invoking render() (confirmed by a crash: calling it again here
         // double-applies the background blur, which throws "Can only blur once per frame").
         this.statsTab.refreshValues();
+        this.classTab.refreshValues();
         super.render(context, mouseX, mouseY, deltaTicks);
     }
 
@@ -300,6 +317,127 @@ public class CharacterStatsScreen extends Screen {
 
         private static Text colored(String text, int color) {
             return Text.literal(text).styled(style -> style.withColor(color));
+        }
+    }
+
+    /**
+     * "Class" tab — moved here from the old standalone ClassScreen ('K' keybind, now removed)
+     * so class selection lives alongside the rest of a player's build info. Lists all classes
+     * as clickable cards (one per row in a single-column grid); layout/colors follow the old
+     * ClassScreen spec in docs/visual-style-guide.md section 8.
+     */
+    private static class ClassTab extends GridScreenTab {
+        private final List<ClassCardWidget> cards;
+
+        ClassTab() {
+            super(Text.literal("Class"));
+            this.grid.setRowSpacing(6);
+
+            this.cards = ClassRegistry.all().stream().map(ClassCardWidget::new).toList();
+            int row = 0;
+            for (ClassCardWidget card : this.cards) {
+                this.grid.add(card, row++, 0);
+            }
+        }
+
+        void refreshValues() {
+            ClientPlayerEntity player = MinecraftClient.getInstance().player;
+            PlayerClass selected = player != null ? player.getAttached(ClassManager.SELECTED_CLASS) : null;
+            for (ClassCardWidget card : this.cards) {
+                card.setSelected(card.definition.playerClass() == selected);
+            }
+        }
+    }
+
+    /** One clickable class card (icon, name, description, bonus, selected-state tag). */
+    private static class ClassCardWidget extends ClickableWidget {
+        private static final int CARD_WIDTH = 204;
+        private static final int CARD_HEIGHT = 40;
+
+        private static final int CARD_BACKGROUND = 0xF01F2622;
+        private static final int CARD_BORDER = 0xFF33443B;
+        private static final int SELECTED_BORDER = 0xFF5FA98C;
+        private static final int SELECTED_WASH = 0x2E5FA98C;
+        private static final int HOVER_BORDER = 0x805FA98C;
+        private static final int BODY_COLOR = 0xFFB9C4BE;
+        private static final int BONUS_COLOR = 0xFF7FD8E0;
+
+        private final ClassDefinition definition;
+        private boolean selected;
+
+        ClassCardWidget(ClassDefinition definition) {
+            super(0, 0, CARD_WIDTH, CARD_HEIGHT, Text.literal(definition.displayName()));
+            this.definition = definition;
+        }
+
+        void setSelected(boolean selected) {
+            this.selected = selected;
+        }
+
+        @Override
+        protected void renderWidget(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+            int x = this.getX();
+            int y = this.getY();
+            int borderColor = this.selected ? SELECTED_BORDER : (this.isHovered() ? HOVER_BORDER : CARD_BORDER);
+            int borderWidth = this.selected ? 2 : 1;
+
+            context.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor);
+            context.fill(x + borderWidth, y + borderWidth, x + CARD_WIDTH - borderWidth, y + CARD_HEIGHT - borderWidth, CARD_BACKGROUND);
+            if (this.selected) {
+                context.fill(x + borderWidth, y + borderWidth, x + CARD_WIDTH - borderWidth, y + CARD_HEIGHT - borderWidth, SELECTED_WASH);
+            }
+
+            PlayerClass playerClass = this.definition.playerClass();
+            TextRenderer textRenderer = MinecraftClient.getInstance().textRenderer;
+            Identifier icon = ClassIcons.of(playerClass);
+            context.drawTexture(RenderPipelines.GUI_TEXTURED, icon, x + 6, y + 4, 0.0F, 0.0F, 32, 32, 16, 16);
+
+            int textX = x + 46;
+            int textWidth = CARD_WIDTH - 46 - 6;
+
+            Text nameText = Text.literal(this.definition.displayName()).formatted(Formatting.BOLD);
+            context.drawText(textRenderer, nameText, textX, y + 6, ClassIcons.accentColor(playerClass), true);
+
+            String description = textRenderer.trimToWidth(this.definition.description(), textWidth);
+            context.drawText(textRenderer, Text.literal(description), textX, y + 17, BODY_COLOR, true);
+
+            Text bonusText = Text.literal(formatBonus(this.definition));
+            context.drawText(textRenderer, bonusText, textX, y + 28, BONUS_COLOR, true);
+
+            if (this.selected) {
+                Text activeTag = Text.literal("Aktiv").formatted(Formatting.BOLD);
+                int tagWidth = textRenderer.getWidth(activeTag);
+                context.drawText(textRenderer, activeTag, x + CARD_WIDTH - 6 - tagWidth, y + 6, SELECTED_BORDER, true);
+            }
+        }
+
+        @Override
+        public void onClick(Click click, boolean doubled) {
+            ClientPlayNetworking.send(new ClassSelectPayload(this.definition.playerClass()));
+        }
+
+        @Override
+        protected void appendClickableNarrations(NarrationMessageBuilder builder) {
+            builder.put(NarrationPart.TITLE, this.getMessage());
+        }
+
+        private static String formatBonus(ClassDefinition definition) {
+            String amount = switch (definition.bonusOperation()) {
+                case ADD_VALUE -> String.format("+%.0f", definition.bonusAmount());
+                case ADD_MULTIPLIED_BASE, ADD_MULTIPLIED_TOTAL -> String.format("+%.0f%%", definition.bonusAmount() * 100);
+            };
+            return amount + " " + attributeLabel(definition.bonusAttribute());
+        }
+
+        private static String attributeLabel(RegistryEntry<EntityAttribute> attribute) {
+            String path = attribute.getKey().map(key -> key.getValue().getPath()).orElse("");
+            return switch (path) {
+                case "max_health" -> "Leben";
+                case "movement_speed" -> "Lauftempo";
+                case "luck" -> "Glück";
+                case "knockback_resistance" -> "Rückstoßresistenz";
+                default -> path;
+            };
         }
     }
 }

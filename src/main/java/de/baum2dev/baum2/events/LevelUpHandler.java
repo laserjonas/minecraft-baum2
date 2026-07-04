@@ -1,0 +1,40 @@
+package de.baum2dev.baum2.events;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
+import de.baum2dev.baum2.progression.PlayerLevelSystem;
+
+public class LevelUpHandler {
+    private static final Map<UUID, Integer> playerLevels = new HashMap<>();
+
+    public static void registerEvents() {
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+            ServerPlayerEntity player = handler.getPlayer();
+            playerLevels.put(player.getUuid(), PlayerLevelSystem.getPlayerLevel(player));
+        });
+
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            playerLevels.remove(handler.getPlayer().getUuid());
+        });
+    }
+
+    public static void checkLevelUp(ServerPlayerEntity player) {
+        UUID uuid = player.getUuid();
+        int currentLevel = PlayerLevelSystem.getPlayerLevel(player);
+        int previousLevel = playerLevels.getOrDefault(uuid, 1);
+
+        if (currentLevel > previousLevel) {
+            playerLevels.put(uuid, currentLevel);
+            broadcastLevelUp(player, currentLevel);
+        }
+    }
+
+    private static void broadcastLevelUp(ServerPlayerEntity player, int level) {
+        Text message = Text.literal("§6✦ " + player.getName().getString() + " reached level " + level + "! §6✦");
+        player.sendMessage(message, false);
+    }
+}

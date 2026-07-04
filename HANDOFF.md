@@ -19,22 +19,25 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change
 
-- Commit: (this commit) — "Add initial progression system: level, XP, experience manager"
+- Commit: (this commit) — "Add player-facing progression features: commands, level-up broadcast, mob XP drops, HUD"
 - What:
-  - `src/main/java/de/baum2dev/baum2/progression/PlayerProgressData.java` — stores level, XP,
-    and XP requirement for next level; includes NBT serialization methods for future persistence.
-  - `src/main/java/de/baum2dev/baum2/progression/ExperienceManager.java` — handles XP logic:
-    adding XP to a player, triggering level-ups when threshold is met, calculating XP requirement
-    per level (100 * level). Max level is 100.
-  - `src/main/java/de/baum2dev/baum2/progression/PlayerLevelSystem.java` — manages progression
-    per player: get/save progress, add experience. Uses in-memory UUID → PlayerProgressData map
-    (temporary until proper persistence via Fabric data attachments is implemented).
-  - Modified `Baum2.java` — added logger and log message on mod initialization.
-- Why: Priority 1 requires a level system. This minimal implementation is functional and
-  ready for the next step: adding the first item/weapon/skill. Persistence is deferred (TODO:
-  use Fabric data components or event listeners to load/save player progression).
-- Note: progression data is currently in-memory only (lost on server restart). Next session
-  should implement proper save/load via Fabric events or data attachments.
+  - **Commands**: `Baum2Commands` — `/baum2 addxp <amount>` grants XP to the player;
+    `/baum2 level` shows current level and XP progress. Registered via Fabric command API.
+  - **Mob XP drops**: `MobDeathHandler` — listens to entity death events; grants XP when a
+    hostile mob dies (formula: 10 + max_health/2). Players get credited when they deal the
+    final blow.
+  - **Level-up broadcast**: `LevelUpHandler` — tracks player levels and broadcasts a gold
+    notification in chat when a player levels up: "✦ PlayerName reached level N! ✦"
+  - **HUD overlay**: `ProgressionHud` (client-side) — renders a simple on-screen display with
+    "Baum2 Progression" label, level/XP text, and a green progress bar (50% full as placeholder).
+    Uses `HudRenderCallback` with `RenderTickCounter`.
+  - **Entrypoints**: Added `Baum2Client` (client initializer) and wired all features into
+    `Baum2` (main initializer). Updated `fabric.mod.json` to register client entrypoint.
+- Why: Players can now see and test the progression system without implementing items/skills yet.
+  Commands let devs debug; mob XP gives gameplay feedback; level-up messages celebrate progression;
+  HUD makes level/XP visible at a glance.
+- Note: HUD currently shows hardcoded "Level 1 | 0/100"; next session should bind it to the actual
+  player's level/XP data from `PlayerLevelSystem`.
 
 Earlier: `2405ca7` — "Fix Java 21/25 mismatch blocking runClient; add VS Code run config"
 (fixed `build.gradle` toolchain pin, both mixins.json compatibility levels, added

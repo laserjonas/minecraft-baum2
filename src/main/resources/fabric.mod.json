@@ -12,11 +12,8 @@
   "icon": "assets/baum2/icon.png",
   "environment": "*",
   "entrypoints": {
-    "fabric-datagen": [
-      "de.baum2dev.baum2.client.Baum2DataGenerator"
-    ],
     "client": [
-      "de.baum2dev.baum2.client.Baum2Client"
+      "de.baum2dev.baum2.Baum2Client"
     ],
     "main": [
       "de.baum2dev.baum2.Baum2"

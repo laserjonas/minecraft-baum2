@@ -7,6 +7,7 @@ import de.baum2dev.baum2.classes.ClassManager;
 import de.baum2dev.baum2.progression.AttributeManager;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.PlayerProgressData;
+import de.baum2dev.baum2.progression.VitalsManager;
 
 /**
  * Central networking registry and utility class for all Baum2 custom packets.
@@ -57,6 +58,11 @@ public class Baum2Networking {
                     PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
                     if (AttributeManager.trySpendPoint(progress, payload.attribute())) {
                         PlayerLevelSystem.savePlayerProgress(player, progress);
+                        // Re-apply the affected real attribute immediately - persistent
+                        // modifiers don't need per-tick reapplication, only when the
+                        // underlying Strength/Dexterity value actually changes.
+                        VitalsManager.applyBaseAttack(player, progress.getStrength());
+                        VitalsManager.applyAttackSpeed(player, progress.getDexterity());
                     }
                 }
         );

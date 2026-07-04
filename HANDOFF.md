@@ -80,10 +80,9 @@ the merge itself.
     Crit Chance (`5 + 0.5*(dex-5)`, capped at 75%). Neither cap actually binds via pure
     leveling (max reachable Crit Chance is 54.5%) — intentional headroom for a future
     gear/skill system, not a currently-reachable limit.
-  - **No `combat/` package exists yet** — none of Strength/Intelligence/Dexterity's derived
-    stats affect actual damage/defence/speed/crit in-game; display-only plumbing for now, same
-    as Mana. **This is the biggest open gap in the progression stack** — see "Next recommended
-    step".
+  - **Physical Attack, Attack Speed, and Crit Chance are now wired into real combat** — see
+    "Combat System v1" below. Magic Attack/Magic Defence/Physical Defence remain display-only
+    (no spell-casting or incoming-damage-reduction system exists yet).
 - Networking: `networking/AttributeSyncPayload.java` (S2C, every tick, carries only the 4 raw
   ints + unspent points — derived stats are computed client-side from the same `VitalsCurve`
   methods, not synced separately). `networking/SpendAttributePointPayload.java` — **this
@@ -109,6 +108,98 @@ the merge itself.
   (or equivalent) for any content that might grow past a single screen's worth of rows, and
   don't assume build success + clean boot means the UI actually renders/scrolls correctly —
   it doesn't catch layout bugs.
+
+### Combat System v1 — Physical Attack/Attack Speed/Crit Chance now affect real combat
+
+User reported these three stats had zero effect when attacking a monster (correct — they were
+pure display values, see "Attribute System" above). Wired all three into real vanilla combat
+mechanics rather than building a parallel damage system:
+
+- **Base Attack (Strength)**: `VitalsManager.applyBaseAttack` adds a persistent `ADD_VALUE`
+  modifier (fixed `Identifier`, `overwritePersistentModifier` — same pattern as the Class
+  System's own attribute bonuses) to the player's real `EntityAttributes.ATTACK_DAMAGE`. Stacks
+  additively with whatever weapon they're holding (vanilla weapons add their own modifiers to
+  the same attribute) rather than overriding it.
+- **Attack Speed Multiplier (Dexterity)**: `VitalsManager.applyAttackSpeed` adds a persistent
+  `ADD_MULTIPLIED_TOTAL` modifier to `EntityAttributes.ATTACK_SPEED`, value =
+  `(multiplier - 1.0)` **not** the multiplier itself — confirmed via
+  `EntityAttributeInstance.computeValue()`'s actual decompiled body that this operation computes
+  `total *= 1.0 + value`, so a "+50%" bonus needs modifier value `0.5`.
+- Both modifiers are **persistent** (survive relogin/restart on their own, part of the entity's
+  own attribute-container NBT) — only re-applied on join and immediately after a successful
+  attribute-point spend (`Baum2Networking`'s C2S receiver), **not every tick** like Life's
+  `setBaseValue` approach needs, since modifiers don't need constant reapplication once set.
+- **Crit Chance (Dexterity)**: new Mixin `mixin/PlayerAttackDamageMixin.java`. No Fabric API
+  event can modify a melee attack's final damage float (`AttackEntityCallback` is cancel/allow
+  only, fires before damage is computed; nothing else in `fabric-entity-events-v1`/
+  `fabric-events-interaction-v0` fits) — confirmed by reading both packages' actual source, not
+  assumed. Uses a plain Sponge `@ModifyArg` (not MixinExtras — no advantage here for a
+  single-argument case) targeting the `Entity.sidedDamage(DamageSource, float)` call site inside
+  `PlayerEntity.attack(Entity)`, rolls `Math.random()*100 < critChance` server-side only
+  (guarded by `instanceof ServerPlayerEntity`), and multiplies the final damage by a flat
+  `CRIT_DAMAGE_MULTIPLIER = 1.5f` — **a number I picked myself** (the user didn't specify one),
+  anchored to vanilla's own fall-crit multiplier as a "no worse than what already exists"
+  reference point.
+- **`balance-reviewer` finding, real and not yet acted on — flagging for a human decision
+  rather than silently changing already-approved formulas:** because Base Attack (linear),
+  Attack Speed (linear → more attacks/sec), and Crit Chance (linear EV) all multiply together
+  in actual combat, **total DPS grows superlinearly with investment** — computed: ~8x baseline
+  DPS at 25 points invested in each of Strength/Dexterity, ~46x baseline at max level (99 points
+  each). Concretely, an iron sword deals ~11 damage at start, ~36 at 30 Strength, ~110 at max
+  Strength (104) — a zombie/skeleton/player has 20 HP, so **characters one-shot most vanilla
+  mobs from roughly 25 invested Strength points onward, well before max level**. The underlying
+  per-stat formulas were already reviewed/approved in an earlier session (for their own sake,
+  before combat existed to consume them) — this compounding effect is a genuine new
+  consequence of wiring them together, not something introduced by a formula change this
+  session. Did not unilaterally rebalance them, since the user asked to make these stats "have
+  an effect," not to redesign values that were already accepted — flagging clearly instead so a
+  human can decide whether the power curve matches the intended feel (this project's XP curve
+  was deliberately designed as a "hardcore grind" where reaching max level matters — a combat
+  curve that trivializes fights by the mid-game may be in tension with that).
+- **Also flagged, not fixed (minor, likely-intentional edge case)**: vanilla's own fall-based
+  critical hit (1.5x) is already folded into the damage float by the time our Mixin runs, so a
+  fall-attack crit + a successful Dexterity crit roll on the same swing stacks to `1.5 × 1.5 =
+  2.25x`, uncapped. Not guarded against — reads as an acceptable rare-but-fun outcome given the
+  two crit systems are explicitly independent by design, but wasn't an explicit decision anyone
+  wrote down, so noting it here.
+- Verified: `./gradlew build` passes, `runClient` boots cleanly with the new Mixin applied (no
+  Mixin apply/target-resolution errors at launch — those show up at boot, not compile time).
+  **Not verified in an actual fight** — same no-GUI-automation limitation as every UI change
+  this session; the next person to actually attack a mob should confirm damage/speed/crits feel
+  right, not just that nothing crashes.
+
+### Target nameplate — mob name + health bar, top-center
+
+New client-only HUD element, `ui/MobNameplateHud.java`, registered via
+`HudElementRegistry.addLast(...)` (a new, independent element — not attached to or replacing
+`VanillaHudElements.BOSS_BAR`). Shows the name and a current/max health bar of whatever living
+entity the player is currently looking at:
+
+- Reads `MinecraftClient.crosshairTarget` (a public field, confirmed still present in 1.21.11,
+  already updated every frame by vanilla's own raycast for interaction purposes) — if it's an
+  `EntityHitResult` wrapping a `LivingEntity` that isn't the local player and is alive, render
+  its name + health bar; otherwise render nothing.
+- **No networking needed** — confirmed via decompiled `LivingEntity`/`DataTracker` source that
+  `HEALTH` is an ordinary `TrackedData<Float>` with no special-casing, synced to every client
+  tracking that entity (not just boss-bar-eligible ones), so `target.getHealth()`/
+  `getMaxHealth()`/`getDisplayName()` are reliably readable client-side for *any* nearby entity,
+  exactly like they are for the local player.
+- Positioned at vanilla's own boss-bar starting y (12px from top, confirmed via decompiled
+  `BossBarHud.render()`), horizontally centered — chosen because a real boss bar and this
+  nameplate rarely coexist in practice; **not** dynamically avoided if they do (would need
+  reading the live boss-bar count, not attempted, flagged as a known simplification).
+  `ui/PlayerStatusHud.java` (Class System's own HUD panel) sits top-*left*, so no collision
+  there either.
+- Bar styling reuses the Life bar's exact ember/coral hexes (`#E2574B`/`#8E1F1F`) from
+  `docs/visual-style-guide.md` — "red = health" stays consistent whether it's the player's own
+  Life bar or a targeted mob's. Shows both a visual bar *and* the literal `current / max`
+  number as text (unlike the player's own HUD bars, which are deliberately bar-only per the
+  style guide) — chosen because the user explicitly asked to "show current life," which reads
+  as wanting the actual number, not just a bar.
+- Verified: builds, boots cleanly. **Not visually confirmed** — same limitation as everything
+  else UI-related this session; next person to look at a mob in-game should confirm it appears,
+  positioned sensibly, and doesn't visually clash with the Class System's HUD panel or a real
+  boss bar if one happens to be active.
 
 ### Class System v1 — 4 classes, command + GUI selection
 
@@ -198,6 +289,27 @@ the merge itself.
   work was only caught because a human played manually and reported back (screenshots, or a
   direct "it worked" / "it's broken" report), not by build/boot verification. Expect the same
   for any future UI work: build passing and clean boot are necessary but not sufficient checks.
+
+## Last change (on `fischey_workbranch`, based on the merged commit above)
+
+Wired Physical Attack/Attack Speed/Crit Chance into real combat, and added a target
+nameplate HUD element — see "Combat System v1" and "Target nameplate" above for full detail.
+User report: "Physical Attack, Critical Hit and Attack Speed had no effect when I attack a
+monster" (correct — they were display-only) plus a request to show a targeted mob's name and
+current life at top-center. Researched the exact 1.21.11 APIs before implementing (persisted
+to `docs/fabric-modding.md`'s new "Combat / Damage" and "Target nameplate" sections): confirmed
+no Fabric API event can modify a melee attack's final damage float (checked both plausible
+candidates), confirmed the exact `EntityAttributeModifier.Operation.ADD_MULTIPLIED_TOTAL`
+semantics via `EntityAttributeInstance.computeValue()`'s real decompiled body rather than
+assuming, and confirmed mob health is ordinarily tracked-data-synced client-side with no
+special-casing (no networking needed for the nameplate). A `balance-reviewer` pass on the
+newly-wired combat effects found a real, non-blocking issue — Base Attack/Attack Speed/Crit
+Chance compound multiplicatively into ~46x baseline DPS at max investment, trivializing most
+mob fights well before max level — flagged clearly in "Combat System v1" above rather than
+silently rebalancing formulas that were already approved in an earlier session for their own
+sake. Verified: `./gradlew build` passes, `runClient` boots with the new Mixin applying
+cleanly (no target-resolution errors). Not verified in an actual fight or by looking at a mob
+in-game — same no-GUI-automation limitation as every UI/gameplay-feel check this session.
 
 ## Last change (on `jonas_workbranch`)
 
@@ -391,9 +503,18 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 1. **In-game verification of everything merged this session** — no GUI-automation tool exists
    here (see "Current state"), so this needs a human: confirm the Class Screen ('K') and
    Character Stats Screen ('C') both still open correctly and don't visually collide with each
-   other or with the two HUD elements (`PlayerStatusHud` top-left, `VitalsHud` left status-bar
-   column); confirm the Stats screen's scrollbar/`+1` buttons still work; confirm class
-   selection still works via both the command and `ClassScreen`'s click-to-select.
+   other or with the three HUD elements (`PlayerStatusHud` top-left, `VitalsHud` left status-bar
+   column, the new `MobNameplateHud` top-center); confirm the Stats screen's scrollbar/`+1`
+   buttons still work; confirm class selection still works via both the command and
+   `ClassScreen`'s click-to-select; **confirm combat actually feels right** — attack a mob and
+   check damage/attack-speed/crits are happening (not just that nothing crashes), and check the
+   new top-center nameplate shows a targeted mob's name/health correctly.
+1a. **Balance decision needed, not yet made**: the newly-wired combat stats compound into ~46x
+    baseline DPS at max investment (see "Combat System v1") — decide whether this power curve
+    is intended (matches this project's own "hardcore grind" framing for leveling, or
+    contradicts it by trivializing combat well before max level) and, if not, which formula(s)
+    to temper: `VitalsCurve.getBaseAttack`'s linear-uncapped scaling is the dominant
+    contributor, not the crit multiplier.
 2. **Fine-grained `/attribute` verification of the Class System** (older, still-pending item):
    `/baum2 class select eisenwaechter` → `/attribute @s minecraft:max_health modifier value
    get baum2:class_bonus/eisenwaechter_max_health` (expect `4.0`) → `/attribute @s
@@ -405,10 +526,11 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
    caps/formulas were only reviewed via a workaround-agent, not the real subagent.
 4. **The `ClassScreen`/`CharacterStatsScreen` structural question** (see "Current state") —
    needs a product decision from the contributors, not more code.
-5. **The biggest gap in the whole progression stack**: no `combat/` package exists, so Base
-   Attack/Magic Attack/Physical/Magic Defence/Attack-Cast Speed/Crit Chance are all
-   computed-and-displayed only, with zero actual gameplay effect. The first real combat/skill
-   system should read them via `VitalsCurve`'s getters, not invent parallel numbers.
+5. **Partially resolved**: Physical Attack/Attack Speed/Crit Chance now affect real combat (see
+   "Combat System v1"). Still purely display-only: Base Magic Attack/Magic Defence (no
+   spell-casting system exists to consume them) and Physical/Magic Defence (no incoming-damage
+   reduction wired — the user's request was specifically about attacking, not being attacked;
+   worth doing symmetrically once a real `combat/` package exists for either side).
 6. **Class-name banner + level-diamond badge** (deferred in an earlier Vitals-work session
    because "no `classes/` package exists yet") — that's no longer true; worth revisiting now
    that the Class System exists, possibly as a `CharacterStatsScreen` tab per point 4 above.

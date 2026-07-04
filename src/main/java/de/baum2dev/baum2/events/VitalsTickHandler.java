@@ -27,6 +27,8 @@ public class VitalsTickHandler {
             ServerPlayerEntity player = handler.getPlayer();
             PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
             VitalsManager.applyMaxLife(player, progress.getEndurance());
+            VitalsManager.applyBaseAttack(player, progress.getStrength());
+            VitalsManager.applyAttackSpeed(player, progress.getDexterity());
         });
 
         ServerTickEvents.END_SERVER_TICK.register(VitalsTickHandler::onServerTick);

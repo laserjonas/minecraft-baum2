@@ -12,6 +12,7 @@ import org.lwjgl.glfw.GLFW;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.ui.Baum2KeyBindings;
 import de.baum2dev.baum2.ui.ClassScreen;
+import de.baum2dev.baum2.ui.MobNameplateHud;
 import de.baum2dev.baum2.ui.PlayerStatusHud;
 import de.baum2dev.baum2.ui.VitalsHud;
 
@@ -41,5 +42,6 @@ public class Baum2Client implements ClientModInitializer {
 
         VitalsHud.register();
         Baum2KeyBindings.register();
+        MobNameplateHud.register();
     }
 }

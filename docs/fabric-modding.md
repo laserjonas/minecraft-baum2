@@ -669,6 +669,165 @@ decompiled `fabric-rendering-v1-16.2.10+0290ad933e-sources.jar` (Maven artifact
   level-derived value would otherwise be (re)computed), not because persistence itself is
   missing.
 
+### `ATTACK_DAMAGE` / `ATTACK_SPEED` constants — confirmed, same de-prefixed naming as `MAX_HEALTH`
+
+Researched 2026-07-04 for scaling real melee combat off Strength/Dexterity. Verified straight
+from decompiled `EntityAttributes.java` (same file already read for the `MAX_HEALTH`
+precedent, `minecraft-common-6dd721cd7d-...-sources.jar`):
+
+```java
+public static final RegistryEntry<EntityAttribute> ATTACK_DAMAGE = register(
+    "attack_damage", new ClampedEntityAttribute("attribute.name.attack_damage", 2.0, 0.0, 2048.0)
+);
+public static final RegistryEntry<EntityAttribute> ATTACK_SPEED = register(
+    "attack_speed", new ClampedEntityAttribute("attribute.name.attack_speed", 4.0, 0.0, 1024.0).setTracked(true)
+);
+```
+
+- **No `GENERIC_` prefix, exactly like `MAX_HEALTH`** — `EntityAttributes.ATTACK_DAMAGE` and
+  `EntityAttributes.ATTACK_SPEED` are both correct, confirmed real fields in this Yarn mapping.
+  Every constant in this file follows the same de-prefixed pattern; don't reach for
+  `GENERIC_ATTACK_DAMAGE`/`GENERIC_ATTACK_SPEED` from older tutorials.
+- Base/clamp values: `ATTACK_DAMAGE` default `2.0`, clamped `[0.0, 2048.0]`, **not**
+  `.setTracked(true)` (i.e. not synced to tracking clients by default — matches vanilla, since
+  other players don't need to see your exact attack-damage attribute value). `ATTACK_SPEED`
+  default `4.0` (this is the *attribute's* internal unit — vanilla's familiar "attacks per
+  second" number on the tooltip is a display transform of this, not a 1:1 reading), clamped
+  `[0.0, 1024.0]`, **is** `.setTracked(true)`.
+
+### `EntityAttributeInstance.computeValue()` — confirmed exact operation order and semantics
+
+Verified straight from the decompiled method body (`EntityAttributeInstance.java`, same file
+already used for the `addPersistentModifier`/`removeModifier` findings above):
+
+```java
+private double computeValue() {
+    double d = this.getBaseValue();
+    for (var m : getModifiersByOperation(ADD_VALUE))          d += m.value();
+    double e = d;
+    for (var m : getModifiersByOperation(ADD_MULTIPLIED_BASE)) e += d * m.value();
+    for (var m : getModifiersByOperation(ADD_MULTIPLIED_TOTAL)) e *= 1.0 + m.value();
+    return this.type.value().clamp(e);
+}
+```
+
+- **Three-phase, fixed order, confirmed**: all `ADD_VALUE` modifiers sum onto the base value
+  first (giving `d`); then all `ADD_MULTIPLIED_BASE` modifiers each add `d * value()` onto a
+  running total `e` that starts at `d`; then all `ADD_MULTIPLIED_TOTAL` modifiers each multiply
+  `e` by `1.0 + value()`, one after another (so two `ADD_MULTIPLIED_TOTAL` modifiers of `0.5`
+  each compound: `e * 1.5 * 1.5`, not `e * 2.0`). Final result is clamped by the attribute's own
+  `EntityAttribute.clamp(double)` (the widened range for `MAX_HEALTH` via
+  `ClampedEntityAttributeAccessor` applies here too, for any attribute this project widens).
+- **Confirms the semantics assumed for a percentage "Attack Speed Multiplier" bonus**: an
+  `ADD_MULTIPLIED_TOTAL` modifier with `value() = 0.5` means "+50% of the total computed so far
+  at this phase" (`e *= 1.0 + 0.5`), i.e. exactly "add 1 to the modifier's own value, then
+  multiply" per the method's own javadoc on `EntityAttributeModifier.Operation` — **not** "the
+  modifier's raw value is used directly as the multiplier" (that would need `value() = 1.5` for
+  a +50% effect, which is wrong). Use `ADD_MULTIPLIED_TOTAL` with `value() = (multiplier - 1.0)`
+  for a "Dexterity gives +X% attack speed" style bonus, or use `ADD_VALUE` directly on the
+  attribute's own unit if a flat additive bonus is wanted instead (e.g. `Base Attack` as a flat
+  `+N` on `ATTACK_DAMAGE` — use `ADD_VALUE`, matching the existing `addPersistentModifier`
+  pattern already documented above for class bonuses).
+- `Operation` enum constants confirmed exact names, unchanged from what's already documented
+  above for the Class System: `ADD_VALUE`, `ADD_MULTIPLIED_BASE`, `ADD_MULTIPLIED_TOTAL` — no
+  `GENERIC_`-style variants, no renames.
+- `addPersistentModifier(EntityAttributeModifier)` and `removeModifier(Identifier)` (returns
+  `boolean`, `true` if a modifier with that id existed and was removed) both confirmed present
+  on `EntityAttributeInstance` with these exact names — reusable for a "Base Attack"/"Attack
+  Speed Multiplier" bonus that needs to be added once and later updated (e.g. on attribute-point
+  respend): call `removeModifier(id)` then `addPersistentModifier(new EntityAttributeModifier(id,
+  newValue, operation))` — there is no direct "update in place" method other than
+  `updateModifier(EntityAttributeModifier)`, which is package-private (`EntityAttributeInstance`
+  itself, no access modifier) and not usable from mod code; `overwritePersistentModifier(modifier)`
+  is the actual public one-call replace-or-add method (does `removeModifier` then `addModifier`
+  then re-registers as persistent) — **prefer `overwritePersistentModifier(...)` over the
+  manual remove-then-add pair** for updating an existing bonus, since it's the same net effect in
+  one call and is what vanilla/Fabric API code itself would reach for.
+
+## Combat / Damage
+
+Researched 2026-07-04 for a custom Crit Chance % roll that adds bonus damage on top of
+whatever vanilla computes for a player's melee attack, independent of vanilla's own
+fall-based critical hit. Verified against decompiled `PlayerEntity.java`
+(`minecraft-common-6dd721cd7d-...-sources.jar`) and the `fabric-entity-events-v1` /
+`fabric-events-interaction-v0` source jars (`3.1.1+1d0ab4303e` and `4.1.1+3b89ecf63e`
+respectively, both pulled in transitively by `fabric-api-0.141.4+1.21.11`).
+
+- **The real method is still `PlayerEntity.attack(Entity target)`, unchanged name.** Full body
+  read and confirmed. The exact final-damage local variable, right before the entity is
+  actually damaged, is `i` in:
+  ```java
+  float i = f + h;                                  // <- final melee damage, pre-crit-roll insertion point
+  ...
+  boolean bl5 = target.sidedDamage(damageSource, i); // <- this is where it's applied
+  ```
+  (`f` = base attack damage after cooldown scaling + weapon bonus + vanilla's own 1.5x
+  fall-crit multiplier already folded in; `h` = the attack-cooldown sweep/partial-damage term.
+  `i` is the true final float that reaches the target — this is the value to multiply/add onto
+  for a custom Crit Chance roll.)
+- **`Entity.sidedDamage` signature, confirmed** (`Entity.java`, same jar):
+  ```java
+  public final boolean sidedDamage(DamageSource source, float amount)
+  ```
+  `final` — cannot be overridden, must be intercepted via Mixin at the call site inside
+  `PlayerEntity.attack`, not by subclassing/overriding.
+- **No Fabric API event modifies this float — confirmed by reading both plausible
+  candidates:**
+  - `net.fabricmc.fabric.api.event.player.AttackEntityCallback` (package
+    `net.fabricmc.fabric.api.event.player`, module `fabric-events-interaction-v0`) fires
+    *before* `PlayerEntity.attack` even runs and only returns an `ActionResult`
+    (`SUCCESS`/`PASS`/`FAIL`) — cancel-or-allow only, no damage value passes through it at all.
+  - `net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY`
+    (module `fabric-entity-events-v1`) only fires *after* a kill has already happened, with no
+    damage-amount parameter — not useful for pre-damage modification either.
+  - Neither `net.fabricmc.fabric.api.entity.event.v1` nor
+    `net.fabricmc.fabric.api.event.player` (both fully listed/checked via each jar's file
+    listing) contains anything shaped like "modify attack damage" — this is a real gap in
+    Fabric API's public event surface, a Mixin is required.
+- **Recommended Mixin: plain Sponge Mixin `@ModifyArg`, not `@ModifyVariable`/
+  `@ModifyExpressionValue`.** Since the final damage value is passed as the second argument to
+  a call with a `final`, uniquely-signatured target method (`Entity.sidedDamage`), targeting
+  the **call site's argument** avoids the ordinal-guessing risk of `@ModifyVariable` (the
+  decompiled method reuses short float-letter locals `f`/`g`/`h`/`i`/`j` — brittle to target by
+  local-variable ordinal if the compiled bytecode's local slot layout doesn't match the
+  decompiled source 1:1). `@ModifyArg` targets the call, not the local, and needs only the
+  target method's own descriptor:
+  ```java
+  @Mixin(PlayerEntity.class)
+  public class PlayerAttackDamageMixin {
+      @ModifyArg(
+          method = "attack",
+          at = @At(
+              value = "INVOKE",
+              target = "Lnet/minecraft/entity/Entity;sidedDamage(Lnet/minecraft/entity/damage/DamageSource;F)Z"
+          ),
+          index = 1
+      )
+      private float baum2$applyCritRoll(float amount) {
+          // roll Crit Chance here (server-side only — (PlayerEntity)(Object)this is a
+          // ServerPlayerEntity when this runs on the logical server), return boosted amount
+          return amount;
+      }
+  }
+  ```
+  `@ModifyArg` is a core `org.spongepowered.asm.mixin.injection.ModifyArg` annotation — **not**
+  MixinExtras-specific, so it needs nothing beyond the Mixin setup this project already has.
+  MixinExtras' `@ModifyExpressionValue` would also work here in principle (targeting the same
+  `INVOKE` slice) but offers no advantage over `@ModifyArg` for a single-argument case like
+  this — `@ModifyArg` is the more direct, standard tool.
+- **MixinExtras availability confirmed, but not via an explicit `build.gradle` dependency
+  line** — grepped `build.gradle` and `gradle.properties` for `mixinextras`/`MixinExtras`,
+  found nothing explicit. However `io.github.llamalad7:mixinextras-fabric:0.5.4` **is** present
+  in this machine's Gradle module cache (`~/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-fabric/0.5.4/`), confirming **Fabric Loom 1.17.13 bundles MixinExtras
+  transparently** (transitively injected by the Loom plugin itself since Loom 1.1+, no explicit
+  dependency declaration needed) — so `@ModifyExpressionValue`/`@WrapOperation`/etc. are
+  available if ever needed for a trickier injection than this one, without adding anything to
+  `build.gradle`.
+- Existing mixin wiring precedent to follow: add the new mixin class under
+  `de.baum2dev.baum2.mixin` and list its simple name in `src/main/resources/baum2.mixins.json`
+  (`"mixins": [...]`), same as `LivingEntityMixin`/`ExperienceOrbSpawnMixin`/
+  `ClampedEntityAttributeAccessor` already are.
+
 ## Open questions
 
 - What is the correct, current way to fully suppress vanilla XP orb drops/pickup in 1.21.11
@@ -1094,3 +1253,78 @@ sync is a built-in Fabric API feature triggered automatically on change, not som
 hand-roll. This is a prerequisite for the Class screen to show accurate data and is not yet
 done — flagging it here so whoever builds the screen doesn't discover it by the screen just
 silently showing "no class selected" for a player who has, in fact, selected one.
+
+## Target nameplate / health-bar HUD — researched 2026-07-04
+
+Researched for a custom "target nameplate + health bar" HUD element (showing whatever
+entity the player is currently looking at), drawn via `HudElementRegistry` as a new,
+separate element — not replacing/attaching to `VanillaHudElements.BOSS_BAR`. Verified
+against the named `minecraft-clientOnly-6dd721cd7d-...-sources.jar`
+(`net/minecraft/client/MinecraftClient.java`, `net/minecraft/util/hit/EntityHitResult.java`,
+`net/minecraft/client/gui/hud/BossBarHud.java`) and `minecraft-common-6dd721cd7d-...-sources.jar`
+(`net/minecraft/entity/LivingEntity.java`, `net/minecraft/entity/data/DataTracker.java`).
+
+- **`MinecraftClient.crosshairTarget` confirmed present, exact field (not a method)**:
+  ```java
+  public @Nullable HitResult crosshairTarget;
+  ```
+  Public, nullable, plain field — updated each frame by `MinecraftClient`'s own raycast logic
+  (used internally for block/entity interaction, e.g. the same field driving attack/use-item
+  handling). Read it directly from a `HudElement`'s `render(...)` — no accessor mixin needed
+  since it's already public.
+- **`EntityHitResult.getEntity()` confirmed**, exact signature `public Entity getEntity()` —
+  trivial getter, backed by a `private final Entity entity` field. Check
+  `crosshairTarget instanceof EntityHitResult` and that its type is `HitResult.Type.ENTITY`
+  before casting (mirrors the existing vanilla call-site pattern in `MinecraftClient` itself,
+  e.g. `switch (this.crosshairTarget.getType()) { case ENTITY -> ((EntityHitResult)
+  this.crosshairTarget).getEntity(); ... }`).
+- **`LivingEntity.getHealth()`/`getMaxHealth()`/`getName()` are reliably readable
+  client-side for *any* nearby tracked entity, not just boss-bar-eligible ones — confirmed,
+  no special-casing found.** `LivingEntity.java` registers health as a perfectly ordinary
+  `TrackedData`:
+  ```java
+  private static final TrackedData<Float> HEALTH = DataTracker.registerData(LivingEntity.class, TrackedDataHandlerRegistry.FLOAT);
+  ...
+  builder.add(HEALTH, 1.0F);              // default value in initDataTracker
+  public float getHealth() { return this.dataTracker.get(HEALTH); }
+  public void setHealth(float health) { this.dataTracker.set(HEALTH, MathHelper.clamp(health, 0.0F, this.getMaxHealth())); }
+  ```
+  `DataTracker.java` (the sync engine itself) has **no filtering/"isPrivate" concept at all** —
+  every registered `TrackedData` for an entity is synced to every client that has that entity
+  loaded/tracked within normal entity-tracking range, unconditionally. Boss bars are a
+  completely separate, opt-in mechanism (`BossBarS2CPacket`, driven by `BossBar`/
+  `ServerBossBar`, manually sent) — nothing about vanilla's boss-bar system restricts or
+  special-cases regular `HEALTH` tracked-data sync. So reading `getHealth()`/`getMaxHealth()`
+  (a derived value off the synced `EntityAttributes.MAX_HEALTH` attribute instance, also
+  ordinarily synced) or `getName()` (an `Entity`-level field, not even gated by `LivingEntity`)
+  on an arbitrary nearby mob/player works exactly the same as it does for the local player —
+  no extra sync work needed for a target-nameplate HUD element.
+- **Vanilla boss-bar HUD placement, for visual-reference sizing only** (`BossBarHud.render`,
+  confirmed exact values, not paraphrased):
+  ```java
+  int i = context.getScaledWindowWidth();
+  int j = 12;                              // <- first boss bar's top Y, confirmed
+  for (ClientBossBar clientBossBar : this.bossBars.values()) {
+      int k = i / 2 - 91;                  // <- bar X: horizontally centered, bar width 182 (91 = 182/2)
+      int l = j;                           // bar's own top Y
+      this.renderBossBar(context, k, l, clientBossBar);   // bar height WIDTH=182, HEIGHT=5 (5px tall)
+      ...
+      int o = l - 9;                       // <- name text drawn 9px ABOVE the bar's top edge
+      context.drawTextWithShadow(this.client.textRenderer, text, n, o, Colors.WHITE);
+      j += 10 + 9;                         // <- next bar's top Y: +19px per additional bar
+      if (j >= context.getScaledWindowHeight() / 3) break;  // stops filling past 1/3 screen height
+  }
+  ```
+  So: bar top starts at **y = 12** from the top of the screen, is **182px wide × 5px tall**,
+  horizontally centered (`screenWidth/2 - 91`), with its name label drawn **9px above** the
+  bar's own top edge (i.e. the label's baseline sits around y = 3), and each additional
+  stacked bar adds **19px** of vertical spacing. A custom target-nameplate element wanting a
+  similar "sits naturally near the top-center, doesn't collide with the boss bar" look should
+  either anchor below whatever boss bars are currently showing (dynamic, since bar count varies)
+  or pick a fixed y in the same rough neighborhood (e.g. `y ≈ 12`–`40` depending on whether boss
+  bars are expected to co-exist with it) — there's no vanilla API that reports "current boss bar
+  stack height" directly, so if avoiding overlap with a *variable* number of active boss bars
+  matters, compute it the same way `BossBarHud` does (`12 + bossBars.size() * 19`, capped at
+  `screenHeight/3`) rather than hardcoding a single y.
+
+## Open questions

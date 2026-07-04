@@ -19,8 +19,10 @@ public class ProgressionTickHandler {
             long currentExp = progress.getExperience();
             long maxExp = progress.getExperienceForNextLevel();
 
+            float progressPercent = maxExp > 0 ? (float) currentExp / maxExp : 0;
+
             player.setExperienceLevel(customLevel);
-            player.totalExperience = (int) (customLevel * 100 + currentExp);
+            player.experienceProgress = progressPercent;
         }
     }
 }

@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# IDE
+.idea/
+*.iml
+
+# Java
+*.class
+
+# OS
+.DS_Store
+
+# Minecraft/Fabric run environment
+run/
+logs/
+crash-reports/
+*.log
+*.tmp
+*.bak
+
+# Secrets
+.env
+.env.*

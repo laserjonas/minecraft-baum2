@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "baum2",
+  "version": "${version}",
+  "name": "Baum2",
+  "description": "An original fantasy MMORPG progression mod for Minecraft.",
+  "authors": [
+    "baum2dev"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/baum2/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "de.baum2dev.baum2.client.Baum2DataGenerator"
+    ],
+    "client": [
+      "de.baum2dev.baum2.client.Baum2Client"
+    ],
+    "main": [
+      "de.baum2dev.baum2.Baum2"
+    ]
+  },
+  "mixins": [
+    "baum2.mixins.json",
+    {
+      "config": "baum2.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

@@ -4,6 +4,7 @@
   "package": "de.baum2dev.baum2.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "LivingEntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

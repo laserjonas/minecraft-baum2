@@ -8,7 +8,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.PlayerProgressData;
-import de.baum2dev.baum2.progression.VanillaXpFormula;
+import de.baum2dev.baum2.progression.ProgressionCurve;
 
 public class LevelUpHandler {
     private static final Map<UUID, Integer> playerLevels = new HashMap<>();
@@ -32,7 +32,7 @@ public class LevelUpHandler {
         long currentExp = progress.getExperience();
 
         player.setExperienceLevel(customLevel);
-        player.totalExperience = (int) (VanillaXpFormula.getTotalXpForLevel(customLevel) + currentExp);
+        player.totalExperience = (int) (ProgressionCurve.getTotalXpForLevel(customLevel) + currentExp);
     }
 
     public static void checkLevelUp(ServerPlayerEntity player) {

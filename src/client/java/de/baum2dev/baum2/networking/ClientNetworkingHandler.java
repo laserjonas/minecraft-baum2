@@ -5,7 +5,8 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
-import de.baum2dev.baum2.progression.VanillaXpFormula;
+import de.baum2dev.baum2.progression.ProgressionCurve;
+import de.baum2dev.baum2.progression.VitalsCurve;
 
 /**
  * Client-side networking handler for Baum2 custom packets.
@@ -18,12 +19,73 @@ public class ClientNetworkingHandler {
      * Register all client-side packet receivers.
      * Must be called from Baum2Client.onInitializeClient().
      */
+    private static volatile int currentMana = 0;
+    private static volatile int currentMaxMana = 1;
+    private static volatile int currentEndurance = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentIntelligence = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentStrength = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentDexterity = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentUnspentAttributePoints = 0;
+
     public static void registerClientHandlers() {
         // Register receiver for experience sync payload
         ClientPlayNetworking.registerGlobalReceiver(
                 ExperienceSyncPayload.TYPE,
                 ClientNetworkingHandler::handleExperienceSyncPayload
         );
+
+        // Register receiver for mana sync payload
+        ClientPlayNetworking.registerGlobalReceiver(
+                ManaSyncPayload.TYPE,
+                ClientNetworkingHandler::handleManaSyncPayload
+        );
+
+        // Register receiver for attribute sync payload
+        ClientPlayNetworking.registerGlobalReceiver(
+                AttributeSyncPayload.TYPE,
+                ClientNetworkingHandler::handleAttributeSyncPayload
+        );
+    }
+
+    private static void handleManaSyncPayload(ManaSyncPayload payload, ClientPlayNetworking.Context context) {
+        currentMana = payload.mana();
+        currentMaxMana = payload.maxMana();
+    }
+
+    private static void handleAttributeSyncPayload(AttributeSyncPayload payload, ClientPlayNetworking.Context context) {
+        currentEndurance = payload.endurance();
+        currentIntelligence = payload.intelligence();
+        currentStrength = payload.strength();
+        currentDexterity = payload.dexterity();
+        currentUnspentAttributePoints = payload.unspentAttributePoints();
+    }
+
+    public static int getCurrentMana() {
+        return currentMana;
+    }
+
+    public static int getCurrentMaxMana() {
+        return currentMaxMana;
+    }
+
+    public static int getCurrentEndurance() {
+        return currentEndurance;
+    }
+
+    public static int getCurrentIntelligence() {
+        return currentIntelligence;
+    }
+
+    public static int getCurrentStrength() {
+        return currentStrength;
+    }
+
+    public static int getCurrentDexterity() {
+        return currentDexterity;
+    }
+
+    public static int getCurrentUnspentAttributePoints() {
+        return currentUnspentAttributePoints;
     }
 
     /**
@@ -49,7 +111,7 @@ public class ClientNetworkingHandler {
         float progress = payload.maxExperience() > 0
                 ? (float) payload.experience() / payload.maxExperience()
                 : 0f;
-        int totalExperience = (int) (VanillaXpFormula.getTotalXpForLevel(payload.level()) + payload.experience());
+        int totalExperience = (int) (ProgressionCurve.getTotalXpForLevel(payload.level()) + payload.experience());
 
         player.setExperience(progress, totalExperience, payload.level());
     }

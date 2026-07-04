@@ -19,6 +19,20 @@ loom {
             sourceSet sourceSets.client
         }
     }
+
+    runs {
+        client {
+            // Without this, Loom's dev launcher assigns a new random "PlayerNNN" username
+            // (and therefore a new UUID) to every single runClient launch. Since per-player
+            // data (progression, inventory, etc.) is keyed by UUID, that looked exactly like
+            // "progress resets on rebuild" even though persistence itself was working fine —
+            // every rebuild-and-relaunch was really just a brand new player joining.
+            programArg("--username")
+            programArg("Baum2Dev")
+            programArg("--uuid")
+            programArg("a66f50a3-b732-3775-ae19-85dcae028e9c")
+        }
+    }
 }
 
 fabricApi {

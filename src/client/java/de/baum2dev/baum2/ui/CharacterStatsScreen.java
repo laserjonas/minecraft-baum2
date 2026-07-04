@@ -1,0 +1,305 @@
+package de.baum2dev.baum2.ui;
+
+import java.util.function.Consumer;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.ScreenRect;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.tab.GridScreenTab;
+import net.minecraft.client.gui.tab.TabManager;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.ClickableWidget;
+import net.minecraft.client.gui.widget.ScrollableLayoutWidget;
+import net.minecraft.client.gui.widget.SimplePositioningWidget;
+import net.minecraft.client.gui.widget.TextWidget;
+import net.minecraft.client.gui.widget.TabNavigationWidget;
+import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.text.Text;
+import de.baum2dev.baum2.networking.ClientNetworkingHandler;
+import de.baum2dev.baum2.networking.SpendAttributePointPayload;
+import de.baum2dev.baum2.progression.AttributeType;
+import de.baum2dev.baum2.progression.VitalsCurve;
+
+/**
+ * Character stats screen, opened/closed by the 'C' keybinding (Baum2KeyBindings). Built on
+ * vanilla's real Tab/TabManager/TabNavigationWidget system so more tabs can be added later
+ * without redesigning the chrome - see docs/visual-style-guide.md's "Character Stats Screen"
+ * section for the row order/format/color spec this implements.
+ */
+public class CharacterStatsScreen extends Screen {
+    private static final int LABEL_COLOR = 0x9C9186;
+    private static final int LIFE_COLOR = 0xE2574B;
+    private static final int MANA_COLOR = 0x5E9BE0;
+    private static final int STRENGTH_COLOR = 0xD98A3D;
+    private static final int INTELLIGENCE_COLOR = 0x9B5FE0;
+    private static final int DEXTERITY_COLOR = 0x4CBB7A;
+    private static final int POINTS_AVAILABLE_COLOR = 0xF2C94C;
+    private static final int POINTS_NONE_COLOR = 0x6B6459;
+    private static final int PANEL_BACKGROUND_COLOR = 0xF0161014;
+
+    private final TabManager tabManager = new TabManager(this::addDrawableChild, this::remove);
+    private TabNavigationWidget tabNavigationWidget;
+    private StatsTab statsTab;
+
+    public CharacterStatsScreen() {
+        super(Text.literal("Character Stats"));
+    }
+
+    @Override
+    protected void init() {
+        this.statsTab = new StatsTab(this.textRenderer);
+        this.tabNavigationWidget = TabNavigationWidget.builder(this.tabManager, this.width)
+                .tabs(this.statsTab)
+                .build();
+        this.addDrawableChild(this.tabNavigationWidget);
+        this.tabNavigationWidget.selectTab(0, false);
+        this.refreshWidgetPositions();
+    }
+
+    @Override
+    protected void refreshWidgetPositions() {
+        if (this.tabNavigationWidget == null) {
+            return;
+        }
+        this.tabNavigationWidget.setWidth(this.width);
+        this.tabNavigationWidget.init();
+        int headerBottom = this.tabNavigationWidget.getNavigationFocus().getBottom();
+        this.tabManager.setTabArea(new ScreenRect(0, headerBottom, this.width, this.height - headerBottom));
+    }
+
+    @Override
+    protected void renderDarkening(DrawContext context) {
+        // Vanilla's own default darkening is a subtle translucent gradient meant to dim the
+        // world slightly behind a screen - against a bright sky it barely reads, leaving text
+        // hard to scan (see the screenshot that prompted this: sky/clouds/hotbar all clearly
+        // visible through the "screen"). Vanilla's own StatsScreen solves this the same way -
+        // overriding renderDarkening with its own opaque panel - rather than relying on the
+        // default. A solid near-opaque fill reads as a proper full-screen menu instead of text
+        // floating over gameplay.
+        context.fill(0, 0, this.width, this.height, PANEL_BACKGROUND_COLOR);
+    }
+
+    @Override
+    public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+        // Do not call renderBackground() here - the framework already renders the screen
+        // background before invoking render() (confirmed by a crash: calling it again here
+        // double-applies the background blur, which throws "Can only blur once per frame").
+        this.statsTab.refreshValues();
+        super.render(context, mouseX, mouseY, deltaTicks);
+    }
+
+    @Override
+    public boolean keyPressed(KeyInput input) {
+        if (Baum2KeyBindings.OPEN_STATS_KEY.matchesKey(input)) {
+            this.close();
+            return true;
+        }
+        return this.tabNavigationWidget != null && this.tabNavigationWidget.keyPressed(input)
+                ? true
+                : super.keyPressed(input);
+    }
+
+    private static class StatsTab extends GridScreenTab {
+        private static final int TOP_PADDING = 8;
+
+        private final ScrollableLayoutWidget scrollable;
+        private final TextWidget lifeValue;
+        private final TextWidget manaValue;
+        private final TextWidget unspentPointsValue;
+        private final TextWidget enduranceValue;
+        private final TextWidget lifeRegenValue;
+        private final TextWidget intelligenceValue;
+        private final TextWidget baseMagicAttackValue;
+        private final TextWidget magicDefenceValue;
+        private final TextWidget strengthValue;
+        private final TextWidget baseAttackValue;
+        private final TextWidget physicalDefenceValue;
+        private final TextWidget dexterityValue;
+        private final TextWidget attackSpeedValue;
+        private final TextWidget castSpeedValue;
+        private final TextWidget critChanceValue;
+        private final ButtonWidget enduranceButton;
+        private final ButtonWidget intelligenceButton;
+        private final ButtonWidget strengthButton;
+        private final ButtonWidget dexterityButton;
+
+        StatsTab(TextRenderer textRenderer) {
+            super(Text.literal("Stats"));
+            this.grid.setRowSpacing(5);
+            this.grid.setColumnSpacing(6);
+
+            this.lifeValue = valueWidget(70, textRenderer);
+            this.manaValue = valueWidget(70, textRenderer);
+            this.unspentPointsValue = valueWidget(30, textRenderer);
+            this.enduranceValue = valueWidget(30, textRenderer);
+            this.lifeRegenValue = valueWidget(50, textRenderer);
+            this.intelligenceValue = valueWidget(30, textRenderer);
+            this.baseMagicAttackValue = valueWidget(40, textRenderer);
+            this.magicDefenceValue = valueWidget(40, textRenderer);
+            this.strengthValue = valueWidget(30, textRenderer);
+            this.baseAttackValue = valueWidget(40, textRenderer);
+            this.physicalDefenceValue = valueWidget(40, textRenderer);
+            this.dexterityValue = valueWidget(30, textRenderer);
+            this.attackSpeedValue = valueWidget(50, textRenderer);
+            this.castSpeedValue = valueWidget(50, textRenderer);
+            this.critChanceValue = valueWidget(50, textRenderer);
+
+            this.enduranceButton = plusOneButton(AttributeType.ENDURANCE);
+            this.intelligenceButton = plusOneButton(AttributeType.INTELLIGENCE);
+            this.strengthButton = plusOneButton(AttributeType.STRENGTH);
+            this.dexterityButton = plusOneButton(AttributeType.DEXTERITY);
+
+            int row = 0;
+            this.grid.add(label("Life", textRenderer), row, 0);
+            this.grid.add(this.lifeValue, row++, 1);
+            this.grid.add(label("Mana", textRenderer), row, 0);
+            this.grid.add(this.manaValue, row++, 1);
+            row = spacer(textRenderer, row);
+
+            this.grid.add(label("Unspent Points", textRenderer), row, 0);
+            this.grid.add(this.unspentPointsValue, row++, 1);
+            row = spacer(textRenderer, row);
+
+            this.grid.add(label("Endurance", textRenderer), row, 0);
+            this.grid.add(this.enduranceValue, row, 1);
+            this.grid.add(this.enduranceButton, row++, 2);
+            this.grid.add(label("Life Regen", textRenderer), row, 0);
+            this.grid.add(this.lifeRegenValue, row++, 1);
+            row = spacer(textRenderer, row);
+
+            this.grid.add(label("Intelligence", textRenderer), row, 0);
+            this.grid.add(this.intelligenceValue, row, 1);
+            this.grid.add(this.intelligenceButton, row++, 2);
+            this.grid.add(label("Base Magic Attack", textRenderer), row, 0);
+            this.grid.add(this.baseMagicAttackValue, row++, 1);
+            this.grid.add(label("Magic Defence", textRenderer), row, 0);
+            this.grid.add(this.magicDefenceValue, row++, 1);
+            row = spacer(textRenderer, row);
+
+            this.grid.add(label("Strength", textRenderer), row, 0);
+            this.grid.add(this.strengthValue, row, 1);
+            this.grid.add(this.strengthButton, row++, 2);
+            this.grid.add(label("Base Attack", textRenderer), row, 0);
+            this.grid.add(this.baseAttackValue, row++, 1);
+            this.grid.add(label("Physical Defence", textRenderer), row, 0);
+            this.grid.add(this.physicalDefenceValue, row++, 1);
+            row = spacer(textRenderer, row);
+
+            this.grid.add(label("Dexterity", textRenderer), row, 0);
+            this.grid.add(this.dexterityValue, row, 1);
+            this.grid.add(this.dexterityButton, row++, 2);
+            this.grid.add(label("Attack Speed Multiplier", textRenderer), row, 0);
+            this.grid.add(this.attackSpeedValue, row++, 1);
+            this.grid.add(label("Cast Speed Multiplier", textRenderer), row, 0);
+            this.grid.add(this.castSpeedValue, row++, 1);
+            this.grid.add(label("Crit Chance", textRenderer), row, 0);
+            this.grid.add(this.critChanceValue, row++, 1);
+
+            // Wraps this.grid (unchanged above) in a scrollable viewport: at a high GUI Scale
+            // or small window, ~15 rows can be taller than the available tab area, and without
+            // this the bottom rows (e.g. Dexterity's derived stats) become completely
+            // unreachable - a real bug caught via a real screenshot, not a style preference.
+            // Scrollbar rendering, mouse wheel, and drag-to-scroll are all automatic (vanilla's
+            // own ScrollableWidget/ContainerWidget machinery) - no manual DrawContext code.
+            this.scrollable = new ScrollableLayoutWidget(MinecraftClient.getInstance(), this.grid, 200);
+        }
+
+        @Override
+        public void forEachChild(Consumer<ClickableWidget> consumer) {
+            // Registers exactly one Container widget (the scrollable viewport) instead of the
+            // grid's individual rows directly - the viewport forwards input/rendering to the
+            // wrapped grid's real widgets internally.
+            this.scrollable.forEachChild(consumer);
+        }
+
+        @Override
+        public void refreshGrid(ScreenRect tabArea) {
+            // Top-aligning (relativeY = 0), not GridScreenTab's default 1/6-down centering:
+            // that default assumes content shorter than the tab area, and produces a NEGATIVE
+            // offset once content is taller (pushing it up into the header) - a bug caught via
+            // an earlier screenshot. The ScrollableLayoutWidget below now handles genuine
+            // overflow instead of letting it clip into the header or run off-screen.
+            ScreenRect paddedArea = new ScreenRect(
+                    tabArea.getLeft(), tabArea.getTop() + TOP_PADDING,
+                    tabArea.width(), Math.max(0, tabArea.height() - TOP_PADDING)
+            );
+            this.scrollable.setWidth(paddedArea.width());
+            this.scrollable.setHeight(paddedArea.height());
+            this.scrollable.refreshPositions();
+            SimplePositioningWidget.setPos(this.scrollable, paddedArea, 0.5F, 0.0F);
+        }
+
+        void refreshValues() {
+            MinecraftClient client = MinecraftClient.getInstance();
+            ClientPlayerEntity player = client.player;
+            if (player == null) {
+                return;
+            }
+
+            int life = Math.round(player.getHealth());
+            int maxLife = Math.round(player.getMaxHealth());
+            this.lifeValue.setMessage(colored(life + " / " + maxLife, LIFE_COLOR));
+
+            int mana = ClientNetworkingHandler.getCurrentMana();
+            int maxMana = ClientNetworkingHandler.getCurrentMaxMana();
+            this.manaValue.setMessage(colored(mana + " / " + maxMana, MANA_COLOR));
+
+            int unspentPoints = ClientNetworkingHandler.getCurrentUnspentAttributePoints();
+            this.unspentPointsValue.setMessage(colored(String.valueOf(unspentPoints),
+                    unspentPoints > 0 ? POINTS_AVAILABLE_COLOR : POINTS_NONE_COLOR));
+
+            int endurance = ClientNetworkingHandler.getCurrentEndurance();
+            this.enduranceValue.setMessage(colored(String.valueOf(endurance), LIFE_COLOR));
+            this.lifeRegenValue.setMessage(colored(String.format("%.2f", VitalsCurve.getLifeRegen(endurance)), LIFE_COLOR));
+
+            int intelligence = ClientNetworkingHandler.getCurrentIntelligence();
+            this.intelligenceValue.setMessage(colored(String.valueOf(intelligence), INTELLIGENCE_COLOR));
+            this.baseMagicAttackValue.setMessage(colored(String.format("%.1f", VitalsCurve.getBaseMagicAttack(intelligence)), INTELLIGENCE_COLOR));
+            this.magicDefenceValue.setMessage(colored(String.format("%.1f", VitalsCurve.getMagicDefence(intelligence)), INTELLIGENCE_COLOR));
+
+            int strength = ClientNetworkingHandler.getCurrentStrength();
+            this.strengthValue.setMessage(colored(String.valueOf(strength), STRENGTH_COLOR));
+            this.baseAttackValue.setMessage(colored(String.format("%.1f", VitalsCurve.getBaseAttack(strength)), STRENGTH_COLOR));
+            this.physicalDefenceValue.setMessage(colored(String.format("%.1f", VitalsCurve.getPhysicalDefence(strength)), STRENGTH_COLOR));
+
+            int dexterity = ClientNetworkingHandler.getCurrentDexterity();
+            this.dexterityValue.setMessage(colored(String.valueOf(dexterity), DEXTERITY_COLOR));
+            this.attackSpeedValue.setMessage(colored(String.format("%.2fx", VitalsCurve.getAttackSpeedMultiplier(dexterity)), DEXTERITY_COLOR));
+            this.castSpeedValue.setMessage(colored(String.format("%.2fx", VitalsCurve.getCastSpeedMultiplier(dexterity)), DEXTERITY_COLOR));
+            this.critChanceValue.setMessage(colored(String.format("%.1f%%", VitalsCurve.getCritChance(dexterity)), DEXTERITY_COLOR));
+
+            boolean canSpend = unspentPoints > 0;
+            this.enduranceButton.active = canSpend;
+            this.intelligenceButton.active = canSpend;
+            this.strengthButton.active = canSpend;
+            this.dexterityButton.active = canSpend;
+        }
+
+        /** Extra-height spacer row spanning all columns, per the style guide's between-family gap. */
+        private int spacer(TextRenderer textRenderer, int row) {
+            this.grid.add(new TextWidget(0, 5, Text.empty(), textRenderer), row, 0, 1, 3);
+            return row + 1;
+        }
+
+        private static TextWidget valueWidget(int width, TextRenderer textRenderer) {
+            return new TextWidget(width, 9, Text.empty(), textRenderer);
+        }
+
+        private static ButtonWidget plusOneButton(AttributeType type) {
+            return ButtonWidget.builder(Text.literal("+1"), button ->
+                    ClientPlayNetworking.send(new SpendAttributePointPayload(type))
+            ).dimensions(0, 0, 18, 18).build();
+        }
+
+        private static TextWidget label(String text, TextRenderer textRenderer) {
+            return new TextWidget(colored(text, LABEL_COLOR), textRenderer);
+        }
+
+        private static Text colored(String text, int color) {
+            return Text.literal(text).styled(style -> style.withColor(color));
+        }
+    }
+}

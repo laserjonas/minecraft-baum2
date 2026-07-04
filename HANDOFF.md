@@ -6,302 +6,271 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Current state
 
+This is the state after merging `origin/master` (Fischey's Vitals/Attribute/Character-Stats
+work) into `jonas_workbranch` (Class System v1 + Custom UI v1) — see "Last change" below for
+the merge itself.
+
 - Fabric mod builds successfully (`./gradlew build` passes).
-- Client runs: `./gradlew runClient` loads and reaches main menu (verified clean boot, no
-  Mixin/payload registration errors).
+- Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
+  (verified clean boot, no Mixin/payload/HUD-registration errors, both pre- and post-merge).
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
-- **Class System v1 — command-driven, names/values now reviewed once, still needs in-game
-  player verification (see "Next recommended step"):**
-  - New `classes/` package: `PlayerClass` (enum: `EISENWAECHTER`, `SCHATTENLAEUFER`,
-    `RUNENWIRKER`, `WESENSWAHRER`), `ClassDefinition` (record: display name, description,
-    one passive `EntityAttributeModifier` bonus per class), `ClassRegistry` (static lookup),
-    `ClassManager` (persistence + apply/remove bonus + its own join listener).
-  - Commands: `/baum2 class list`, `/baum2 class info [<class>]`, `/baum2 class select <class>`
-    — added to `commands/Baum2Commands.java` additively (existing `addxp`/`level` untouched).
-  - Persistence via **Fabric's Attachment API** (`fabric-data-attachment-api-v1`, pinned at
-    `1.8.48+eed0806f3e` via the project's `fabric-api 0.141.4+1.21.11`), not a custom NBT
-    mixin — `ClassManager.SELECTED_CLASS` is a persistent, `copyOnDeath()` `AttachmentType`.
-    See `docs/fabric-modding.md` "Player data / attributes" for full API details.
-  - Passive bonuses, **updated after the balance-reviewer pass below**: Eisenwächter +4 max
-    health, Schattenläufer +10% movement speed, Runenwirker +1 luck, Wesenswahrer +10%
-    knockback resistance — each via a stable-`Identifier` `EntityAttributeModifier`, swapped
-    cleanly on reselection/rejoin (`ClassManager.applyBonus` always `removeModifier` before
-    `addPersistentModifier`, since persistent modifiers are already restored from entity NBT
-    by the time a returning player's `JOIN` event fires — skipping the removal step throws).
-  - **4th class renamed `Seelenhüter` → `Wesenswahrer`** — `ip-naming-compliance-checker`
-    (run for real this session, workspace-root bug from before is fixed) flagged
-    `Seelenhüter` as an exact, word-for-word match to *Echo of Soul*'s (Gamigo) player
-    character title ("...du wurdest durch die Götter zum Seelenhüter erwählt"), used in the
-    same "chosen guardian of souls" framing — not just a generic fantasy word. Renamed in
-    `PlayerClass.java`, `ClassRegistry.java` (display name, description, bonus identifier),
-    and in `MASTERPROMPT.md`'s own example lists (the term originated there, not in this
-    commit — the brief itself needed the fix, not just the code). Lower-confidence, not
-    acted on: `Runenwirker` is somewhat close to LOTRO's "Runenbewahrer" class — worth
-    watching if this class's skill kit gets fleshed out later, not a hard conflict today.
-  - **Wesenswahrer's bonus attribute changed from `MAX_ABSORPTION` to
-    `KNOCKBACK_RESISTANCE`** — `balance-reviewer` found the original +4 max-absorption bonus
-    was a complete no-op: `MAX_ABSORPTION` is only a ceiling, and nothing in this mod grants
-    absorption hearts to fill it (only vanilla golden apples/totems do, and they bundle their
-    own temporary cap boost, so even that vanilla interaction never touched our permanent
-    one). Swapped to `+0.10 KNOCKBACK_RESISTANCE` (`ADD_VALUE`), which — unlike absorption —
-    is unconditionally live the moment the modifier is applied, matching how the other three
-    classes' bonuses already behave.
-  - Deliberately does not touch `events/LevelUpHandler.java` or
-    `events/ProgressionTickHandler.java` (Fischey's most actively-changed files) — class-join
-    resync lives in `ClassManager`'s own independent `ServerPlayConnectionEvents.JOIN`
-    listener instead of being added to `LevelUpHandler`'s.
-  - **Verified so far**: build passes (including after the naming/balance fixes above); a
-    real (non-GUI) dedicated server boots cleanly with the new code (confirms the
-    `AttachmentType`/codec registration doesn't crash at class-init); `/baum2 class list` was
-    exercised over live RCON against that real server and returns correct data for all 4
-    classes. **Not yet verified**: the actual player path (`select`, the attribute modifier
-    being applied/visible via vanilla `/attribute`, surviving relogin, surviving
-    death/respawn via `copyOnDeath()`) — this needs a real graphical client, which wasn't
-    available to automate this session; the user is verifying this manually in parallel. See
-    "Next recommended step".
-  - **Known, logged, not fixed (design/judgment calls, not bugs)**: (1) free, instant,
-    zero-cooldown class reselection lets a player swap classes contextually to capture all
-    four bonuses' benefit over a session — already called out as deliberately deferred, just
-    reconfirmed concretely this session (`ClassManager.selectClass` has no cost/cooldown
-    guard at all); (2) Runenwirker's +1 luck is live (feeds vanilla loot/fishing rolls) but
-    the mod has no custom loot tables yet for it to meaningfully act on, so it's
-    comparatively weak until a loot system exists.
-- **Progression System — FULLY WORKING, including real-time client display:**
-  - Custom progression uses Minecraft's non-linear XP curve, centralized in
-    `progression/VanillaXpFormula.java` (single source of truth — `ExperienceManager`,
-    `ProgressionTickHandler`, `PlayerLevelSystem`, `LevelUpHandler`, and the client packet
-    handler all call into it instead of each having their own copy):
-    - Levels 0-15: L² + 6L
-    - Levels 16-31: 2.5L² - 40.5L + 360
-    - Levels 32+: 4.5L² - 162.5L + 2220
-  - Features: `/baum2 addxp <amount>`, `/baum2 level`, mob XP drops (10 + max_health/2), level-up
-    broadcasts, vanilla XP orb drops disabled via Mixin.
-  - **Real-time client sync now works** via a custom S2C packet sent every server tick — see
-    "Networking API reference" section below for the exact API and why earlier attempts failed.
-  - Server-side in-memory storage; persistence still deferred to a future phase.
-  - **`balance-reviewer` ran against this system for the first time this session.** Curve
-    itself is fine — verified continuous and monotonic across both segment boundaries
-    (level 15/16 and 31/32), no formula bug. One fix applied, several findings logged:
-    - **Fixed**: `PlayerProgressData`'s default/NBT-fallback `experienceForNextLevel` was
-      hardcoded to `100`, but the formula's actual level-1→2 requirement is `9` — an 11x
-      mismatch that only affected a brand-new player's very first level-up (every later
-      level already recomputes from the formula correctly). Now computed via
-      `VanillaXpFormula.getXpRequiredForLevel(level + 1)` in both places instead of a magic
-      number.
-    - **Logged, not fixed (design call)**: mob XP is lump-sum (14-160 XP per kill) against a
-      curve whose early levels need as little as 9-15 XP, so a single strong kill (e.g. a
-      Wither at 160 XP) can vault a level-2 character to level 10 in one hit. Needs a
-      decision: scale mob XP down at low character levels, or steepen the curve's early
-      segment for this mod's lump-sum granularity (the curve's numbers were originally sized
-      for vanilla's few-XP-per-orb pickup model, not one integer per kill).
-    - **Logged, not fixed (dead code)**: `ExperienceManager.getMaxLevel()` declares a cap of
-      100 but nothing anywhere enforces it — the level-up loop has no upper bound today.
-      Decide whether to actually enforce it or remove the unused constant. (Very low-priority
-      latent detail if left uncapped forever: the `long`→`int` cast in
-      `PlayerLevelSystem.syncVanillaLevelDisplay` would overflow around level ~21,850 — not
-      reachable in practice.)
-    - **Minor**: `MobDeathHandler.calculateXpReward`'s `maxHealth / 2` truncates for odd
-      `maxHealth` values (loses 0.5 XP) — no current vanilla hostile mob has odd health, so
-      this doesn't manifest yet, but would silently apply to any future custom mob that does.
-- **Custom UI v1 — HUD overlay + Class Screen, build-verified and confirmed working in-game
-  by the user this session:**
-  - **Started from a request for a "Metin2 look"**, which was explicitly rejected as
-    conflicting with `MASTERPROMPT.md`'s own UI rule ("Keine Nachahmung bekannter
-    MMORPG-UIs" — no imitation of known MMORPG UIs, not just no asset copying). User chose
-    the safe alternative: an original look using only generic, non-distinctive MMORPG UI
-    conventions (corner HUD panels, skill-bar-style layout thinking, color-coded class
-    identity), explicitly excluding anything Metin2-adjacent (no wood panels, gold-leaf
-    trim, dragon motifs, oriental-fantasy styling).
-  - **`docs/visual-style-guide.md` (new)** — `graphics-designer`-authored, persistent visual
-    identity doc (same append-in-place convention as `docs/fabric-modding.md`): a "Deepwood &
-    Verdigris" art direction (flat, square-cornered panels, slate/verdigris/rune-cyan
-    palette), per-class accent colors + icon motifs, full HUD and Class Screen layout specs,
-    and an explicit IP-compliance section recording *why* the direction was chosen (own
-    section 0, worth reading before any future UI/visual work on this project).
-  - **4 placeholder class icon PNGs** (new, `assets/baum2/textures/gui/class/*.png`) — 16x16
-    flat-color original geometric shapes (shield/chevron/diamond/leaf) per class, generated
-    programmatically, clearly documented as temporary placeholders per the style guide.
-  - **`docs/fabric-modding.md` gained a new "Custom UI (HUD / Screens)" section** —
-    `fabric-docs-researcher`-verified 1.21.11 APIs for `HudElementRegistry` (replaces
-    deprecated `HudRenderCallback`), `DrawContext` text/texture drawing, custom `Screen`
-    subclassing, `ButtonWidget`, and `KeyBindingHelper`. **Found the actual root cause of the
-    old, dead custom-HUD attempt's "unreliable text rendering"**: `DrawContext.drawText*`
-    silently no-ops if the color's alpha byte is `0` (a plain 6-digit hex like `0xFFFFFF`
-    renders nothing, no exception) — now documented so nobody hits this again. Also found
-    mid-implementation (not by the research agent, while actually wiring the Class Screen's
-    click handling): `Screen`'s mouse-input API has changed to a `Click` record
-    (`mouseClicked(Click, boolean)`, `click.x()`/`click.y()`/`click.button()`), not the older
-    `mouseClicked(double, double, int)` shape — worth adding to that doc's table if it comes
-    up again.
-  - **`classes/ClassManager.SELECTED_CLASS` gained `.syncWith(...)`** (previously
-    persistent+copyOnDeath only, server-side-only) — the research agent found the client had
-    no way to know its own selected class, which would have made the HUD/Screen silently show
-    "no class" for everyone. Now uses `AttachmentSyncPredicate.targetOnly()`, so the client's
-    own `getAttached(SELECTED_CLASS)` just works with no custom packet needed.
-  - **New `networking/ClassSelectPayload.java`** (C2S, mirrors `ExperienceSyncPayload`'s
-    pattern in the opposite direction) — lets the Class Screen's click-to-select actually
-    reach the server; wired into `Baum2Networking` (new `registerServerReceivers()` method,
-    called from `Baum2.onInitialize()`) and `ClassManager.selectClass(...)`.
-  - **New `ui/PlayerStatusHud.java`** (client) — top-left HUD panel: class icon, class name
-    (in that class's accent color), level, and a slim 3px rune-cyan XP sliver — deliberately
-    distinct from (not a redraw of) vanilla's own hotbar XP bar. Hidden until a class is
-    selected. Replaces the old dead `ui/ProgressionHud.java` (see cleanup below).
-  - **New `ui/ClassScreen.java`** (client) — "Klassenübersicht", a full `Screen` listing all
-    4 classes (icon/name/description/bonus), highlighting the current selection with a
-    border+wash+"Aktiv" text tag (never color alone, for accessibility), click-to-select.
-    Opened via a new keybind (**K**, `KeyBinding.Category.create(baum2:main)`, registered in
-    `Baum2Client`).
-  - **New `ui/ClassIcons.java`** (client) — small shared helper (icon `Identifier`, accent
-    color, display-name passthrough to `ClassRegistry`) used by both the HUD and the screen,
-    so per-class visual identity lives in one place.
-  - **Dead code cleanup**: removed `src/client/.../client/Baum2Client.java` (an empty,
-    never-registered duplicate `ClientModInitializer` — only
-    `de.baum2dev.baum2.Baum2Client` was ever wired up in `fabric.mod.json`) and the old
-    `ui/ProgressionHud.java` (unwired, hardcoded a fake static 50%-filled bar, superseded by
-    `PlayerStatusHud`).
-  - **Verified**: `gradlew build` passes; user launched a real client, confirmed the flow
-    works end-to-end (HUD appears after class selection, **K** opens the Class Screen,
-    clicking a card switches class live). Not separately re-verified: the specific
-    `/attribute` numeric checks from the Class System's own pending verification item below
-    still apply independently of this UI work.
-  - **Deliberately out of scope for v1** (no backing system yet, so no screen was built for
-    it): Skill Screen, Upgrade Screen — `MASTERPROMPT.md`'s `ui/` package sketch lists these,
-    but neither a skill system nor an item/upgrade system exists in code yet. Build those
-    screens alongside their respective systems, not ahead of them.
+
+### Progression System — FULLY WORKING, including persistence
+
+- Custom progression uses our own XP curve, centralized in `progression/ProgressionCurve.java`
+  (renamed from `VanillaXpFormula` — it stopped being vanilla's actual formula, see below;
+  single source of truth for `ExperienceManager`, `ProgressionTickHandler`,
+  `PlayerLevelSystem`, `LevelUpHandler`, and the client packet handler):
+  `xpRequiredForLevel(L) = 80 + 40L + 8L²` — a deliberately steeper "hardcore grind" pace than
+  vanilla's own curve, chosen because our `MobDeathHandler` grants 10-60+ XP per kill (vanilla
+  orb pickups are 1-7 XP), so vanilla's gentle curve let a handful of kills jump a player 1→8.
+  Concretely: level 1 costs 128 XP (~6 kills), level 10 costs 1280 XP (~64 kills), level 100
+  costs 84,080 XP for that one level (~4,200 kills); cumulative total to level 100 from
+  scratch is ~2.9M XP.
+- Features: `/baum2 addxp <amount>`, `/baum2 level`, mob XP drops (10 + max_health/2), level-up
+  broadcasts, vanilla XP orb drops disabled via Mixin.
+- **Real-time client sync** via a custom S2C packet sent every server tick (see "Networking
+  API reference" below).
+- **Persistence now works** via Fabric's Data Attachment API (`fabric-data-attachment-api-v1`)
+  — progression survives server restarts, disconnects, and (via `.copyOnDeath()`) death. See
+  "Attachment API reference" below. Replaced the old in-memory `HashMap<UUID, ...>` approach.
+- **`balance-reviewer` reviewed the old (pre-rebalance) curve and old mob-XP interaction** —
+  its logged finding ("a single strong kill can vault a low-level character through many
+  levels") is **substantially addressed by the curve rebalance above**, per
+  `merge-integration-reviewer`'s check during this merge: a max single-kill reward (160 XP,
+  Wither) against a level-1 character now causes exactly one level-up with 32 XP carried
+  over, not a multi-level vault. Caveat: a single very large `/baum2 addxp` grant (700+) can
+  still vault ~3 levels — addressed for the actual mob-kill case, not structurally eliminated
+  for all lump-sum grants. **Worth a fresh `balance-reviewer` pass against the new curve
+  combined with the attribute system below** (not done yet) rather than treating this as
+  fully closed.
+- Other balance-reviewer findings from before the rebalance, still relevant: `ExperienceManager
+  .getMaxLevel()`'s 100-level cap is declared but not enforced anywhere; free/instant class
+  reselection (see Class System below) lets a player capture all four classes' bonuses
+  contextually; Runenwirker's luck bonus has no loot system yet to act on.
+
+### Vitals System — Life, Mana, HUD rework (replaces vanilla heart bar)
+
+- `progression/VitalsCurve.java` is the single source of truth. **Life is Endurance-driven**
+  (not level-based — an earlier formula was explicitly replaced per user decision):
+  `getMaxLife(endurance) = 500 + 20*(endurance-5)` (500 at start, 2480 at max Endurance 104).
+  Still real vanilla `MAX_HEALTH`, rescaled via `VitalsManager.applyMaxLife` so combat/damage/
+  death/regen keep working unchanged. Vanilla clamps `MAX_HEALTH` at 1024 by default — widened
+  to **4096** via an accessor Mixin (`mixin/ClampedEntityAttributeAccessor.java`), applied
+  once at mod init (`VitalsManager.widenMaxHealthCeiling()`, called first in
+  `Baum2.onInitialize()`, **before** `PlayerLevelSystem.bootstrap()` — order matters, see
+  "Attachment API reference"). Endurance also drives Life Regen (0.25/sec at start).
+- Mana is level-based (`100 + 5*level`), unchanged, not attribute-driven.
+- HUD: `ui/VitalsHud.java` replaces the vanilla heart bar in place
+  (`HudElementRegistry.replaceElement(VanillaHudElements.HEALTH_BAR, ...)`, **not**
+  `removeElement` — removing entirely crashes the client, see `docs/fabric-modding.md`) and
+  adds a Mana bar above it. Colors/dimensions in `docs/visual-style-guide.md` section 11.
+- Networking: `networking/ManaSyncPayload.java` (S2C, every tick).
+
+### Attribute System — 4 attributes, Character Stats Screen ('C' key)
+
+- `progression/AttributeType.java` (enum: Endurance/Intelligence/Strength/Dexterity),
+  `progression/AttributeManager.java` (grants 1 unspent point per level-up via
+  `ExperienceManager.levelUp()`, validates spending server-side). Each attribute starts at 5;
+  max attainable via pure leveling is 5+99=104 (max level 100).
+  - **Strength** → Base Attack + Physical Defence (`5 + 1.0*(str-5)` each).
+  - **Intelligence** → Base Magic Attack + Magic Defence (same shape).
+  - **Dexterity** → Attack/Cast Speed Multiplier (`1.0 + 0.01*(dex-5)`, capped at 3.0x) and
+    Crit Chance (`5 + 0.5*(dex-5)`, capped at 75%). Neither cap actually binds via pure
+    leveling (max reachable Crit Chance is 54.5%) — intentional headroom for a future
+    gear/skill system, not a currently-reachable limit.
+  - **No `combat/` package exists yet** — none of Strength/Intelligence/Dexterity's derived
+    stats affect actual damage/defence/speed/crit in-game; display-only plumbing for now, same
+    as Mana. **This is the biggest open gap in the progression stack** — see "Next recommended
+    step".
+- Networking: `networking/AttributeSyncPayload.java` (S2C, every tick, carries only the 4 raw
+  ints + unspent points — derived stats are computed client-side from the same `VitalsCurve`
+  methods, not synced separately). `networking/SpendAttributePointPayload.java` — **this
+  project's first C2S payload** (`PayloadTypeRegistry.playC2S()` +
+  `ServerPlayNetworking.registerGlobalReceiver`), sent when a Stats-screen "+1" button is
+  clicked. Old `Base Damage`/`Base Magic Damage` flat fields and `CombatStatsSyncPayload` are
+  gone, fully superseded by these formulas.
+- UI: pressing **C** (`ui/Baum2KeyBindings.java`, `KeyBinding.Category.MISC`) opens
+  `ui/CharacterStatsScreen.java` — a full menu `Screen` built on vanilla's real
+  `Tab`/`TabManager`/`TabNavigationWidget`/`GridScreenTab` system, one tab ("Stats") with 15
+  rows (Life, Mana, Unspent Points, then each attribute interleaved with its derived stats).
+  Content wrapped in vanilla's `ScrollableLayoutWidget` (fixes a real bug where bottom rows
+  were unreachable at high GUI Scale) and given an opaque panel background (fixes a real bug
+  where vanilla's default darkening was too weak against a bright sky, and content overlapped
+  the tab header — see git history for both root causes). Row order/colors in
+  `docs/visual-style-guide.md` section 12.
+- **Two real, confirmed-not-guessed bugs were fixed during this system's development** (both
+  found via actual user screenshots, not caught by build/boot verification alone): the tab
+  header overlapping content (root cause: `GridScreenTab`'s default centering anchor goes
+  negative once content is taller than the tab area — fixed via a `refreshGrid` override),
+  and bottom rows being unreachable at high GUI Scale (fixed via `ScrollableLayoutWidget`).
+  **General lesson for future custom `Screen`s in this codebase**: override `refreshGrid`
+  (or equivalent) for any content that might grow past a single screen's worth of rows, and
+  don't assume build success + clean boot means the UI actually renders/scrolls correctly —
+  it doesn't catch layout bugs.
+
+### Class System v1 — 4 classes, command + GUI selection
+
+- `classes/` package: `PlayerClass` (enum: `EISENWAECHTER`, `SCHATTENLAEUFER`, `RUNENWIRKER`,
+  `WESENSWAHRER`), `ClassDefinition` (record), `ClassRegistry` (static lookup), `ClassManager`
+  (persistence + apply/remove bonus + its own join listener).
+- Commands: `/baum2 class list`, `/baum2 class info [<class>]`, `/baum2 class select <class>`.
+- Persistence via Fabric's Attachment API, **now synced to the client** too
+  (`.syncWith(PacketCodecs.STRING.xmap(...), AttachmentSyncPredicate.targetOnly())` — added
+  during the Custom UI work below, since the HUD/Screen need to know the client's own class).
+- Passive bonuses: Eisenwächter +4 max health, Schattenläufer +10% movement speed, Runenwirker
+  +1 luck, Wesenswahrer +10% knockback resistance — each a stable-`Identifier`
+  `EntityAttributeModifier`, swapped cleanly on reselection/rejoin.
+- **4th class renamed `Seelenhüter` → `Wesenswahrer`** (`ip-naming-compliance-checker` found
+  `Seelenhüter` was an exact match to *Echo of Soul*'s player-character title). **Wesenswahrer's
+  bonus attribute changed from `MAX_ABSORPTION` (a confirmed no-op — nothing in the mod grants
+  absorption hearts) to `KNOCKBACK_RESISTANCE`** (`balance-reviewer` finding).
+- **Fine-grained `/attribute` verification is still the one open gap** for this system (see
+  "Next recommended step") — a quick manual check confirmed class selection/switching *works*
+  end-to-end via both the command and the new GUI (see below), but the exact numeric modifier
+  values (`/attribute @s ... modifier value get baum2:class_bonus/...`) haven't been checked.
+- **Known, logged, not fixed (design/judgment calls)**: free, instant, zero-cooldown class
+  reselection lets a player capture all four bonuses' benefit contextually; Runenwirker's luck
+  has no loot system yet to act on.
+
+### Custom UI v1 — HUD overlay + Class Screen
+
+- **Started from a request for a "Metin2 look"**, rejected as conflicting with
+  `MASTERPROMPT.md`'s "no MMORPG UI imitation" rule; resolved with the user in favor of an
+  original look using only generic, non-distinctive genre conventions —
+  `docs/visual-style-guide.md` section 0 records why.
+- `docs/visual-style-guide.md` — "Deepwood & Verdigris" art direction (flat, square-cornered
+  panels, slate/verdigris/rune-cyan palette), per-class accent colors/icon motifs, HUD and
+  Class Screen layout specs. **This doc was independently created on both branches this same
+  day and merged together at merge time** — see "Last change" below; it now has a "two owners,
+  two palettes" reconciliation note in its own Section 1 that's worth reading before further
+  UI work (the Vitals/Stats-screen colors and the Class-System colors are not yet unified).
+- `ui/PlayerStatusHud.java` — top-left HUD panel: class icon/name (accent-colored), level, a
+  slim 3px rune-cyan XP sliver. Distinct region from `VitalsHud` (top-left vs. left status-bar
+  column near the hotbar) — confirmed no collision.
+- `ui/ClassScreen.java` — "Klassenübersicht", a full hand-drawn `Screen` listing all 4 classes
+  with click-to-select, opened via a new **K** keybind (own `KeyBinding.Category.create
+  (baum2:main)`, separate convention from `CharacterStatsScreen`'s vanilla `MISC` category —
+  see the structural question below).
+  - New C2S `networking/ClassSelectPayload.java` (mirrors `ExperienceSyncPayload`'s pattern in
+    the other direction) lets clicking a card actually select a class server-side.
+- Dead code removed: a duplicate, never-registered `Baum2Client` (in a `client` subpackage),
+  and the old unwired `ui/ProgressionHud.java` prototype (superseded by `PlayerStatusHud`).
+  **Both branches independently deleted these same two files** — confirmed clean convergent
+  double-delete during the merge.
+- **Open structural question, flagged by `merge-integration-reviewer` during this merge, not
+  resolved**: the mod now has two "per-player identity/build" screens on separate keybinds
+  ('K' → `ClassScreen`, hand-drawn chrome; 'C' → `CharacterStatsScreen`, vanilla tab/scroll
+  chrome). `CharacterStatsScreen`'s own design already anticipated more tabs ("Skills, Class,
+  etc."). Whether `ClassScreen`'s content should become a tab inside `CharacterStatsScreen`,
+  or whether keeping them permanently separate is the right call, is a product decision for
+  the contributors — not blocking, both work fine independently today.
+
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
-- **Branches**: `master` was merged from both work branches (see prior HANDOFF revision /
-  `git log -p HANDOFF.md` for that merge's detail); `jonas_workbranch` was then fast-forwarded
-  to match `master` and pushed. Per explicit user instruction, active work is back on
-  `jonas_workbranch` now, until the user asks for another merge into `master`.
-  `fischey_workbranch` still exists and tracks its own remote for Fischey's follow-up work.
-- `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets Java+Gradle
-  recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
-- Five subagents under `.claude/agents/` (shared via git, so both contributors get them):
-  `fabric-docs-researcher` (Fabric/MC API research -> `docs/fabric-modding.md`),
-  `ip-naming-compliance-checker` (reviews new names/text against IP/naming rules),
-  `balance-reviewer` (internal-consistency/exploit review of numeric balance values),
-  `merge-integration-reviewer` (pre-merge overlap/design-conflict check between branches),
-  `graphics-designer` (new — the mod's senior graphic designer: textures, models, icons,
-  UI/HUD layout, color/style identity per rarity/class/faction; persists a style guide to
-  `docs/visual-style-guide.md`). The first four report findings only and don't edit files;
-  `graphics-designer` is the exception and is expected to write/edit asset and doc files
-  directly. See `CLAUDE.md` -> "Project Agents" for exact trigger conditions; use all five
-  proactively, don't wait to be asked.
-  `balance-reviewer` and `ip-naming-compliance-checker` have now both been run for real
-  (workspace-root bug below is fixed) against the Class System and the progression XP
-  curve/mob-reward formula — see the "Class System v1" and "Progression System" bullets above
-  for their findings and which ones were fixed vs. logged for a later decision.
-- **Known limitation, root cause found**: a running Claude Code session loads its available
-  agent list at startup, so newly added `.claude/agents/*.md` files aren't picked up
-  mid-session. **But also**: the harness discovers project agents from its primary working
-  directory, not from a nested repo root — if a session is opened at `D:\Baum2` (the parent
-  of this repo) instead of `D:\Baum2\Baum2` (where `.claude/agents/` actually lives), none of
-  the five project agents are visible at all, even in a fresh session ("Agent type not
-  found: fabric-docs-researcher" etc., only the generic built-ins listed as available).
-  Confirmed 2026-07-04. **Fix: open/attach the Claude Code session with `D:\Baum2\Baum2` as
-  the workspace root**, not `D:\Baum2`. If this keeps happening, that's almost certainly why.
+- **Branches**: `jonas_workbranch` just merged `origin/master` (which had already absorbed all
+  of `fischey_workbranch`'s recent work — `master` and `fischey_workbranch` were at the same
+  commit at merge time). `jonas_workbranch` is now ahead of `master` by this merge commit plus
+  its own prior Class-System/Custom-UI commits; push this branch, then decide whether/when to
+  fast-forward or merge it back into `master`.
+- `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets
+  Java+Gradle recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
+- Five subagents under `.claude/agents/` (shared via git): `fabric-docs-researcher`,
+  `ip-naming-compliance-checker`, `balance-reviewer`, `merge-integration-reviewer`,
+  `graphics-designer` (the exception that writes files — maintains
+  `docs/visual-style-guide.md`). The first four report findings only. See `CLAUDE.md` ->
+  "Project Agents" for exact trigger conditions; use them proactively.
+- **Known limitation (workspace root)**: the harness discovers project agents from its primary
+  working directory, not a nested repo root — a session opened at `D:\Baum2` (the parent of
+  this repo) instead of `D:\Baum2\Baum2` sees none of the five project agents. **Fix: open the
+  session at `D:\Baum2\Baum2`.** Confirmed fixed as of this session — both `merge-integration-
+  reviewer` calls during this merge ran as the real subagent type, not a workaround.
+- **Known limitation (environment-specific, reported from at least one other environment)**:
+  in at least one setup (the VS Code extension host per a prior session's note), custom
+  `.claude/agents/` subagents were never available via the `Agent` tool even in a fresh
+  session with the files present on disk — only built-in types resolved. Workaround used
+  there: read the target `.claude/agents/<name>.md` file yourself and dispatch a
+  general-purpose agent reproducing its role/instructions verbatim. Not encountered in this
+  session (custom agent types resolved normally here) — if it recurs, that workaround remains
+  available.
+- **No GUI-automation tool exists in this environment** for the native Minecraft/LWJGL window
+  (unlike a browser/Electron app) — every UI bug found in the Vitals/Attribute/Stats-screen
+  work was only caught because a human played manually and reported back (screenshots, or a
+  direct "it worked" / "it's broken" report), not by build/boot verification. Expect the same
+  for any future UI work: build passing and clean boot are necessary but not sufficient checks.
 
 ## Last change (on `jonas_workbranch`)
 
-Built Custom UI v1 (HUD overlay + Class Screen) — see "Current state" above for full detail.
-Used three subagents in sequence: `graphics-designer` produced the original visual style
-guide and layout specs (after explicitly rejecting a "Metin2 look" request for conflicting
-with the project's own no-UI-imitation rule), `fabric-docs-researcher` confirmed the current
-1.21.11 APIs needed to implement it (and found the actual root cause of an old, previously-
-unexplained HUD text-rendering bug: a zero alpha byte silently no-ops `DrawContext.drawText*`),
-then implementation followed both docs directly. Also fixed a real data-flow gap the research
-agent found (`ClassManager.SELECTED_CLASS` had no client sync) and cleaned up two pieces of
-dead code discovered along the way (a duplicate unregistered `Baum2Client`, an unwired old HUD
-prototype). Build verified passing; user launched a real client and confirmed the HUD, the
-**K**-keybind Class Screen, and click-to-select all work end-to-end. Why: user asked for a
-full custom UI/layout: the request's original framing ("look like Metin2, but don't clone it")
-directly matched a rule this project already has in `MASTERPROMPT.md`, so that tension was
-surfaced and resolved with the user before any design work started, rather than guessing at
-how close was "close enough."
+**Merged `origin/master` into `jonas_workbranch`.** Master had moved substantially since the
+last sync — Fischey's branch added progression persistence, an XP curve rebalance +
+`VanillaXpFormula`→`ProgressionCurve` rename, a full Vitals (Life/Mana) system with a HUD
+rework, and a 4-attribute system with a Character Stats Screen — while `jonas_workbranch` had
+added the Class System and this session's Custom UI work. Used `merge-integration-reviewer`
+twice: once before this scope was fully visible (master kept moving mid-review), and again
+with the full picture once it settled, including a real trial merge in a disposable worktree
+to get ground truth on exact conflicts rather than guessing from diff stats.
+
+Conflicts resolved:
+- **`progression/PlayerProgressData.java`** — master fully rewrote this class (Codec-based
+  persistence, 5 new attribute/mana fields, 9-arg constructor). Took master's structure as the
+  base and re-applied jonas's one-line fix into it (the no-arg constructor's
+  `experienceForNextLevel` now correctly calls `ProgressionCurve.getXpRequiredForLevel(level +
+  1)` instead of a hardcoded `100`, which — unfixed — would have undercounted the first
+  level-up by ~48% against the new, steeper curve). Dropped jonas's `writeNbt`/`readNbt`
+  entirely (dead code once master's Codec-based persistence superseded manual NBT).
+- **`networking/Baum2Networking.java`** — both branches restructured the same method. Kept
+  master's payload-type registrations, consolidated all C2S receivers (jonas's
+  `ClassSelectPayload`, master's `SpendAttributePointPayload`) into one
+  `registerServerReceivers()` method for consistency, since `Baum2.java` already calls both
+  `registerServerPayloads()` and `registerServerReceivers()` post-merge anyway.
+- **`Baum2.java`, `Baum2Client.java`, `en_us.json`** — mechanical, kept both sides' additions
+  (no functional overlap: different registrations, different keybindings, different lang
+  keys).
+- **`CLAUDE.md`** — both branches independently added an identical `graphics-designer` agent
+  file (confirmed same blob hash) but described it in slightly different prose in this file;
+  kept jonas's wording (marginally more detailed).
+- **`docs/visual-style-guide.md`** — a real add/add conflict (both branches created this file
+  from scratch, same day, no common ancestor to diff against). This was a content
+  reconciliation, not a mechanical conflict: kept jonas's version as the frame (numbered
+  sections, IP-compliance guardrails, base palette) and folded master's two screen specs in as
+  new Sections 11-12, correcting one now-false claim (master's "art direction not yet formally
+  defined" — it now is, in Section 1) and adding an explicit reconciliation note that the two
+  sides' color palettes are not yet unified (a deliberate open follow-up, not an oversight).
+- **`HANDOFF.md`** — rewritten fresh from both sides' state (this file), per established
+  practice for this project's prior cross-branch merges.
+- Two dead-code deletions (`client/Baum2Client.java`, `ui/ProgressionHud.java`) turned out to
+  be convergent — both branches deleted the exact same files independently, no conflict.
+
+Verified: `./gradlew build` passes after all resolutions. Not yet re-verified in-game post-merge
+— see "Next recommended step".
+
+Why: user asked to merge `master` into `jonas_workbranch` to bring both contributors' recent
+work together. Used the project's own `merge-integration-reviewer` agent proactively, per
+`CLAUDE.md`'s rule, given the scope of parallel work on both branches touching progression,
+networking, and UI at the same time.
 
 Earlier, on `jonas_workbranch`: ran `ip-naming-compliance-checker` and `balance-reviewer` for
-real against Class System v1
-(the workspace-root bug that blocked them last session is confirmed fixed — both loaded and
-ran normally this time), then applied the straightforward fixes and logged the judgment
-calls:
-- Renamed `Seelenhüter` → `Wesenswahrer` everywhere (`PlayerClass.java`, `ClassRegistry.java`,
-  and `MASTERPROMPT.md`'s own example lists) after the naming check found it was an exact,
-  word-for-word match to *Echo of Soul*'s player-character title, not just a generic fantasy
-  word.
-- Swapped Wesenswahrer's passive bonus from `MAX_ABSORPTION` (found to be a complete no-op —
-  nothing in the mod grants absorption hearts) to `+0.10 KNOCKBACK_RESISTANCE`, which is
-  immediately live like the other three classes' bonuses.
-- Fixed `PlayerProgressData`'s hardcoded level-1→2 XP threshold (`100`) to match
-  `VanillaXpFormula`'s actual value (`9`) instead of drifting from it.
-- Logged for a later decision, not fixed: mob XP (lump-sum, 14-160/kill) can vault a
-  low-level character through many levels at once against the curve's small early
-  requirements; `ExperienceManager.getMaxLevel()`'s 100-level cap is declared but never
-  enforced; free/instant class reselection (already known) lets a player capture all four
-  classes' bonuses contextually; Runenwirker's luck bonus has no loot system to act on yet.
-- Build verified passing after each change (`gradlew build -q`, no errors).
-- Why: user asked for a read of all project docs and a plan for what's next. Agreed plan: the
-  user is manually verifying the Class System's in-game player path (select/attribute/
-  relog/death-respawn) in parallel, while this session ran the two review agents that were
-  blocked last time and fixed what was unambiguous.
+real against Class System v1, then built Custom UI v1 (HUD overlay + Class Screen) with
+`graphics-designer` and `fabric-docs-researcher`. Full detail on both of these (naming
+rename, balance fixes, style guide creation, HUD/Screen implementation, dead-code cleanup) is
+folded into "Current state" above under "Class System v1" and "Custom UI v1" — see
+`git log -p HANDOFF.md` for the original blow-by-blow narrative if needed.
 
-Earlier, on `jonas_workbranch`: added Class System v1 (`classes/` package: `PlayerClass`,
-`ClassDefinition`, `ClassRegistry`, `ClassManager`) plus `/baum2 class list|info|select`
-commands — see "Current state" above for full detail. Why: user wants the Progression System
-to become meaningful now that leveling works, by giving players a class/build to level into.
-Hit the workspace-root agent bug above partway through (see "Known limitation" — none of the
-five project agents were loadable this session), so the IP-naming check, the Fischey-branch
-overlap check, and the Fabric API research (Attachment API, `EntityAttributeModifier`) were
-all done manually against `docs/fabric-modding.md`'s and `CLAUDE.md`'s own stated methodology
-instead of via the actual subagents — not skipped, but worth re-running for real once the
-workspace root is fixed. Verification was likewise partial: build + a real dedicated server +
-live RCON confirmed the command surface and data; the player-specific path
-(select/attribute-modifier/persistence) needs a real graphical client — see "Next recommended
-step".
+Earlier, on `fischey_workbranch` (now merged): added the 4-attribute system + Character Stats
+Screen rework (including the scrolling and header-overlap bug fixes), the Vitals (Life/Mana)
+system + HUD rework, the XP curve rebalance/rename, and progression persistence via the
+Attachment API (including two real bugs found and fixed: a lazy-class-loading bug that
+silently reset progress on join, and a dev-environment random-username bug that looked like
+the same symptom but wasn't). Full detail folded into "Current state" above under
+"Progression System", "Vitals System", and "Attribute System" — see `git log -p HANDOFF.md`
+for the original blow-by-blow narrative (multiple detailed entries, each with root-cause
+analysis) if needed.
 
-Earlier: added a fifth subagent, `graphics-designer` (`.claude/agents/graphics-designer.md`),
-and documented it in `CLAUDE.md` -> "Project Agents". Unlike the existing four (review/report
-only), this one is a producing agent — the mod's senior graphic designer, responsible for
-textures, models, icons, UI/HUD layout, and color/style identity (rarity tiers, classes,
-factions), with a persisted style guide at `docs/visual-style-guide.md` (not created yet — no
-visual assets exist in the project at all so far). Why: user asked for a dedicated graphics-
-focused agent now that the progression system is stable and Priority 1 items (first item/
-weapon/skill/event block) are coming up and will need original visual assets. Not yet
-exercised on a real task.
+Earlier, on `master`: merged both contributors' branches together for the first time (fast-
+forward of `jonas_workbranch`'s agent/docs work, merge commit for `fischey_workbranch`'s
+progression/networking/mixin work) — see `git log -p HANDOFF.md` for that merge's detail.
 
-Earlier, on `master`: merged both active work branches into `master`:
-
-- Merged `origin/jonas_workbranch` (fast-forward, commit `c979769`) — adds the four
-  `.claude/agents/*.md` subagents, the "Project Agents" section in `CLAUDE.md`, and
-  `docs/fabric-modding.md`.
-- Merged `origin/fischey_workbranch` (merge commit, tip `75dd912`) — brings in the
-  Mixin-based XP-orb suppression, the shared `VanillaXpFormula`, and the real-time
-  client XP-bar sync over a custom S2C packet (see "Networking API reference" below).
-- Only conflict was `HANDOFF.md` itself (expected — both branches update it independently);
-  resolved by hand-merging both branches' state into this version. No source-code conflicts:
-  the two branches touched disjoint files (`jonas_workbranch` only touched docs/agent
-  definitions, `fischey_workbranch` only touched progression/networking/mixin code), and a
-  manual overlap check (the `merge-integration-reviewer` agent wasn't loaded in this session)
-  found no competing design assumptions between them either.
-- Why: user requested combining both contributors' branches into `master` now that
-  Fischey's XP-sync work had reached a working state.
-
-Earlier, on `fischey_workbranch` before the merge: "Fixed real-time vanilla level/XP bar sync"
-— added `VanillaXpFormula.java` to replace three drifting copies of the curve (the actual
-cause of "level updates but progress bar doesn't"), and a custom S2C payload
-(`networking/ExperienceSyncPayload.java` + `networking/Baum2Networking.java` server-side,
-`networking/ClientNetworkingHandler.java` client-side) sent every tick from
-`ProgressionTickHandler`. Root cause of the earlier bug: vanilla only pushes experience to the
-client on join or on a server-side `setExperienceLevel()`/`addExperience()` call — setting
-fields directly on `ServerPlayerEntity` every tick never reaches the client.
-
-Earlier, on `jonas_workbranch` before the merge: `09eefd4` — "Add ip-naming-compliance-checker,
-balance-reviewer, and merge-integration-reviewer agents", alongside the pre-existing
-`fabric-docs-researcher`. Attempted to run the review agents against the progression system as
-a first pass but couldn't — new custom agents aren't picked up until a fresh session starts
-(see "Known limitation" above). Still not done; see "Next recommended step".
-
-See `git log -p HANDOFF.md` for the full detail on earlier revisions.
+See `git log -p HANDOFF.md` for the full detail on all earlier revisions.
 
 ## Networking API reference for this exact version (Fabric 0.141.4+1.21.11 / Yarn 1.21.11+build.6)
 
@@ -319,14 +288,71 @@ and the fabric-api jar — worth keeping here since it's easy to reach for the w
 | Setting client player's level/progress | `ClientPlayerEntity.setExperienceLevel(int)` — **does not exist, will not compile** | `ClientPlayerEntity.setExperience(float progress, int totalExperience, int level)` |
 
 Registration pattern that actually compiles:
-- `PayloadTypeRegistry.playS2C().register(MyPayload.TYPE, MyPayload.CODEC)` — call from common
-  code (`Baum2.onInitialize`), works for both logical sides since `splitEnvironmentSourceSets()`
-  puts `main` on `client`'s classpath.
-- Server sends: `ServerPlayNetworking.send(serverPlayerEntity, payload)`.
+- `PayloadTypeRegistry.playS2C().register(MyPayload.TYPE, MyPayload.CODEC)` (or `.playC2S()`
+  for the other direction) — call from common code (`Baum2.onInitialize`), works for both
+  logical sides since `splitEnvironmentSourceSets()` puts `main` on `client`'s classpath.
+- Server sends: `ServerPlayNetworking.send(serverPlayerEntity, payload)`. Client sends:
+  `ClientPlayNetworking.send(payload)`.
 - Client receives: `ClientPlayNetworking.registerGlobalReceiver(MyPayload.TYPE, (payload, context) -> {...})`
-  — the callback already runs on the client thread, no extra `execute()` wrapping needed.
+  — runs on the client thread, no extra `execute()` wrapping needed. Server receives:
+  `ServerPlayNetworking.registerGlobalReceiver(MyPayload.TYPE, (payload, context) -> {...})`
+  — `context.player()` gives the sending `ServerPlayerEntity`.
 
-If you add more custom payloads, follow `ExperienceSyncPayload.java` as the template.
+If you add more custom payloads, follow `ExperienceSyncPayload.java` (S2C) or
+`ClassSelectPayload.java` / `SpendAttributePointPayload.java` (C2S) as templates.
+
+## Attachment API reference (persistent per-player/entity data)
+
+For any future "store custom data on a player/entity/block-entity/chunk that should survive
+restarts" need, use `fabric-data-attachment-api-v1` (already a dependency) rather than a
+hand-rolled `HashMap<UUID, ...>` + manual save/load. Reference implementations:
+`progression/PlayerLevelSystem.java` (`PROGRESSION` field) + `progression/PlayerProgressData.java`
+(`CODEC`), and `classes/ClassManager.java` (`SELECTED_CLASS`, including client sync via
+`.syncWith(...)`).
+
+**Critical gotcha, learned the hard way (cost a full debugging cycle):** the class holding
+your `AttachmentType` static field must be force-loaded during `Baum2.onInitialize()`, via an
+explicit call to some no-op method on it (see `PlayerLevelSystem.bootstrap()`). If the class
+is only ever referenced from inside an event callback *body* (a lambda registered at init time
+but not executed until later), Java's lazy class initialization means the `AttachmentType`
+won't actually be registered until the first time a player triggers that callback — by which
+point Fabric may have already tried and failed to deserialize that player's persisted
+attachment data (silently), permanently losing it on the next save. Symptom: progress "resets"
+but only sometimes, and looks exactly like a persistence failure even though writes are
+working fine. `classes/ClassManager` avoids this incidentally (its `registerEvents()` is
+called directly and unconditionally from `Baum2.onInitialize()`, which forces its static
+`SELECTED_CLASS` field to initialize as a side effect of Java's class-init rules) but doesn't
+document this the way `PlayerLevelSystem.bootstrap()`'s Javadoc does — worth a defensive
+comment if `registerEvents()` is ever refactored to be lazy.
+
+**Second gotcha, also cost a real debugging cycle:** adding a new field to an already-
+`persistent()` attachment Codec must use `Codec.optionalFieldOf(name, default)`, never
+`fieldOf(name)` — `RecordCodecBuilder`'s `instance.group(...)` fails to decode the **entire**
+record if any required field is missing, so a single new mandatory field silently discards
+every other field too for any save predating that field's introduction (confirmed: a
+level-45 test character was reset to level 1 by exactly this bug before the fix). All of
+`PlayerProgressData`'s Mana/attribute fields use `optionalFieldOf` for this reason.
+
+Key classes, all in `net.fabricmc.fabric.api.attachment.v1` (stable across mapping sets):
+- `AttachmentType<A>` — the "key" for a piece of attached data.
+- `AttachmentRegistry.create(Identifier, Consumer<Builder<A>>)` — **not**
+  `AttachmentRegistry.builder()` (that's `@Deprecated`, confirmed via `javap -v`).
+- Builder methods: `.persistent(Codec<A>)` (save/load), `.copyOnDeath()` (survives death/
+  respawn), `.initializer(Supplier<A>)` (default for entities that never had it set),
+  `.syncWith(PacketCodec<? super RegistryByteBuf, A>, AttachmentSyncPredicate)` (pushes the
+  value to the client automatically on change — `AttachmentSyncPredicate.targetOnly()` for
+  "only the owning player needs to know").
+- `AttachmentTarget` — implemented by `Entity`/`ServerPlayerEntity`/`BlockEntity`/`Chunk`/
+  `World` via Fabric's build-time interface injection. Methods: `getAttached(type)`,
+  `getAttachedOrCreate(type)`, `setAttached(type, value)`, `removeAttached(type)`.
+
+The `.persistent(Codec<A>)` codec is `com.mojang.serialization.Codec<A>` (Mojang's
+DataFixerUpper library) — **not** the `PacketCodec` used for networking above; unrelated codec
+systems despite the similar name. Build one with `RecordCodecBuilder.create(...)`.
+
+Persisted attachment data is stored as part of the target's own save data (e.g. a player's
+`playerdata/<uuid>.dat`), written/read automatically by vanilla's existing save cycle — no
+manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Decisions worth knowing about
 
@@ -341,56 +367,57 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` as the temp
 - Java target set to 21 (matches what Minecraft 1.21.11 needs). Some contributor machines have
   other JDKs installed (e.g. a JDK 25 under an IDE-managed `.jdks` folder) — the toolchain pin
   in `build.gradle` is now unconditional specifically to defend against those being picked up
-  by accident. If you add a new mixin config file, set `"compatibilityLevel": "JAVA_21"`
-  explicitly rather than relying on IDE mixin-config generators, which may default to whatever
-  JDK generated them locally.
+  by accident.
 - A local, gitignored SSH-style keypair (`baum2_key`, `baum2_key.pub`) has appeared in some
-  working copies of this repo (root directory, gitignored via `baum2_key*`). It has never been
-  committed. If you don't know what it's for, don't commit it and ask before deleting it —
-  another contributor may depend on it locally.
-- Vanilla XP curve is centralized in `VanillaXpFormula` — **do not** reimplement it elsewhere.
-  The bug that took several iterations to fix (level updated, progress bar didn't) was ultimately
-  caused by three separate copies of this formula drifting apart, not by a display API issue.
-- Vanilla XP orb drops from hostile mobs are disabled via `LivingEntityMixin`. Experience bottles
-  were reported to still spawn orbs in an earlier session — not re-verified since; low priority.
+  working copies of this repo. It has never been committed. If you don't know what it's for,
+  don't commit it and ask before deleting it — another contributor may depend on it locally.
+- Our XP curve is centralized in `ProgressionCurve` (originally `VanillaXpFormula`, renamed
+  once it stopped actually being vanilla's formula) — **do not** reimplement it elsewhere. The
+  numbers are also deliberately rebalanced away from vanilla's own for this mod's lump-sum
+  reward economy — see "Current state" above for the current formula and why.
+- Vanilla XP orb drops from hostile mobs are disabled via `LivingEntityMixin`. Experience
+  bottles were reported to still spawn orbs in an earlier session — not re-verified since; low
+  priority.
+- Progression persistence uses Fabric's Data Attachment API — **do not** reintroduce a manual
+  `HashMap<UUID, ...>`, that was the previous approach and it's why data was lost on restart.
+- Fischey's dev environment pins a fixed dev username/UUID (`Baum2Dev`) in `build.gradle`'s
+  `loom { runs { client { ... } } }` block, since Loom otherwise assigns a fresh random
+  username (and therefore UUID) on every `runClient` launch — without this, per-player
+  persistence looks broken in dev even when it isn't (every launch is a "new" player). Has no
+  effect on a real server/launcher session.
 
 ## Next recommended step
 
-1. **Fine-grained `/attribute` verification of the Class System is still the one open gap**
-   (the UI work above confirms class selection/switching *works*, via the HUD and Class
-   Screen, but not the exact numeric modifier values): join a world and run through
+1. **In-game verification of everything merged this session** — no GUI-automation tool exists
+   here (see "Current state"), so this needs a human: confirm the Class Screen ('K') and
+   Character Stats Screen ('C') both still open correctly and don't visually collide with each
+   other or with the two HUD elements (`PlayerStatusHud` top-left, `VitalsHud` left status-bar
+   column); confirm the Stats screen's scrollbar/`+1` buttons still work; confirm class
+   selection still works via both the command and `ClassScreen`'s click-to-select.
+2. **Fine-grained `/attribute` verification of the Class System** (older, still-pending item):
    `/baum2 class select eisenwaechter` → `/attribute @s minecraft:max_health modifier value
    get baum2:class_bonus/eisenwaechter_max_health` (expect `4.0`) → `/attribute @s
-   minecraft:max_health get` (expect `24.0`) → disconnect and rejoin (confirm `/baum2 class
-   info` still reports the class and the modifier query still returns exactly one value, not
-   duplicated/erroring) → `/kill @s` and respawn (confirm the class/modifier survive —
-   the specific test that `.copyOnDeath()` is wired correctly). Also spot-check
-   `wesenswahrer`'s `minecraft:generic.knockback_resistance` (expect `0.1`).
-2. **Human decision needed on the balance-reviewer's logged (not auto-fixed) findings** — see
-   "Class System v1" and "Progression System" bullets above for full detail: (a) should mob
-   XP scale down at low character levels, or should the curve's early segment be steeper for
-   lump-sum rewards; (b) should the 100-level cap be actually enforced or should the unused
-   `getMaxLevel()` constant be removed; (c) should class reselection get a cost/cooldown now
-   or stay free for longer; (d) is Runenwirker's luck bonus fine to ship before a loot system
-   exists to make it matter, or should it wait.
-3. Run `merge-integration-reviewer` before merging `jonas_workbranch` back to `master`, given
-   Fischey's concurrent progression work.
-4. In-game manual verification of the Progression System (older, still-pending item): join a
-   world, run `/baum2 addxp <n>` a few times, and confirm the vanilla XP bar animates smoothly
-   (not just on level-up) and the level number matches `/baum2 level`.
-5. Persist progression data (currently in-memory only, lost on server restart) — the Class
-   System's `ClassManager` now demonstrates the recommended pattern (Fabric's Attachment API)
-   for this exact problem, see `docs/fabric-modding.md`.
-6. Get real (non-placeholder) art for the 4 class icons — current ones are explicitly
-   temporary flat-shape placeholders (see `docs/visual-style-guide.md` section 9). Use
-   `graphics-designer` when ready for a proper art pass.
-7. Next Class System iteration (deliberately out of scope for v1): the Skill-System per
-   `MASTERPROMPT.md`'s own priority order, multiple bonuses per class, and/or a respec
-   cost/cooldown (see point 2c above).
-8. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
+   minecraft:max_health get` (expect `24.0`) → disconnect/rejoin → `/kill @s` and respawn
+   (confirm `.copyOnDeath()` holds). Spot-check `wesenswahrer`'s
+   `minecraft:generic.knockback_resistance` (expect `0.1`).
+3. **Fresh `balance-reviewer` pass on the new `ProgressionCurve` + attribute system together**
+   — the old curve was reviewed, the new one hasn't been, and the attribute system's own
+   caps/formulas were only reviewed via a workaround-agent, not the real subagent.
+4. **The `ClassScreen`/`CharacterStatsScreen` structural question** (see "Current state") —
+   needs a product decision from the contributors, not more code.
+5. **The biggest gap in the whole progression stack**: no `combat/` package exists, so Base
+   Attack/Magic Attack/Physical/Magic Defence/Attack-Cast Speed/Crit Chance are all
+   computed-and-displayed only, with zero actual gameplay effect. The first real combat/skill
+   system should read them via `VitalsCurve`'s getters, not invent parallel numbers.
+6. **Class-name banner + level-diamond badge** (deferred in an earlier Vitals-work session
+   because "no `classes/` package exists yet") — that's no longer true; worth revisiting now
+   that the Class System exists, possibly as a `CharacterStatsScreen` tab per point 4 above.
+7. `ip-naming-compliance-checker` hasn't been run against the newer player-facing strings
+   (Stats screen row labels, attribute names) — only the Class System's names have been
+   checked so far.
+8. Get real (non-placeholder) art for the 4 class icons — see `docs/visual-style-guide.md`
+   section 9.
+9. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
-   unclear. Use `graphics-designer` for the texture/model/icon each of these will need. Once
-   a Skill or Upgrade system exists, build the corresponding `ui/` screen alongside it
-   (`docs/visual-style-guide.md`'s panel/color conventions already establish the pattern to
-   extend, e.g. the same 2px two-tone border and "+value = rune cyan" rule).
+   unclear. Use `graphics-designer` for the texture/model/icon each of these will need.

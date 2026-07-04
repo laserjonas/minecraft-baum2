@@ -11,6 +11,36 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   Mixin/payload registration errors).
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
+- **Class System v1 — new, command-driven, needs in-game player verification (see "Next
+  recommended step"):**
+  - New `classes/` package: `PlayerClass` (enum: `EISENWAECHTER`, `SCHATTENLAEUFER`,
+    `RUNENWIRKER`, `SEELENHUETER`), `ClassDefinition` (record: display name, description,
+    one passive `EntityAttributeModifier` bonus per class), `ClassRegistry` (static lookup),
+    `ClassManager` (persistence + apply/remove bonus + its own join listener).
+  - Commands: `/baum2 class list`, `/baum2 class info [<class>]`, `/baum2 class select <class>`
+    — added to `commands/Baum2Commands.java` additively (existing `addxp`/`level` untouched).
+  - Persistence via **Fabric's Attachment API** (`fabric-data-attachment-api-v1`, pinned at
+    `1.8.48+eed0806f3e` via the project's `fabric-api 0.141.4+1.21.11`), not a custom NBT
+    mixin — `ClassManager.SELECTED_CLASS` is a persistent, `copyOnDeath()` `AttachmentType`.
+    See `docs/fabric-modding.md` "Player data / attributes" for full API details.
+  - Passive bonuses (v1 placeholders, not yet balance-reviewed): Eisenwächter +4 max health,
+    Schattenläufer +10% movement speed, Runenwirker +1 luck, Seelenhüter +4 max absorption —
+    each via a stable-`Identifier` `EntityAttributeModifier`, swapped cleanly on
+    reselection/rejoin (`ClassManager.applyBonus` always `removeModifier` before
+    `addPersistentModifier`, since persistent modifiers are already restored from entity NBT
+    by the time a returning player's `JOIN` event fires — skipping the removal step throws).
+  - Deliberately does not touch `events/LevelUpHandler.java` or
+    `events/ProgressionTickHandler.java` (Fischey's most actively-changed files) — class-join
+    resync lives in `ClassManager`'s own independent `ServerPlayConnectionEvents.JOIN`
+    listener instead of being added to `LevelUpHandler`'s.
+  - **Verified so far**: build passes; a real (non-GUI) dedicated server boots cleanly with
+    the new code (confirms the `AttachmentType`/codec registration doesn't crash at
+    class-init); `/baum2 class list` was exercised over live RCON against that real server and
+    returns correct data for all 4 classes. **Not yet verified**: the actual player path
+    (`select`, the attribute modifier being applied/visible via vanilla `/attribute`,
+    surviving relogin, surviving death/respawn via `copyOnDeath()`) — this needs a real
+    graphical client, which wasn't available to automate this session. See "Next recommended
+    step".
 - **Progression System — FULLY WORKING, including real-time client display:**
   - Custom progression uses Minecraft's non-linear XP curve, centralized in
     `progression/VanillaXpFormula.java` (single source of truth — `ExperienceManager`,
@@ -45,24 +75,40 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   proactively, don't wait to be asked.
   `balance-reviewer` and `ip-naming-compliance-checker` still haven't been run against the
   progression system's balance values / player-facing strings — see "Next recommended step".
-- **Known limitation**: a running Claude Code session loads its available agent list at
-  startup, so newly added `.claude/agents/*.md` files aren't picked up mid-session — they
-  become available the next time a session starts fresh (restart, or a fresh session after
-  pulling). If an agent invocation fails with "Agent type not found" right after one was
-  added, that's why — not a bug in the agent definition.
+- **Known limitation, root cause found**: a running Claude Code session loads its available
+  agent list at startup, so newly added `.claude/agents/*.md` files aren't picked up
+  mid-session. **But also**: the harness discovers project agents from its primary working
+  directory, not from a nested repo root — if a session is opened at `D:\Baum2` (the parent
+  of this repo) instead of `D:\Baum2\Baum2` (where `.claude/agents/` actually lives), none of
+  the five project agents are visible at all, even in a fresh session ("Agent type not
+  found: fabric-docs-researcher" etc., only the generic built-ins listed as available).
+  Confirmed 2026-07-04. **Fix: open/attach the Claude Code session with `D:\Baum2\Baum2` as
+  the workspace root**, not `D:\Baum2`. If this keeps happening, that's almost certainly why.
 
 ## Last change (on `jonas_workbranch`)
 
-Added a fifth subagent, `graphics-designer` (`.claude/agents/graphics-designer.md`), and
-documented it in `CLAUDE.md` -> "Project Agents". Unlike the existing four (review/report
+Added Class System v1 (`classes/` package: `PlayerClass`, `ClassDefinition`, `ClassRegistry`,
+`ClassManager`) plus `/baum2 class list|info|select` commands — see "Current state" above for
+full detail. Why: user wants the Progression System to become meaningful now that leveling
+works, by giving players a class/build to level into. Hit the workspace-root agent bug above
+partway through (see "Known limitation" — none of the five project agents were loadable this
+session), so the IP-naming check, the Fischey-branch overlap check, and the Fabric API
+research (Attachment API, `EntityAttributeModifier`) were all done manually against
+`docs/fabric-modding.md`'s and `CLAUDE.md`'s own stated methodology instead of via the actual
+subagents — not skipped, but worth re-running for real once the workspace root is fixed.
+Verification was likewise partial: build + a real dedicated server + live RCON confirmed the
+command surface and data; the player-specific path (select/attribute-modifier/persistence)
+needs a real graphical client — see "Next recommended step".
+
+Earlier: added a fifth subagent, `graphics-designer` (`.claude/agents/graphics-designer.md`),
+and documented it in `CLAUDE.md` -> "Project Agents". Unlike the existing four (review/report
 only), this one is a producing agent — the mod's senior graphic designer, responsible for
 textures, models, icons, UI/HUD layout, and color/style identity (rarity tiers, classes,
 factions), with a persisted style guide at `docs/visual-style-guide.md` (not created yet — no
 visual assets exist in the project at all so far). Why: user asked for a dedicated graphics-
 focused agent now that the progression system is stable and Priority 1 items (first item/
 weapon/skill/event block) are coming up and will need original visual assets. Not yet
-exercised on a real task — same "known limitation" applies (new agent files aren't loaded
-mid-session, only from a fresh session start).
+exercised on a real task.
 
 Earlier, on `master`: merged both active work branches into `master`:
 
@@ -151,18 +197,33 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` as the temp
 
 ## Next recommended step
 
-1. In-game manual verification: join a world, run `/baum2 addxp <n>` a few times, and confirm the
-   vanilla XP bar animates smoothly (not just on level-up) and the level number matches
-   `/baum2 level`. This was verified as a clean client boot with no crashes but the GUI itself
-   hasn't been driven to confirm the visual result — do this before considering the feature
-   fully closed.
-2. In a fresh session (so the four agents are actually loaded): run `balance-reviewer` on the
-   progression system's XP curve/mob-reward formula and `ip-naming-compliance-checker` on
-   existing player-facing strings (command output, level-up broadcast text) — neither has been
-   reviewed yet.
-3. Persist progression data (currently in-memory only, lost on server restart).
-4. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
+1. **In-game manual verification of the Class System (highest priority — unverified core
+   path)**: join a world as a real player and run through: `/baum2 class select eisenwaechter`
+   → `/attribute @s minecraft:max_health modifier value get baum2:class_bonus/eisenwaechter_max_health`
+   (expect `4.0`) → `/attribute @s minecraft:max_health get` (expect `24.0`) → disconnect and
+   rejoin (confirm `/baum2 class info` still reports the class and the modifier query still
+   returns exactly one value, not duplicated/erroring) → `/kill @s` and respawn (confirm the
+   class/modifier survive — this is the specific test that `.copyOnDeath()` is wired
+   correctly). `/baum2 class list` and the player-less command-guard behavior are already
+   confirmed working via a real dedicated server + RCON this session; this step is the
+   remaining gap.
+2. In a fresh session opened at the correct workspace root (`D:\Baum2\Baum2`, see "Known
+   limitation" above — this was the blocker this session): run `ip-naming-compliance-checker`
+   on the class/skill names (manually cleared this session, worth a real pass) and
+   `balance-reviewer` on the Class System's passive-bonus table (see "Current state" —
+   explicitly flagged as placeholder values) and the still-unreviewed progression XP
+   curve/mob-reward formula. Also run `merge-integration-reviewer` before merging back to
+   `master`, given Fischey's concurrent progression work.
+3. In-game manual verification of the Progression System (older, still-pending item): join a
+   world, run `/baum2 addxp <n>` a few times, and confirm the vanilla XP bar animates smoothly
+   (not just on level-up) and the level number matches `/baum2 level`.
+4. Persist progression data (currently in-memory only, lost on server restart) — the Class
+   System's `ClassManager` now demonstrates the recommended pattern (Fabric's Attachment API)
+   for this exact problem, see `docs/fabric-modding.md`.
+5. Next Class System iteration (deliberately out of scope for v1): the Skill-System per
+   `MASTERPROMPT.md`'s own priority order, multiple bonuses per class, and/or a respec
+   cost/cooldown.
+6. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
-   unclear. Use `graphics-designer` (in a fresh session, per the known limitation) for the
-   texture/model/icon each of these will need.
+   unclear. Use `graphics-designer` for the texture/model/icon each of these will need.

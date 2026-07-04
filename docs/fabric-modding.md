@@ -91,6 +91,74 @@ here once `registry/ModItems` etc. exist.)_
   without fighting the vanilla XP bar (Fischey's in-progress work on `fischey_workbranch`)?
   Needs a verified Mixin target method + confirmation it doesn't break unrelated vanilla
   mechanics (anvils, enchanting tables, which also read player XP).
+
+## Player data / attributes (researched for the Class System, 2026-07-04)
+
+Verified against the actual jars in `~/.gradle/caches/` (fabric-api sources jar for the
+Attachment API's own package, which is unmapped/stable regardless of Yarn; the Yarn
+1.21.11+build.6 `mappings.tiny` for vanilla class/method names) — not from training data,
+since this exact question was previously flagged as an open unknown.
+
+**Persistence answer: use Fabric's Attachment API (`fabric-data-attachment-api-v1`), not a
+custom NBT mixin.** It's present in this project's Fabric API version
+(`0.141.4+1.21.11` pulls it in as a submodule — confirmed via
+`net.fabricmc.fabric.api.attachment.v1.*` in the Gradle module cache). This resolves the
+`PlayerProgressData.writeNbt`/`readNbt`-never-called gap noted above, and is the pattern the
+Class System's class-selection data now uses too:
+
+```java
+public interface AttachmentTarget { // implemented via mixin on Entity, BlockEntity, ServerLevel, ChunkAccess
+    <A> A getAttached(AttachmentType<A> type);
+    <A> A setAttached(AttachmentType<A> type, A value);
+    <A> A getAttachedOrCreate(AttachmentType<A> type, Supplier<A> initializer);
+    boolean hasAttached(AttachmentType<?> type);
+}
+```
+
+Register once via `AttachmentRegistry.createPersistent(Identifier id, Codec<A> codec)` (or
+`.create(id, builder -> ...)` for finer control — e.g. `.copyOnDeath()`, or `.syncWith(...)`
+if the client also needs to know the value). `ServerPlayerEntity` (an `Entity`) gets
+`getAttached`/`setAttached` for free via Fabric's mixin — no custom NBT read/write code
+needed, no join-time re-sync boilerplate like the progression system's tick-based XP sync
+required. Persistent attachments survive relogin and server restart automatically.
+
+**Passive stat bonuses: use `EntityAttributeModifier` with a stable `Identifier`, added via
+`LivingEntity.getAttributeInstance(EntityAttribute).addPersistentModifier(...)`.** Confirmed
+via Yarn 1.21.11 mappings (`mappings.tiny`, class `ciq` = `EntityAttributeModifier`, class
+`cio` = `EntityAttributeInstance`):
+
+- `EntityAttributeModifier(Identifier id, double value, EntityAttributeModifier.Operation operation)`
+  — **`Identifier`, not `UUID`** (the API changed away from UUID-keyed modifiers in recent
+  versions; don't reach for the older UUID constructor from stale tutorials/training data).
+- `LivingEntity.getAttributeInstance(EntityAttribute type)` → `EntityAttributeInstance`
+  (works on `ServerPlayerEntity` since it extends `LivingEntity`).
+- On the instance: `addPersistentModifier(modifier)` (serialized with the entity — survives
+  relogin/restart on its own, same guarantee as vanilla equipment/potion attribute
+  modifiers) vs. `addTemporaryModifier(modifier)` (not serialized). Also:
+  `hasModifier(Identifier id)`, `getModifier(Identifier id)`, `removeModifier(Identifier id)`
+  / `removeModifier(EntityAttributeModifier)`, `overwritePersistentModifier(modifier)`.
+- Practical pattern for a class system: give each class's bonus(es) a fixed
+  `Identifier` (e.g. `baum2:class_bonus/eisenwaechter_max_health`). On class
+  (re)selection, `removeModifier(oldId)` for the previous class's modifier ids, then
+  `addPersistentModifier(new EntityAttributeModifier(newId, value, operation))` for the new
+  class. Because it's persistent, **no per-tick or per-join reapplication is needed** (unlike
+  the progression system's XP bar, which needed a custom S2C packet every tick because
+  vanilla only pushes XP to the client on specific server calls) — this is vanilla-native
+  entity state, not something we're re-deriving each tick.
+
+**No built-in "class" concept exists in vanilla or Fabric API** — confirmed nothing like it
+in the attachment/attribute APIs above. The `classes/` package (`PlayerClass`,
+`ClassRegistry`, `ClassDefinition`, `ClassManager`) is entirely custom game logic backed by
+our own registry, per the `MASTERPROMPT.md` architecture sketch — there's no existing engine
+concept to hook into or misuse instead.
+
+## Open questions
+
 - Persistence: `PlayerProgressData` already has `writeNbt`/`readNbt` but nothing calls them
   yet — need to confirm the correct 1.21.11 hook for per-player persistent data (Fabric's
   attachment API vs. classic `PlayerEntity` NBT read/write mixin) before implementing.
+  **Partially answered above**: the Attachment API is confirmed as the right tool in
+  general. Whether to migrate `PlayerProgressData` itself onto it (replacing the in-memory
+  `HashMap` in `PlayerLevelSystem`) is a separate decision for whoever next works on
+  progression persistence — not done as part of the Class System work, to avoid touching
+  files Fischey is actively iterating on.

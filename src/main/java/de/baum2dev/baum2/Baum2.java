@@ -19,6 +19,7 @@ public class Baum2 implements ModInitializer {
 
         Baum2Commands.registerCommands();
         Baum2Networking.registerServerPayloads();
+        Baum2Networking.registerServerReceivers();
         LevelUpHandler.registerEvents();
         MobDeathHandler.registerEvents();
         ProgressionTickHandler.registerEvents();

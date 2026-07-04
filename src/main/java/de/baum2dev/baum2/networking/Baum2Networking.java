@@ -3,6 +3,7 @@ package de.baum2dev.baum2.networking;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
+import de.baum2dev.baum2.classes.ClassManager;
 
 /**
  * Central networking registry and utility class for all Baum2 custom packets.
@@ -12,18 +13,27 @@ import net.minecraft.server.network.ServerPlayerEntity;
  */
 public class Baum2Networking {
     /**
-     * Register all custom payload types for S2C transmission.
-     * Must be called on mod initialization (server-side entry point).
-     * Client-side registration happens in Baum2Client.
-     *
-     * Registers payloads to PayloadTypeRegistry.playS2C() with their StreamCodecs.
+     * Register all custom payload types (both S2C and C2S). Must run in the common
+     * entrypoint so both logical sides know how to en-/decode each payload.
      */
     public static void registerServerPayloads() {
-        // Register the experience sync payload for S2C transmission
         PayloadTypeRegistry.playS2C().register(
                 ExperienceSyncPayload.TYPE,
                 ExperienceSyncPayload.CODEC
         );
+        PayloadTypeRegistry.playC2S().register(
+                ClassSelectPayload.TYPE,
+                ClassSelectPayload.CODEC
+        );
+    }
+
+    /**
+     * Register server-side packet receivers. Must be called from the mod's common
+     * (server-reachable) entrypoint.
+     */
+    public static void registerServerReceivers() {
+        ServerPlayNetworking.registerGlobalReceiver(ClassSelectPayload.TYPE, (payload, context) ->
+            ClassManager.selectClass(context.player(), payload.playerClass()));
     }
 
     /**

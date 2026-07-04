@@ -104,6 +104,71 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
     - **Minor**: `MobDeathHandler.calculateXpReward`'s `maxHealth / 2` truncates for odd
       `maxHealth` values (loses 0.5 XP) — no current vanilla hostile mob has odd health, so
       this doesn't manifest yet, but would silently apply to any future custom mob that does.
+- **Custom UI v1 — HUD overlay + Class Screen, build-verified and confirmed working in-game
+  by the user this session:**
+  - **Started from a request for a "Metin2 look"**, which was explicitly rejected as
+    conflicting with `MASTERPROMPT.md`'s own UI rule ("Keine Nachahmung bekannter
+    MMORPG-UIs" — no imitation of known MMORPG UIs, not just no asset copying). User chose
+    the safe alternative: an original look using only generic, non-distinctive MMORPG UI
+    conventions (corner HUD panels, skill-bar-style layout thinking, color-coded class
+    identity), explicitly excluding anything Metin2-adjacent (no wood panels, gold-leaf
+    trim, dragon motifs, oriental-fantasy styling).
+  - **`docs/visual-style-guide.md` (new)** — `graphics-designer`-authored, persistent visual
+    identity doc (same append-in-place convention as `docs/fabric-modding.md`): a "Deepwood &
+    Verdigris" art direction (flat, square-cornered panels, slate/verdigris/rune-cyan
+    palette), per-class accent colors + icon motifs, full HUD and Class Screen layout specs,
+    and an explicit IP-compliance section recording *why* the direction was chosen (own
+    section 0, worth reading before any future UI/visual work on this project).
+  - **4 placeholder class icon PNGs** (new, `assets/baum2/textures/gui/class/*.png`) — 16x16
+    flat-color original geometric shapes (shield/chevron/diamond/leaf) per class, generated
+    programmatically, clearly documented as temporary placeholders per the style guide.
+  - **`docs/fabric-modding.md` gained a new "Custom UI (HUD / Screens)" section** —
+    `fabric-docs-researcher`-verified 1.21.11 APIs for `HudElementRegistry` (replaces
+    deprecated `HudRenderCallback`), `DrawContext` text/texture drawing, custom `Screen`
+    subclassing, `ButtonWidget`, and `KeyBindingHelper`. **Found the actual root cause of the
+    old, dead custom-HUD attempt's "unreliable text rendering"**: `DrawContext.drawText*`
+    silently no-ops if the color's alpha byte is `0` (a plain 6-digit hex like `0xFFFFFF`
+    renders nothing, no exception) — now documented so nobody hits this again. Also found
+    mid-implementation (not by the research agent, while actually wiring the Class Screen's
+    click handling): `Screen`'s mouse-input API has changed to a `Click` record
+    (`mouseClicked(Click, boolean)`, `click.x()`/`click.y()`/`click.button()`), not the older
+    `mouseClicked(double, double, int)` shape — worth adding to that doc's table if it comes
+    up again.
+  - **`classes/ClassManager.SELECTED_CLASS` gained `.syncWith(...)`** (previously
+    persistent+copyOnDeath only, server-side-only) — the research agent found the client had
+    no way to know its own selected class, which would have made the HUD/Screen silently show
+    "no class" for everyone. Now uses `AttachmentSyncPredicate.targetOnly()`, so the client's
+    own `getAttached(SELECTED_CLASS)` just works with no custom packet needed.
+  - **New `networking/ClassSelectPayload.java`** (C2S, mirrors `ExperienceSyncPayload`'s
+    pattern in the opposite direction) — lets the Class Screen's click-to-select actually
+    reach the server; wired into `Baum2Networking` (new `registerServerReceivers()` method,
+    called from `Baum2.onInitialize()`) and `ClassManager.selectClass(...)`.
+  - **New `ui/PlayerStatusHud.java`** (client) — top-left HUD panel: class icon, class name
+    (in that class's accent color), level, and a slim 3px rune-cyan XP sliver — deliberately
+    distinct from (not a redraw of) vanilla's own hotbar XP bar. Hidden until a class is
+    selected. Replaces the old dead `ui/ProgressionHud.java` (see cleanup below).
+  - **New `ui/ClassScreen.java`** (client) — "Klassenübersicht", a full `Screen` listing all
+    4 classes (icon/name/description/bonus), highlighting the current selection with a
+    border+wash+"Aktiv" text tag (never color alone, for accessibility), click-to-select.
+    Opened via a new keybind (**K**, `KeyBinding.Category.create(baum2:main)`, registered in
+    `Baum2Client`).
+  - **New `ui/ClassIcons.java`** (client) — small shared helper (icon `Identifier`, accent
+    color, display-name passthrough to `ClassRegistry`) used by both the HUD and the screen,
+    so per-class visual identity lives in one place.
+  - **Dead code cleanup**: removed `src/client/.../client/Baum2Client.java` (an empty,
+    never-registered duplicate `ClientModInitializer` — only
+    `de.baum2dev.baum2.Baum2Client` was ever wired up in `fabric.mod.json`) and the old
+    `ui/ProgressionHud.java` (unwired, hardcoded a fake static 50%-filled bar, superseded by
+    `PlayerStatusHud`).
+  - **Verified**: `gradlew build` passes; user launched a real client, confirmed the flow
+    works end-to-end (HUD appears after class selection, **K** opens the Class Screen,
+    clicking a card switches class live). Not separately re-verified: the specific
+    `/attribute` numeric checks from the Class System's own pending verification item below
+    still apply independently of this UI work.
+  - **Deliberately out of scope for v1** (no backing system yet, so no screen was built for
+    it): Skill Screen, Upgrade Screen — `MASTERPROMPT.md`'s `ui/` package sketch lists these,
+    but neither a skill system nor an item/upgrade system exists in code yet. Build those
+    screens alongside their respective systems, not ahead of them.
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `master` was merged from both work branches (see prior HANDOFF revision /
   `git log -p HANDOFF.md` for that merge's detail); `jonas_workbranch` was then fast-forwarded
@@ -139,7 +204,24 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change (on `jonas_workbranch`)
 
-Ran `ip-naming-compliance-checker` and `balance-reviewer` for real against Class System v1
+Built Custom UI v1 (HUD overlay + Class Screen) — see "Current state" above for full detail.
+Used three subagents in sequence: `graphics-designer` produced the original visual style
+guide and layout specs (after explicitly rejecting a "Metin2 look" request for conflicting
+with the project's own no-UI-imitation rule), `fabric-docs-researcher` confirmed the current
+1.21.11 APIs needed to implement it (and found the actual root cause of an old, previously-
+unexplained HUD text-rendering bug: a zero alpha byte silently no-ops `DrawContext.drawText*`),
+then implementation followed both docs directly. Also fixed a real data-flow gap the research
+agent found (`ClassManager.SELECTED_CLASS` had no client sync) and cleaned up two pieces of
+dead code discovered along the way (a duplicate unregistered `Baum2Client`, an unwired old HUD
+prototype). Build verified passing; user launched a real client and confirmed the HUD, the
+**K**-keybind Class Screen, and click-to-select all work end-to-end. Why: user asked for a
+full custom UI/layout: the request's original framing ("look like Metin2, but don't clone it")
+directly matched a rule this project already has in `MASTERPROMPT.md`, so that tension was
+surfaced and resolved with the user before any design work started, rather than guessing at
+how close was "close enough."
+
+Earlier, on `jonas_workbranch`: ran `ip-naming-compliance-checker` and `balance-reviewer` for
+real against Class System v1
 (the workspace-root bug that blocked them last session is confirmed fixed — both loaded and
 ran normally this time), then applied the straightforward fixes and logged the judgment
 calls:
@@ -274,40 +356,41 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` as the temp
 
 ## Next recommended step
 
-1. **Commit the naming/balance fixes from this session** (rename + Wesenswahrer bonus swap +
-   level-1 XP fix, all build-verified) — not yet committed as of this handoff, pending user
-   confirmation to commit/push.
-2. **In-game manual verification of the Class System (highest priority — unverified core
-   path)**: join a world as a real player and run through: `/baum2 class select eisenwaechter`
-   → `/attribute @s minecraft:max_health modifier value get baum2:class_bonus/eisenwaechter_max_health`
-   (expect `4.0`) → `/attribute @s minecraft:max_health get` (expect `24.0`) → disconnect and
-   rejoin (confirm `/baum2 class info` still reports the class and the modifier query still
-   returns exactly one value, not duplicated/erroring) → `/kill @s` and respawn (confirm the
-   class/modifier survive — this is the specific test that `.copyOnDeath()` is wired
-   correctly). Also spot-check the renamed `wesenswahrer` (new attribute is
-   `minecraft:generic.knockback_resistance`, expect `0.1`). `/baum2 class list` and the
-   player-less command-guard behavior are already confirmed working via a real dedicated
-   server + RCON; this step is the remaining gap. (In progress as of this handoff — user is
-   running this manually in parallel with the rest of this session's work.)
-3. **Human decision needed on the balance-reviewer's logged (not auto-fixed) findings** — see
+1. **Fine-grained `/attribute` verification of the Class System is still the one open gap**
+   (the UI work above confirms class selection/switching *works*, via the HUD and Class
+   Screen, but not the exact numeric modifier values): join a world and run through
+   `/baum2 class select eisenwaechter` → `/attribute @s minecraft:max_health modifier value
+   get baum2:class_bonus/eisenwaechter_max_health` (expect `4.0`) → `/attribute @s
+   minecraft:max_health get` (expect `24.0`) → disconnect and rejoin (confirm `/baum2 class
+   info` still reports the class and the modifier query still returns exactly one value, not
+   duplicated/erroring) → `/kill @s` and respawn (confirm the class/modifier survive —
+   the specific test that `.copyOnDeath()` is wired correctly). Also spot-check
+   `wesenswahrer`'s `minecraft:generic.knockback_resistance` (expect `0.1`).
+2. **Human decision needed on the balance-reviewer's logged (not auto-fixed) findings** — see
    "Class System v1" and "Progression System" bullets above for full detail: (a) should mob
    XP scale down at low character levels, or should the curve's early segment be steeper for
    lump-sum rewards; (b) should the 100-level cap be actually enforced or should the unused
    `getMaxLevel()` constant be removed; (c) should class reselection get a cost/cooldown now
    or stay free for longer; (d) is Runenwirker's luck bonus fine to ship before a loot system
    exists to make it matter, or should it wait.
-4. Run `merge-integration-reviewer` before merging `jonas_workbranch` back to `master`, given
+3. Run `merge-integration-reviewer` before merging `jonas_workbranch` back to `master`, given
    Fischey's concurrent progression work.
-5. In-game manual verification of the Progression System (older, still-pending item): join a
+4. In-game manual verification of the Progression System (older, still-pending item): join a
    world, run `/baum2 addxp <n>` a few times, and confirm the vanilla XP bar animates smoothly
    (not just on level-up) and the level number matches `/baum2 level`.
-6. Persist progression data (currently in-memory only, lost on server restart) — the Class
+5. Persist progression data (currently in-memory only, lost on server restart) — the Class
    System's `ClassManager` now demonstrates the recommended pattern (Fabric's Attachment API)
    for this exact problem, see `docs/fabric-modding.md`.
+6. Get real (non-placeholder) art for the 4 class icons — current ones are explicitly
+   temporary flat-shape placeholders (see `docs/visual-style-guide.md` section 9). Use
+   `graphics-designer` when ready for a proper art pass.
 7. Next Class System iteration (deliberately out of scope for v1): the Skill-System per
    `MASTERPROMPT.md`'s own priority order, multiple bonuses per class, and/or a respec
-   cost/cooldown (see point 3c above).
+   cost/cooldown (see point 2c above).
 8. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
-   unclear. Use `graphics-designer` for the texture/model/icon each of these will need.
+   unclear. Use `graphics-designer` for the texture/model/icon each of these will need. Once
+   a Skill or Upgrade system exists, build the corresponding `ui/` screen alongside it
+   (`docs/visual-style-guide.md`'s panel/color conventions already establish the pattern to
+   extend, e.g. the same 2px two-tone border and "+value = rune cyan" rule).

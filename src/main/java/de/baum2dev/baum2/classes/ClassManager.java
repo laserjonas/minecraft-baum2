@@ -3,9 +3,11 @@ package de.baum2dev.baum2.classes;
 import com.mojang.serialization.Codec;
 import java.util.Optional;
 import net.fabricmc.fabric.api.attachment.v1.AttachmentRegistry;
+import net.fabricmc.fabric.api.attachment.v1.AttachmentSyncPredicate;
 import net.fabricmc.fabric.api.attachment.v1.AttachmentType;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.entity.attribute.EntityAttributeInstance;
+import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
 import de.baum2dev.baum2.Baum2;
@@ -26,6 +28,7 @@ public final class ClassManager {
         builder -> builder
             .persistent(Codec.STRING.xmap(PlayerClass::valueOf, PlayerClass::name))
             .copyOnDeath()
+            .syncWith(PacketCodecs.STRING.xmap(PlayerClass::valueOf, PlayerClass::name), AttachmentSyncPredicate.targetOnly())
     );
 
     public static void registerEvents() {

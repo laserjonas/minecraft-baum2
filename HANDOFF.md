@@ -36,7 +36,7 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change (on `jonas_workbranch`)
 
-- Commit: (this commit) — "Add ip-naming-compliance-checker, balance-reviewer, and
+- Commit: `09eefd4` — "Add ip-naming-compliance-checker, balance-reviewer, and
   merge-integration-reviewer agents"
 - What: Added three more subagents alongside `fabric-docs-researcher` (see Current State
   above for what each does), and a "Project Agents" section in `CLAUDE.md` listing all four

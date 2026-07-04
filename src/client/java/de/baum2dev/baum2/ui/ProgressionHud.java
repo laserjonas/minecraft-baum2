@@ -6,6 +6,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.text.Text;
 
 public class ProgressionHud {
 
@@ -22,22 +23,40 @@ public class ProgressionHud {
         }
 
         TextRenderer textRenderer = client.textRenderer;
-        int xPos = 10;
-        int yPos = 10;
+        int screenWidth = client.getWindow().getScaledWidth();
+        int screenHeight = client.getWindow().getScaledHeight();
 
-        drawContext.drawText(textRenderer, "§6Baum2 Progression", xPos, yPos, 0xFFFFFF, false);
-        yPos += 12;
+        int padding = 10;
+        int xPos = padding;
+        int yPos = screenHeight - 50;
 
-        String levelText = "Level: 1 | XP: 0/100";
-        drawContext.drawText(textRenderer, levelText, xPos, yPos, 0xFFFFFF, false);
-        yPos += 12;
+        int boxWidth = 150;
+        int boxHeight = 40;
+        int backgroundColor = 0xAA000000;
+        int borderColor = 0xFFFFAA00;
 
-        int barWidth = 100;
-        int barHeight = 8;
-        int barX = xPos;
-        int barY = yPos;
+        drawContext.fill(xPos, yPos, xPos + boxWidth, yPos + boxHeight, backgroundColor);
+        drawContext.fill(xPos, yPos, xPos + boxWidth, yPos + 1, borderColor);
+        drawContext.fill(xPos, yPos + boxHeight - 1, xPos + boxWidth, yPos + boxHeight, borderColor);
+        drawContext.fill(xPos, yPos, xPos + 1, yPos + boxHeight, borderColor);
+        drawContext.fill(xPos + boxWidth - 1, yPos, xPos + boxWidth, yPos + boxHeight, borderColor);
+
+        int textX = xPos + 5;
+        int textY = yPos + 5;
+
+        drawContext.drawText(textRenderer, Text.literal("§6⭐ Baum2 ⭐"), textX, textY, 0xFFFFAA, true);
+
+        textY += 12;
+        drawContext.drawText(textRenderer, Text.literal("Level: 1 | XP: 0/100"), textX, textY, 0xFFFFFF, true);
+
+        textY += 10;
+        int barWidth = boxWidth - 10;
+        int barHeight = 6;
+        int barX = xPos + 5;
+        int barY = textY;
 
         drawContext.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF333333);
         drawContext.fill(barX, barY, barX + (barWidth / 2), barY + barHeight, 0xFF00FF00);
+        drawContext.fill(barX, barY, barX + barWidth, barY + 1, 0xFFFFFFFF);
     }
 }

@@ -27,6 +27,8 @@ public class PlayerLevelSystem {
         PlayerProgressData progress = getPlayerProgress(player);
         ExperienceManager.addExperience(progress, amount);
         savePlayerProgress(player, progress);
+
+        player.addExperience((int) amount);
     }
 
     public static int getPlayerLevel(ServerPlayerEntity player) {

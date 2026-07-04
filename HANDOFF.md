@@ -6,41 +6,79 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Current state
 
-- Fabric mod scaffold builds successfully (`./gradlew build` / `gradlew.bat build` passes).
-- The client **runs**: `./gradlew runClient` / `gradlew.bat runClient` loads the mod and reaches the main menu.
-- Package: `de.baum2dev.baum2`, main class `Baum2`, client class `Baum2Client`.
+- Fabric mod builds successfully (`./gradlew build` passes).
+- Client runs: `./gradlew runClient` loads and reaches main menu (verified clean boot, no
+  Mixin/payload registration errors).
+- Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
-- **Progression system**: Working and integrated with vanilla Minecraft. Commands (`/baum2 addxp`, `/baum2 level`),
-  mob XP drops (10 + max_health/2 on hostile mob kills), level-up broadcasts, and vanilla XP/level bar display.
-  Data stored server-side in-memory; persistence deferred to next phase.
-- Repo: https://github.com/laserjonas/minecraft-baum2 (public), pushed to `master`.
-- `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets Java+Gradle
-  recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
+
+**Progression System — FULLY WORKING, including real-time client display:**
+- Custom progression uses Minecraft's non-linear XP curve, centralized in
+  `progression/VanillaXpFormula.java` (single source of truth — `ExperienceManager`,
+  `ProgressionTickHandler`, `PlayerLevelSystem`, `LevelUpHandler`, and the client packet
+  handler all call into it instead of each having their own copy):
+  - Levels 0-15: L² + 6L
+  - Levels 16-31: 2.5L² - 40.5L + 360
+  - Levels 32+: 4.5L² - 162.5L + 2220
+- Features: `/baum2 addxp <amount>`, `/baum2 level`, mob XP drops (10 + max_health/2), level-up
+  broadcasts, vanilla XP orb drops disabled via Mixin.
+- **Real-time client sync now works** via a custom S2C packet sent every server tick — see
+  "Networking" section below for the exact API and why earlier attempts failed.
+- Server-side in-memory storage; persistence still deferred to a future phase.
+
+- Repo: https://github.com/laserjonas/minecraft-baum2 (public).
+- `.vscode/` checked in with run configs.
 
 ## Last change
 
-- Commit: `49f5208` — "Use Minecraft's vanilla XP/level system instead of custom HUD"
+- Fixed real-time vanilla level/XP bar sync (previously blocked — see git history for the
+  string of failed attempts: totalExperience-only tricks, cancelling `dropExperience`, etc.)
 - What:
-  - **Vanilla XP sync**: `PlayerLevelSystem.addExperience()` now calls `player.addExperience()` to
-    sync our custom progression system with Minecraft's built-in XP/level bar. XP gains from mobs
-    and commands automatically display in the standard green bar at the bottom of the screen.
-  - **Removed custom HUD**: Deleted `ProgressionHud` class and its registration from `Baum2Client`.
-    Text rendering API issues are completely sidestepped by using Minecraft's native display.
-  - **Cleaner interaction**: Level-ups and mob XP drops now feed directly into the vanilla system.
-    No custom rendering, no text API complications, no duplicate state.
-- Why: Text rendering in the custom HUD proved problematic across multiple 1.21.11 Fabric API
-  approaches. The vanilla system is proven, built-in, and avoids all those issues. Players see a
-  familiar display they already understand from vanilla Minecraft.
-- Works now: `/baum2 addxp 50` → vanilla XP bar animates and increments; mob kills → immediate
-  vanilla XP display; level-ups → gold chat message + vanilla level counter increments.
+  1. Added `progression/VanillaXpFormula.java` — single shared implementation of the vanilla
+     curve, replacing three separate copies that had drifted out of sync with each other
+     (which was the actual cause of the "level updates but progress bar doesn't" bug reported
+     earlier).
+  2. Added a custom S2C payload (`networking/ExperienceSyncPayload.java` +
+     `networking/Baum2Networking.java` server-side, `networking/ClientNetworkingHandler.java`
+     client-side) sent every server tick from `ProgressionTickHandler`.
+  3. Client-side, call `ClientPlayerEntity.setExperience(float progress, int total, int level)`
+     — **not** `setExperienceLevel(int)`, which only exists on `ServerPlayerEntity` and does
+     not compile in client code. `setExperience` is the exact method vanilla's own network
+     handler calls when it receives a real experience-sync packet from a real server; it sets
+     `experienceProgress`, `totalExperience`, and `experienceLevel` directly and triggers the
+     bar's fill-flash animation. Because it takes the fill fraction directly, there's no need
+     to reverse-engineer the curve on the client at all for the bar's visual fill — only the
+     level number and the `totalExperience` display value need the shared formula.
+- Why: Root cause of "client doesn't update live" was that vanilla only pushes experience to
+  the client on join or on a server-side `setExperienceLevel()`/`addExperience()` call — setting
+  fields directly on `ServerPlayerEntity` every tick never reaches the client. A previous
+  session's fix attempt used `FabricPacket`/`PacketType`, which do not exist in Fabric API
+  0.141.4+1.21.11 (that's a newer/different-mapping API) and failed to compile.
 
-Earlier: `2405ca7` — "Fix Java 21/25 mismatch blocking runClient; add VS Code run config"
-(fixed `build.gradle` toolchain pin, both mixins.json compatibility levels, added
-`.vscode/` config); `731c5a3` — "Fix commit hash reference in HANDOFF.md"; `7f228e8` — "Add MASTERPROMPT.md
-and reference it from CLAUDE.md" (full original project brief, feature roadmap, legal/naming
-guidelines); `4923a85` — "Initial Minecraft MMORPG mod setup" (project scaffold, package renamed
-from `baum2dev.baum2` to `de.baum2dev.baum2`, `CLAUDE.md`/`.gitignore` added, version mismatch
-in the generated template fixed — see Decisions below).
+## Networking API reference for this exact version (Fabric 0.141.4+1.21.11 / Yarn 1.21.11+build.6)
+
+Found by decompiling the actual mapped jars in `~/.gradle/caches/fabric-loom/minecraftMaven/`
+and the fabric-api jar — worth keeping here since it's easy to reach for the wrong API name
+(most online examples/docs use different mapping conventions, e.g. NeoForge/Mojmap names):
+
+| Concept | Wrong name (don't use) | Correct Yarn 1.21.11 name |
+|---|---|---|
+| Packet codec type | `StreamCodec` | `net.minecraft.network.codec.PacketCodec` |
+| Composing a codec from fields | `StreamCodec.composite(...)` | `PacketCodec.tuple(...)` |
+| Registry-aware buffer | `RegistryFriendlyByteBuf` | `net.minecraft.network.RegistryByteBuf` |
+| Fabric's older packet wrapper | `FabricPacket` / `PacketType` | doesn't exist in this version — use vanilla `CustomPayload` + `PayloadTypeRegistry` directly |
+| Setting server player's level | (works fine) `ServerPlayerEntity.setExperienceLevel(int)` | only exists on `ServerPlayerEntity`, not common `PlayerEntity` |
+| Setting client player's level/progress | `ClientPlayerEntity.setExperienceLevel(int)` — **does not exist, will not compile** | `ClientPlayerEntity.setExperience(float progress, int totalExperience, int level)` |
+
+Registration pattern that actually compiles:
+- `PayloadTypeRegistry.playS2C().register(MyPayload.TYPE, MyPayload.CODEC)` — call from common
+  code (`Baum2.onInitialize`), works for both logical sides since `splitEnvironmentSourceSets()`
+  puts `main` on `client`'s classpath.
+- Server sends: `ServerPlayNetworking.send(serverPlayerEntity, payload)`.
+- Client receives: `ClientPlayNetworking.registerGlobalReceiver(MyPayload.TYPE, (payload, context) -> {...})`
+  — the callback already runs on the client thread, no extra `execute()` wrapping needed.
+
+If you add more custom payloads, follow `ExperienceSyncPayload.java` as the template.
 
 ## Decisions worth knowing about
 
@@ -62,9 +100,17 @@ in the generated template fixed — see Decisions below).
   working copies of this repo (root directory, gitignored via `baum2_key*`). It has never been
   committed. If you don't know what it's for, don't commit it and ask before deleting it —
   another contributor may depend on it locally.
+- Vanilla XP curve is centralized in `VanillaXpFormula` — **do not** reimplement it elsewhere.
+  The bug that took several iterations to fix (level updated, progress bar didn't) was ultimately
+  caused by three separate copies of this formula drifting apart, not by a display API issue.
+- Vanilla XP orb drops from hostile mobs are disabled via `LivingEntityMixin`. Experience bottles
+  were reported to still spawn orbs in an earlier session — not re-verified since; low priority.
 
 ## Next recommended step
 
-Priority 1 per `CLAUDE.md`: basic player-progression package (`progression/`), a minimal level
-system, first custom item, first weapon, first active skill with a cooldown manager, first
-world-event block.
+1. In-game manual verification: join a world, run `/baum2 addxp <n>` a few times, and confirm the
+   vanilla XP bar animates smoothly (not just on level-up) and the level number matches
+   `/baum2 level`. This session verified a clean client boot with no crashes but could not drive
+   the GUI to confirm the visual result — do this before considering the feature fully closed.
+2. Persist progression data (currently in-memory only, lost on server restart).
+3. Implement first custom item + skill system per `CLAUDE.md` priorities.

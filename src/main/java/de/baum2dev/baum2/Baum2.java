@@ -7,6 +7,7 @@ import de.baum2dev.baum2.commands.Baum2Commands;
 import de.baum2dev.baum2.events.LevelUpHandler;
 import de.baum2dev.baum2.events.MobDeathHandler;
 import de.baum2dev.baum2.events.ProgressionTickHandler;
+import de.baum2dev.baum2.networking.Baum2Networking;
 
 public class Baum2 implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("baum2");
@@ -16,6 +17,7 @@ public class Baum2 implements ModInitializer {
         LOGGER.info("Baum2 mod initializing...");
 
         Baum2Commands.registerCommands();
+        Baum2Networking.registerServerPayloads();
         LevelUpHandler.registerEvents();
         MobDeathHandler.registerEvents();
         ProgressionTickHandler.registerEvents();

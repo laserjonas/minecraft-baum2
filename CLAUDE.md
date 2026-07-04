@@ -8,6 +8,11 @@ Working title: Baum2.
 
 This project must not clone, remake, recreate, or imitate any existing MMORPG. All names, assets, lore, UI concepts, item names, skill names, mob names, boss names, maps, quest text, balancing values, sounds, models, textures, and branding must be original.
 
+Full original project brief (vision, complete feature roadmap, naming/legal guidelines in
+detail, examples): see `MASTERPROMPT.md`. This file is the short distillation for day-to-day
+work; go to `MASTERPROMPT.md` for anything not covered here in enough depth. For "what changed
+last / what's next", see `HANDOFF.md` instead.
+
 ## Project Values
 
 - Mod display name: Baum2

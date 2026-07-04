@@ -14,11 +14,16 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change
 
-- Commit: `4923a85` — "Initial Minecraft MMORPG mod setup"
-- What: Set up the project scaffold, renamed the package from `baum2dev.baum2` to
-  `de.baum2dev.baum2`, added `CLAUDE.md` and `.gitignore`, fixed a version mismatch in the
-  generated template (see Decisions below).
-- Why: Project bootstrap — nothing gameplay-related implemented yet.
+- Commit: (pending) — "Add MASTERPROMPT.md and reference it from CLAUDE.md"
+- What: Added `MASTERPROMPT.md`, the full original project brief (vision, complete feature
+  roadmap for classes/skills/progression/world events/factions/bosses/items/dungeons/quests/UI,
+  detailed legal & naming guidelines, priorities). `CLAUDE.md` now points to it and to this file.
+- Why: The feature roadmap in the original brief is far from finished — a co-author's Claude
+  Code session needs the full backlog, not just the short `CLAUDE.md` summary.
+
+Earlier: `4923a85` — "Initial Minecraft MMORPG mod setup" (project scaffold, package renamed
+from `baum2dev.baum2` to `de.baum2dev.baum2`, `CLAUDE.md`/`.gitignore` added, version mismatch
+in the generated template fixed — see Decisions below).
 
 ## Decisions worth knowing about
 

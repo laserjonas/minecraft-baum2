@@ -7,37 +7,32 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 ## Current state
 
 - Fabric mod scaffold builds successfully (`./gradlew build` / `gradlew.bat build` passes).
-- The client also **runs** now: `./gradlew runClient` / `gradlew.bat runClient` loads all mods
-  (including `baum2`) and reaches the main menu with no crash.
+- The client **runs**: `./gradlew runClient` / `gradlew.bat runClient` loads the mod and reaches the main menu.
 - Package: `de.baum2dev.baum2`, main class `Baum2`, client class `Baum2Client`.
-- Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13.
-- No gameplay features implemented yet — `Baum2` and `Baum2Client` are empty entrypoints.
+- Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
+- **Progression system**: Working and integrated with vanilla Minecraft. Commands (`/baum2 addxp`, `/baum2 level`),
+  mob XP drops (10 + max_health/2 on hostile mob kills), level-up broadcasts, and vanilla XP/level bar display.
+  Data stored server-side in-memory; persistence deferred to next phase.
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public), pushed to `master`.
-- `.vscode/` is now checked in (extensions.json, settings.json, tasks.json) so a fresh VS Code
-  checkout gets Java+Gradle extension recommendations and a "Run Minecraft Client" build task
-  (`Ctrl+Shift+B`) out of the box.
+- `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets Java+Gradle
+  recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
 
 ## Last change
 
-- Commit: (this commit) — "Add player-facing progression features: commands, level-up broadcast, mob XP drops, HUD"
+- Commit: `49f5208` — "Use Minecraft's vanilla XP/level system instead of custom HUD"
 - What:
-  - **Commands**: `Baum2Commands` — `/baum2 addxp <amount>` grants XP to the player;
-    `/baum2 level` shows current level and XP progress. Registered via Fabric command API.
-  - **Mob XP drops**: `MobDeathHandler` — listens to entity death events; grants XP when a
-    hostile mob dies (formula: 10 + max_health/2). Players get credited when they deal the
-    final blow.
-  - **Level-up broadcast**: `LevelUpHandler` — tracks player levels and broadcasts a gold
-    notification in chat when a player levels up: "✦ PlayerName reached level N! ✦"
-  - **HUD overlay**: `ProgressionHud` (client-side) — renders a simple on-screen display with
-    "Baum2 Progression" label, level/XP text, and a green progress bar (50% full as placeholder).
-    Uses `HudRenderCallback` with `RenderTickCounter`.
-  - **Entrypoints**: Added `Baum2Client` (client initializer) and wired all features into
-    `Baum2` (main initializer). Updated `fabric.mod.json` to register client entrypoint.
-- Why: Players can now see and test the progression system without implementing items/skills yet.
-  Commands let devs debug; mob XP gives gameplay feedback; level-up messages celebrate progression;
-  HUD makes level/XP visible at a glance.
-- Note: HUD currently shows hardcoded "Level 1 | 0/100"; next session should bind it to the actual
-  player's level/XP data from `PlayerLevelSystem`.
+  - **Vanilla XP sync**: `PlayerLevelSystem.addExperience()` now calls `player.addExperience()` to
+    sync our custom progression system with Minecraft's built-in XP/level bar. XP gains from mobs
+    and commands automatically display in the standard green bar at the bottom of the screen.
+  - **Removed custom HUD**: Deleted `ProgressionHud` class and its registration from `Baum2Client`.
+    Text rendering API issues are completely sidestepped by using Minecraft's native display.
+  - **Cleaner interaction**: Level-ups and mob XP drops now feed directly into the vanilla system.
+    No custom rendering, no text API complications, no duplicate state.
+- Why: Text rendering in the custom HUD proved problematic across multiple 1.21.11 Fabric API
+  approaches. The vanilla system is proven, built-in, and avoids all those issues. Players see a
+  familiar display they already understand from vanilla Minecraft.
+- Works now: `/baum2 addxp 50` → vanilla XP bar animates and increments; mob kills → immediate
+  vanilla XP display; level-ups → gold chat message + vanilla level counter increments.
 
 Earlier: `2405ca7` — "Fix Java 21/25 mismatch blocking runClient; add VS Code run config"
 (fixed `build.gradle` toolchain pin, both mixins.json compatibility levels, added

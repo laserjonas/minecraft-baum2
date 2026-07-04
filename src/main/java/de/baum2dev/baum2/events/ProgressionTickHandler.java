@@ -17,13 +17,22 @@ public class ProgressionTickHandler {
             PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
             int customLevel = progress.getLevel();
             long currentExp = progress.getExperience();
-            long maxExp = progress.getExperienceForNextLevel();
 
             player.setExperienceLevel(customLevel);
 
-            int xpForLevel = customLevel * 100;
-            int totalExp = (int) (xpForLevel + currentExp);
+            int totalXpForLevel = getExperienceForLevel(customLevel);
+            int totalExp = totalXpForLevel + (int) currentExp;
             player.totalExperience = totalExp;
+        }
+    }
+
+    private static int getExperienceForLevel(int level) {
+        if (level <= 15) {
+            return (int) (level * level + 6 * level);
+        } else if (level <= 31) {
+            return (int) (2.5 * level * level - 40.5 * level + 360);
+        } else {
+            return (int) (4.5 * level * level - 162.5 * level + 2220);
         }
     }
 }

@@ -40,6 +40,9 @@ public class PlayerLevelSystem {
 
     private static void syncVanillaLevelDisplay(ServerPlayerEntity player, PlayerProgressData progress) {
         int customLevel = progress.getLevel();
+        long currentExp = progress.getExperience();
+
         player.setExperienceLevel(customLevel);
+        player.totalExperience = (int) (VanillaXpFormula.getTotalXpForLevel(customLevel) + currentExp);
     }
 }

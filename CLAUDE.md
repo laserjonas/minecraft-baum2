@@ -95,3 +95,17 @@ Use a consistent original fantasy naming style.
 - Do not commit build artifacts, IDE caches, secrets, or generated temporary files.
 - Do not commit copied assets.
 - Do not commit API keys, tokens, passwords, credentials, or private config files.
+
+## Handoff Rule (multi-developer sync)
+
+This project has more than one human/Claude Code pair working on it. Before every commit,
+update `HANDOFF.md` at the project root with:
+
+- Current state (what builds, what's implemented, what isn't).
+- Last change (commit summary: what and why).
+- Any non-obvious decisions made (version pins, workarounds, tradeoffs).
+- The next recommended step.
+
+`HANDOFF.md` reflects the latest state only — it is overwritten each time, not appended to.
+Full history lives in `git log`. Read `HANDOFF.md` first when starting work in this repo,
+before exploring the codebase, so you don't re-derive context a previous session already has.

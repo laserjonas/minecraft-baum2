@@ -28,7 +28,7 @@ public class ProgressionTickHandler {
 
     private static int getExperienceForLevel(int level) {
         if (level <= 15) {
-            return (int) (level * level + 6 * level);
+            return (int) (level * level + 6L * level);
         } else if (level <= 31) {
             return (int) (2.5 * level * level - 40.5 * level + 360);
         } else {

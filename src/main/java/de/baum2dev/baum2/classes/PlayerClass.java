@@ -9,5 +9,5 @@ public enum PlayerClass {
     EISENWAECHTER,
     SCHATTENLAEUFER,
     RUNENWIRKER,
-    SEELENHUETER
+    WESENSWAHRER
 }

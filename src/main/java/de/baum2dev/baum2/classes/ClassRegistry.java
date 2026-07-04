@@ -55,14 +55,14 @@ public final class ClassRegistry {
             Identifier.of("baum2", "class_bonus/runenwirker_luck")
         ));
 
-        definitions.put(PlayerClass.SEELENHUETER, new ClassDefinition(
-            PlayerClass.SEELENHUETER,
-            "Seelenhüter",
-            "Ein Wächter der Seelen mit zusätzlicher Absorption.",
-            EntityAttributes.MAX_ABSORPTION,
+        definitions.put(PlayerClass.WESENSWAHRER, new ClassDefinition(
+            PlayerClass.WESENSWAHRER,
+            "Wesenswahrer",
+            "Ein Bewahrer des eigenen Wesens mit erhöhter Rückstoßresistenz.",
+            EntityAttributes.KNOCKBACK_RESISTANCE,
             EntityAttributeModifier.Operation.ADD_VALUE,
-            4.0,
-            Identifier.of("baum2", "class_bonus/seelenhueter_max_absorption")
+            0.10,
+            Identifier.of("baum2", "class_bonus/wesenswahrer_knockback_resistance")
         ));
 
         return definitions;

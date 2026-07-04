@@ -11,10 +11,10 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   Mixin/payload registration errors).
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
-- **Class System v1 — new, command-driven, needs in-game player verification (see "Next
-  recommended step"):**
+- **Class System v1 — command-driven, names/values now reviewed once, still needs in-game
+  player verification (see "Next recommended step"):**
   - New `classes/` package: `PlayerClass` (enum: `EISENWAECHTER`, `SCHATTENLAEUFER`,
-    `RUNENWIRKER`, `SEELENHUETER`), `ClassDefinition` (record: display name, description,
+    `RUNENWIRKER`, `WESENSWAHRER`), `ClassDefinition` (record: display name, description,
     one passive `EntityAttributeModifier` bonus per class), `ClassRegistry` (static lookup),
     `ClassManager` (persistence + apply/remove bonus + its own join listener).
   - Commands: `/baum2 class list`, `/baum2 class info [<class>]`, `/baum2 class select <class>`
@@ -23,24 +23,50 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
     `1.8.48+eed0806f3e` via the project's `fabric-api 0.141.4+1.21.11`), not a custom NBT
     mixin — `ClassManager.SELECTED_CLASS` is a persistent, `copyOnDeath()` `AttachmentType`.
     See `docs/fabric-modding.md` "Player data / attributes" for full API details.
-  - Passive bonuses (v1 placeholders, not yet balance-reviewed): Eisenwächter +4 max health,
-    Schattenläufer +10% movement speed, Runenwirker +1 luck, Seelenhüter +4 max absorption —
-    each via a stable-`Identifier` `EntityAttributeModifier`, swapped cleanly on
-    reselection/rejoin (`ClassManager.applyBonus` always `removeModifier` before
+  - Passive bonuses, **updated after the balance-reviewer pass below**: Eisenwächter +4 max
+    health, Schattenläufer +10% movement speed, Runenwirker +1 luck, Wesenswahrer +10%
+    knockback resistance — each via a stable-`Identifier` `EntityAttributeModifier`, swapped
+    cleanly on reselection/rejoin (`ClassManager.applyBonus` always `removeModifier` before
     `addPersistentModifier`, since persistent modifiers are already restored from entity NBT
     by the time a returning player's `JOIN` event fires — skipping the removal step throws).
+  - **4th class renamed `Seelenhüter` → `Wesenswahrer`** — `ip-naming-compliance-checker`
+    (run for real this session, workspace-root bug from before is fixed) flagged
+    `Seelenhüter` as an exact, word-for-word match to *Echo of Soul*'s (Gamigo) player
+    character title ("...du wurdest durch die Götter zum Seelenhüter erwählt"), used in the
+    same "chosen guardian of souls" framing — not just a generic fantasy word. Renamed in
+    `PlayerClass.java`, `ClassRegistry.java` (display name, description, bonus identifier),
+    and in `MASTERPROMPT.md`'s own example lists (the term originated there, not in this
+    commit — the brief itself needed the fix, not just the code). Lower-confidence, not
+    acted on: `Runenwirker` is somewhat close to LOTRO's "Runenbewahrer" class — worth
+    watching if this class's skill kit gets fleshed out later, not a hard conflict today.
+  - **Wesenswahrer's bonus attribute changed from `MAX_ABSORPTION` to
+    `KNOCKBACK_RESISTANCE`** — `balance-reviewer` found the original +4 max-absorption bonus
+    was a complete no-op: `MAX_ABSORPTION` is only a ceiling, and nothing in this mod grants
+    absorption hearts to fill it (only vanilla golden apples/totems do, and they bundle their
+    own temporary cap boost, so even that vanilla interaction never touched our permanent
+    one). Swapped to `+0.10 KNOCKBACK_RESISTANCE` (`ADD_VALUE`), which — unlike absorption —
+    is unconditionally live the moment the modifier is applied, matching how the other three
+    classes' bonuses already behave.
   - Deliberately does not touch `events/LevelUpHandler.java` or
     `events/ProgressionTickHandler.java` (Fischey's most actively-changed files) — class-join
     resync lives in `ClassManager`'s own independent `ServerPlayConnectionEvents.JOIN`
     listener instead of being added to `LevelUpHandler`'s.
-  - **Verified so far**: build passes; a real (non-GUI) dedicated server boots cleanly with
-    the new code (confirms the `AttachmentType`/codec registration doesn't crash at
-    class-init); `/baum2 class list` was exercised over live RCON against that real server and
-    returns correct data for all 4 classes. **Not yet verified**: the actual player path
-    (`select`, the attribute modifier being applied/visible via vanilla `/attribute`,
-    surviving relogin, surviving death/respawn via `copyOnDeath()`) — this needs a real
-    graphical client, which wasn't available to automate this session. See "Next recommended
-    step".
+  - **Verified so far**: build passes (including after the naming/balance fixes above); a
+    real (non-GUI) dedicated server boots cleanly with the new code (confirms the
+    `AttachmentType`/codec registration doesn't crash at class-init); `/baum2 class list` was
+    exercised over live RCON against that real server and returns correct data for all 4
+    classes. **Not yet verified**: the actual player path (`select`, the attribute modifier
+    being applied/visible via vanilla `/attribute`, surviving relogin, surviving
+    death/respawn via `copyOnDeath()`) — this needs a real graphical client, which wasn't
+    available to automate this session; the user is verifying this manually in parallel. See
+    "Next recommended step".
+  - **Known, logged, not fixed (design/judgment calls, not bugs)**: (1) free, instant,
+    zero-cooldown class reselection lets a player swap classes contextually to capture all
+    four bonuses' benefit over a session — already called out as deliberately deferred, just
+    reconfirmed concretely this session (`ClassManager.selectClass` has no cost/cooldown
+    guard at all); (2) Runenwirker's +1 luck is live (feeds vanilla loot/fishing rolls) but
+    the mod has no custom loot tables yet for it to meaningfully act on, so it's
+    comparatively weak until a loot system exists.
 - **Progression System — FULLY WORKING, including real-time client display:**
   - Custom progression uses Minecraft's non-linear XP curve, centralized in
     `progression/VanillaXpFormula.java` (single source of truth — `ExperienceManager`,
@@ -54,6 +80,30 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   - **Real-time client sync now works** via a custom S2C packet sent every server tick — see
     "Networking API reference" section below for the exact API and why earlier attempts failed.
   - Server-side in-memory storage; persistence still deferred to a future phase.
+  - **`balance-reviewer` ran against this system for the first time this session.** Curve
+    itself is fine — verified continuous and monotonic across both segment boundaries
+    (level 15/16 and 31/32), no formula bug. One fix applied, several findings logged:
+    - **Fixed**: `PlayerProgressData`'s default/NBT-fallback `experienceForNextLevel` was
+      hardcoded to `100`, but the formula's actual level-1→2 requirement is `9` — an 11x
+      mismatch that only affected a brand-new player's very first level-up (every later
+      level already recomputes from the formula correctly). Now computed via
+      `VanillaXpFormula.getXpRequiredForLevel(level + 1)` in both places instead of a magic
+      number.
+    - **Logged, not fixed (design call)**: mob XP is lump-sum (14-160 XP per kill) against a
+      curve whose early levels need as little as 9-15 XP, so a single strong kill (e.g. a
+      Wither at 160 XP) can vault a level-2 character to level 10 in one hit. Needs a
+      decision: scale mob XP down at low character levels, or steepen the curve's early
+      segment for this mod's lump-sum granularity (the curve's numbers were originally sized
+      for vanilla's few-XP-per-orb pickup model, not one integer per kill).
+    - **Logged, not fixed (dead code)**: `ExperienceManager.getMaxLevel()` declares a cap of
+      100 but nothing anywhere enforces it — the level-up loop has no upper bound today.
+      Decide whether to actually enforce it or remove the unused constant. (Very low-priority
+      latent detail if left uncapped forever: the `long`→`int` cast in
+      `PlayerLevelSystem.syncVanillaLevelDisplay` would overflow around level ~21,850 — not
+      reachable in practice.)
+    - **Minor**: `MobDeathHandler.calculateXpReward`'s `maxHealth / 2` truncates for odd
+      `maxHealth` values (loses 0.5 XP) — no current vanilla hostile mob has odd health, so
+      this doesn't manifest yet, but would silently apply to any future custom mob that does.
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `master` was merged from both work branches (see prior HANDOFF revision /
   `git log -p HANDOFF.md` for that merge's detail); `jonas_workbranch` was then fast-forwarded
@@ -73,8 +123,10 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   `graphics-designer` is the exception and is expected to write/edit asset and doc files
   directly. See `CLAUDE.md` -> "Project Agents" for exact trigger conditions; use all five
   proactively, don't wait to be asked.
-  `balance-reviewer` and `ip-naming-compliance-checker` still haven't been run against the
-  progression system's balance values / player-facing strings — see "Next recommended step".
+  `balance-reviewer` and `ip-naming-compliance-checker` have now both been run for real
+  (workspace-root bug below is fixed) against the Class System and the progression XP
+  curve/mob-reward formula — see the "Class System v1" and "Progression System" bullets above
+  for their findings and which ones were fixed vs. logged for a later decision.
 - **Known limitation, root cause found**: a running Claude Code session loads its available
   agent list at startup, so newly added `.claude/agents/*.md` files aren't picked up
   mid-session. **But also**: the harness discovers project agents from its primary working
@@ -87,18 +139,43 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change (on `jonas_workbranch`)
 
-Added Class System v1 (`classes/` package: `PlayerClass`, `ClassDefinition`, `ClassRegistry`,
-`ClassManager`) plus `/baum2 class list|info|select` commands — see "Current state" above for
-full detail. Why: user wants the Progression System to become meaningful now that leveling
-works, by giving players a class/build to level into. Hit the workspace-root agent bug above
-partway through (see "Known limitation" — none of the five project agents were loadable this
-session), so the IP-naming check, the Fischey-branch overlap check, and the Fabric API
-research (Attachment API, `EntityAttributeModifier`) were all done manually against
-`docs/fabric-modding.md`'s and `CLAUDE.md`'s own stated methodology instead of via the actual
-subagents — not skipped, but worth re-running for real once the workspace root is fixed.
-Verification was likewise partial: build + a real dedicated server + live RCON confirmed the
-command surface and data; the player-specific path (select/attribute-modifier/persistence)
-needs a real graphical client — see "Next recommended step".
+Ran `ip-naming-compliance-checker` and `balance-reviewer` for real against Class System v1
+(the workspace-root bug that blocked them last session is confirmed fixed — both loaded and
+ran normally this time), then applied the straightforward fixes and logged the judgment
+calls:
+- Renamed `Seelenhüter` → `Wesenswahrer` everywhere (`PlayerClass.java`, `ClassRegistry.java`,
+  and `MASTERPROMPT.md`'s own example lists) after the naming check found it was an exact,
+  word-for-word match to *Echo of Soul*'s player-character title, not just a generic fantasy
+  word.
+- Swapped Wesenswahrer's passive bonus from `MAX_ABSORPTION` (found to be a complete no-op —
+  nothing in the mod grants absorption hearts) to `+0.10 KNOCKBACK_RESISTANCE`, which is
+  immediately live like the other three classes' bonuses.
+- Fixed `PlayerProgressData`'s hardcoded level-1→2 XP threshold (`100`) to match
+  `VanillaXpFormula`'s actual value (`9`) instead of drifting from it.
+- Logged for a later decision, not fixed: mob XP (lump-sum, 14-160/kill) can vault a
+  low-level character through many levels at once against the curve's small early
+  requirements; `ExperienceManager.getMaxLevel()`'s 100-level cap is declared but never
+  enforced; free/instant class reselection (already known) lets a player capture all four
+  classes' bonuses contextually; Runenwirker's luck bonus has no loot system to act on yet.
+- Build verified passing after each change (`gradlew build -q`, no errors).
+- Why: user asked for a read of all project docs and a plan for what's next. Agreed plan: the
+  user is manually verifying the Class System's in-game player path (select/attribute/
+  relog/death-respawn) in parallel, while this session ran the two review agents that were
+  blocked last time and fixed what was unambiguous.
+
+Earlier, on `jonas_workbranch`: added Class System v1 (`classes/` package: `PlayerClass`,
+`ClassDefinition`, `ClassRegistry`, `ClassManager`) plus `/baum2 class list|info|select`
+commands — see "Current state" above for full detail. Why: user wants the Progression System
+to become meaningful now that leveling works, by giving players a class/build to level into.
+Hit the workspace-root agent bug above partway through (see "Known limitation" — none of the
+five project agents were loadable this session), so the IP-naming check, the Fischey-branch
+overlap check, and the Fabric API research (Attachment API, `EntityAttributeModifier`) were
+all done manually against `docs/fabric-modding.md`'s and `CLAUDE.md`'s own stated methodology
+instead of via the actual subagents — not skipped, but worth re-running for real once the
+workspace root is fixed. Verification was likewise partial: build + a real dedicated server +
+live RCON confirmed the command surface and data; the player-specific path
+(select/attribute-modifier/persistence) needs a real graphical client — see "Next recommended
+step".
 
 Earlier: added a fifth subagent, `graphics-designer` (`.claude/agents/graphics-designer.md`),
 and documented it in `CLAUDE.md` -> "Project Agents". Unlike the existing four (review/report
@@ -197,33 +274,40 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` as the temp
 
 ## Next recommended step
 
-1. **In-game manual verification of the Class System (highest priority — unverified core
+1. **Commit the naming/balance fixes from this session** (rename + Wesenswahrer bonus swap +
+   level-1 XP fix, all build-verified) — not yet committed as of this handoff, pending user
+   confirmation to commit/push.
+2. **In-game manual verification of the Class System (highest priority — unverified core
    path)**: join a world as a real player and run through: `/baum2 class select eisenwaechter`
    → `/attribute @s minecraft:max_health modifier value get baum2:class_bonus/eisenwaechter_max_health`
    (expect `4.0`) → `/attribute @s minecraft:max_health get` (expect `24.0`) → disconnect and
    rejoin (confirm `/baum2 class info` still reports the class and the modifier query still
    returns exactly one value, not duplicated/erroring) → `/kill @s` and respawn (confirm the
    class/modifier survive — this is the specific test that `.copyOnDeath()` is wired
-   correctly). `/baum2 class list` and the player-less command-guard behavior are already
-   confirmed working via a real dedicated server + RCON this session; this step is the
-   remaining gap.
-2. In a fresh session opened at the correct workspace root (`D:\Baum2\Baum2`, see "Known
-   limitation" above — this was the blocker this session): run `ip-naming-compliance-checker`
-   on the class/skill names (manually cleared this session, worth a real pass) and
-   `balance-reviewer` on the Class System's passive-bonus table (see "Current state" —
-   explicitly flagged as placeholder values) and the still-unreviewed progression XP
-   curve/mob-reward formula. Also run `merge-integration-reviewer` before merging back to
-   `master`, given Fischey's concurrent progression work.
-3. In-game manual verification of the Progression System (older, still-pending item): join a
+   correctly). Also spot-check the renamed `wesenswahrer` (new attribute is
+   `minecraft:generic.knockback_resistance`, expect `0.1`). `/baum2 class list` and the
+   player-less command-guard behavior are already confirmed working via a real dedicated
+   server + RCON; this step is the remaining gap. (In progress as of this handoff — user is
+   running this manually in parallel with the rest of this session's work.)
+3. **Human decision needed on the balance-reviewer's logged (not auto-fixed) findings** — see
+   "Class System v1" and "Progression System" bullets above for full detail: (a) should mob
+   XP scale down at low character levels, or should the curve's early segment be steeper for
+   lump-sum rewards; (b) should the 100-level cap be actually enforced or should the unused
+   `getMaxLevel()` constant be removed; (c) should class reselection get a cost/cooldown now
+   or stay free for longer; (d) is Runenwirker's luck bonus fine to ship before a loot system
+   exists to make it matter, or should it wait.
+4. Run `merge-integration-reviewer` before merging `jonas_workbranch` back to `master`, given
+   Fischey's concurrent progression work.
+5. In-game manual verification of the Progression System (older, still-pending item): join a
    world, run `/baum2 addxp <n>` a few times, and confirm the vanilla XP bar animates smoothly
    (not just on level-up) and the level number matches `/baum2 level`.
-4. Persist progression data (currently in-memory only, lost on server restart) — the Class
+6. Persist progression data (currently in-memory only, lost on server restart) — the Class
    System's `ClassManager` now demonstrates the recommended pattern (Fabric's Attachment API)
    for this exact problem, see `docs/fabric-modding.md`.
-5. Next Class System iteration (deliberately out of scope for v1): the Skill-System per
+7. Next Class System iteration (deliberately out of scope for v1): the Skill-System per
    `MASTERPROMPT.md`'s own priority order, multiple bonuses per class, and/or a respec
-   cost/cooldown.
-6. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
+   cost/cooldown (see point 3c above).
+8. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
    unclear. Use `graphics-designer` for the texture/model/icon each of these will need.

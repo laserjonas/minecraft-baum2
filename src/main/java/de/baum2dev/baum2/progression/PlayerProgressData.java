@@ -10,7 +10,7 @@ public class PlayerProgressData {
     public PlayerProgressData() {
         this.level = 1;
         this.experience = 0;
-        this.experienceForNextLevel = 100;
+        this.experienceForNextLevel = VanillaXpFormula.getXpRequiredForLevel(level + 1);
     }
 
     public PlayerProgressData(int level, long experience, long experienceForNextLevel) {
@@ -57,7 +57,10 @@ public class PlayerProgressData {
     public static PlayerProgressData readNbt(NbtCompound tag) {
         int level = tag.contains("Level") ? tag.getInt("Level").orElse(1) : 1;
         long experience = tag.contains("Experience") ? tag.getLong("Experience").orElse(0L) : 0;
-        long experienceForNextLevel = tag.contains("ExperienceForNextLevel") ? tag.getLong("ExperienceForNextLevel").orElse(100L) : 100;
+        long fallbackExperienceForNextLevel = VanillaXpFormula.getXpRequiredForLevel(level + 1);
+        long experienceForNextLevel = tag.contains("ExperienceForNextLevel")
+            ? tag.getLong("ExperienceForNextLevel").orElse(fallbackExperienceForNextLevel)
+            : fallbackExperienceForNextLevel;
         return new PlayerProgressData(level, experience, experienceForNextLevel);
     }
 }

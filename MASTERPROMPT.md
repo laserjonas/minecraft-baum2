@@ -113,7 +113,7 @@ Beispielklassen:
 * Eisenwächter
 * Schattenläufer
 * Runenwirker
-* Seelenhüter
+* Wesenswahrer
 
 Anforderungen:
 
@@ -142,7 +142,7 @@ Beispiel-Skills:
 * Eisenwächter: Schildstoß, Standhafte Aura
 * Schattenläufer: Nebelschritt, Klingenwirbel
 * Runenwirker: Runenfunke, Arkaner Kreis
-* Seelenhüter: Lebensband, Geisterwoge
+* Wesenswahrer: Lebensband, Geisterwoge
 
 Diese Namen sind Platzhalter und dürfen bei Bedarf verbessert werden, solange sie eigenständig
 bleiben.
@@ -481,7 +481,7 @@ Runenkern
 Eisenwächter
 Schattenläufer
 Runenwirker
-Seelenhüter
+Wesenswahrer
 Haus Solvyr
 Orden Myrkan
 Bund Avarra

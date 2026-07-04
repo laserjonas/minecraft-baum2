@@ -101,6 +101,17 @@ Use a consistent original fantasy naming style.
 - Do not commit copied assets.
 - Do not commit API keys, tokens, passwords, credentials, or private config files.
 
+## Fabric Modding Docs Agent
+
+Fabric/Minecraft APIs move fast and training data can be stale for a version as new as
+1.21.11. Whenever anything about Minecraft/Fabric/Loom/Mixin APIs is unclear — an unfamiliar
+class, an event hook that might not exist under that name anymore, a version-compatibility
+question — consult the `fabric-docs-researcher` subagent (`.claude/agents/fabric-docs-researcher.md`)
+instead of guessing. Do this proactively, don't wait to be asked. That agent researches
+authoritative sources and persists findings to `docs/fabric-modding.md`, which is the shared
+Fabric-modding reference for both contributors — check it first, since the answer may already
+be there.
+
 ## Handoff Rule (multi-developer sync)
 
 This project has more than one human/Claude Code pair working on it. Before every commit,

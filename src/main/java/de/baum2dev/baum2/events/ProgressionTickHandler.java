@@ -17,6 +17,7 @@ public class ProgressionTickHandler {
             PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
             int customLevel = progress.getLevel();
             long currentExp = progress.getExperience();
+            long maxExp = progress.getExperienceForNextLevel();
 
             player.setExperienceLevel(customLevel);
             player.totalExperience = (int) (customLevel * 100 + currentExp);

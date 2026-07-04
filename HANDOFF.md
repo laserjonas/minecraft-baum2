@@ -14,7 +14,7 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change
 
-- Commit: (pending) — "Add MASTERPROMPT.md and reference it from CLAUDE.md"
+- Commit: `7f228e8` — "Add MASTERPROMPT.md and reference it from CLAUDE.md"
 - What: Added `MASTERPROMPT.md`, the full original project brief (vision, complete feature
   roadmap for classes/skills/progression/world events/factions/bosses/items/dungeons/quests/UI,
   detailed legal & naming guidelines, priorities). `CLAUDE.md` now points to it and to this file.

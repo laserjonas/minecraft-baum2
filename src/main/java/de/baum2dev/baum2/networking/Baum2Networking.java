@@ -3,6 +3,9 @@ package de.baum2dev.baum2.networking;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
+import de.baum2dev.baum2.progression.AttributeManager;
+import de.baum2dev.baum2.progression.PlayerLevelSystem;
+import de.baum2dev.baum2.progression.PlayerProgressData;
 
 /**
  * Central networking registry and utility class for all Baum2 custom packets.
@@ -12,11 +15,9 @@ import net.minecraft.server.network.ServerPlayerEntity;
  */
 public class Baum2Networking {
     /**
-     * Register all custom payload types for S2C transmission.
-     * Must be called on mod initialization (server-side entry point).
-     * Client-side registration happens in Baum2Client.
-     *
-     * Registers payloads to PayloadTypeRegistry.playS2C() with their StreamCodecs.
+     * Register all custom payload types (S2C and C2S) and any C2S receivers.
+     * Must be called on mod initialization (common entry point - runs on both logical sides).
+     * Client-side receiver registration for S2C payloads happens in Baum2Client.
      */
     public static void registerServerPayloads() {
         // Register the experience sync payload for S2C transmission
@@ -31,10 +32,26 @@ public class Baum2Networking {
                 ManaSyncPayload.CODEC
         );
 
-        // Register the combat stats sync payload for S2C transmission
+        // Register the attribute sync payload for S2C transmission
         PayloadTypeRegistry.playS2C().register(
-                CombatStatsSyncPayload.TYPE,
-                CombatStatsSyncPayload.CODEC
+                AttributeSyncPayload.TYPE,
+                AttributeSyncPayload.CODEC
+        );
+
+        // Register the spend-attribute-point payload for C2S transmission, plus its receiver
+        PayloadTypeRegistry.playC2S().register(
+                SpendAttributePointPayload.TYPE,
+                SpendAttributePointPayload.CODEC
+        );
+        ServerPlayNetworking.registerGlobalReceiver(
+                SpendAttributePointPayload.TYPE,
+                (payload, context) -> {
+                    ServerPlayerEntity player = context.player();
+                    PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
+                    if (AttributeManager.trySpendPoint(progress, payload.attribute())) {
+                        PlayerLevelSystem.savePlayerProgress(player, progress);
+                    }
+                }
         );
     }
 
@@ -61,12 +78,14 @@ public class Baum2Networking {
     }
 
     /**
-     * Send Base Damage/Base Magic Damage to a player. Thread-safe: can be called from any
-     * thread. These are flat values that don't change on their own, so unlike Mana this only
-     * needs to be sent on join (or again if a future gear/skill system changes them).
+     * Send the four raw attributes plus unspent points to a player. Thread-safe: can be
+     * called from any thread.
      */
-    public static void syncPlayerCombatStats(ServerPlayerEntity player, float baseDamage, float baseMagicDamage) {
-        CombatStatsSyncPayload payload = new CombatStatsSyncPayload(baseDamage, baseMagicDamage);
+    public static void syncPlayerAttributes(ServerPlayerEntity player, PlayerProgressData progress) {
+        AttributeSyncPayload payload = new AttributeSyncPayload(
+                progress.getEndurance(), progress.getIntelligence(), progress.getStrength(),
+                progress.getDexterity(), progress.getUnspentAttributePoints()
+        );
         ServerPlayNetworking.send(player, payload);
     }
 }

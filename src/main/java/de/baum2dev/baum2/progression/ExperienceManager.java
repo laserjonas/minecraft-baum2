@@ -15,6 +15,7 @@ public class ExperienceManager {
         data.setExperience(excess);
         long nextLevelRequirement = calculateExperienceForLevel(data.getLevel() + 1);
         data.setExperienceForNextLevel(nextLevelRequirement);
+        AttributeManager.grantLevelUpPoint(data);
     }
 
     public static long calculateExperienceForLevel(int level) {

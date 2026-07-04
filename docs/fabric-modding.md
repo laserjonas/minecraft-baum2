@@ -75,6 +75,99 @@ here once `registry/ModItems` etc. exist.)_
 - `CommandRegistrationCallback.EVENT` — used in `commands/Baum2Commands.java` to register the
   `/baum2` command tree via Brigadier.
 
+## Networking — Client-to-Server (C2S) payloads
+
+Researched for the attribute-point-spend button (player clicks "+1" on Endurance/
+Intelligence/Strength/Dexterity in `CharacterStatsScreen`, client tells server to spend a
+point). This project already has working S2C payloads (`ExperienceSyncPayload`,
+`ManaSyncPayload`, `CombatStatsSyncPayload` in `networking/`, registered/sent via
+`Baum2Networking`, received via `ClientNetworkingHandler`) but this is the first C2S
+direction. Verified against the decompiled `fabric-networking-api-v1-5.1.6+6b6d71a53e`
+sources jars (both `-client` and `-common` variants, pulled in transitively by
+`fabric-api-0.141.4+1.21.11`) — specifically `PayloadTypeRegistry.java`,
+`ServerPlayNetworking.java`, and `ClientPlayNetworking.java`.
+
+- **`PayloadTypeRegistry.playC2S()` exists, confirmed, mirrors `playS2C()` exactly**:
+  ```java
+  static PayloadTypeRegistry<RegistryByteBuf> playC2S();  // client-to-server play channel
+  static PayloadTypeRegistry<RegistryByteBuf> playS2C();  // server-to-client play channel (already used)
+  ```
+  Both return the same interface shape (`register(CustomPayload.Id<T> id, PacketCodec<? super
+  B, T> codec)`, plus a `registerLarge(...)` overload for oversized payloads split across
+  multiple packets). Payload record + `CustomPayload.Id`/`CustomPayload.Type` + `PacketCodec`
+  definition style is identical to the existing S2C payloads — no new pattern needed, just
+  register the new payload record's `TYPE`/`CODEC` against `playC2S()` instead of `playS2C()`.
+- **Registration must happen on both the sending and receiving side** — this is stated
+  directly in `PayloadTypeRegistry`'s javadoc ("This must be done on both the sending and
+  receiving side, usually during mod initialization and before registering a packet
+  handler"). In practice this project already satisfies that for free: `Baum2Networking
+  .registerServerPayloads()` (which calls `PayloadTypeRegistry.playS2C().register(...)`) is
+  invoked from `Baum2.onInitialize()` in `src/main/java` — Fabric's **common** mod
+  initializer entrypoint, which runs on *both* the dedicated server and the client's own
+  process (client always also runs a logical-server-shaped init path, even in singleplayer).
+  So calling `PayloadTypeRegistry.playC2S().register(...)` from that same common
+  `onInitialize()` (e.g. add it to `Baum2Networking.registerServerPayloads()`, or a
+  same-named sibling method) registers it on both sides automatically — **no separate
+  client-only registration call is needed just for `PayloadTypeRegistry.playC2S().register(...)`
+  itself.** (Registering the *receiver* is different — see below.)
+- **Client-side send**: `net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking`,
+  confirmed exact signature:
+  ```java
+  public static void send(CustomPayload payload);
+  ```
+  Throws `IllegalStateException` if not currently connected to a server (checked internally via
+  `MinecraftClient.getInstance().getNetworkHandler() != null`). Call directly, e.g.
+  `ClientPlayNetworking.send(new SpendAttributePointPayload(Attribute.STRENGTH))` — no extra
+  wrapping needed, mirrors `ServerPlayNetworking.send(player, payload)` used for the existing
+  S2C payloads.
+- **Server-side receive**: `net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking`,
+  confirmed exact signature (same file/class already used for `.send(...)` on the S2C side):
+  ```java
+  public static <T extends CustomPayload> boolean registerGlobalReceiver(
+      CustomPayload.Id<T> type, PlayPayloadHandler<T> handler);
+  ```
+  `PlayPayloadHandler<T>` is `@FunctionalInterface`-shaped: `void receive(T payload,
+  ServerPlayNetworking.Context context)` — **the handler already executes on the server
+  thread**, so it's safe to touch player/world state directly without extra scheduling.
+  **This receiver registration is server-side-only** (register it in
+  `ClientNetworkingHandler`'s server-side counterpart, or wherever server-only setup already
+  lives — do not call it from client code).
+  `ServerPlayNetworking.Context` (confirmed, `@ApiStatus.NonExtendable` interface) exposes
+  exactly three accessors:
+  ```java
+  public interface Context {
+      MinecraftServer server();
+      ServerPlayerEntity player();   // the player that sent the packet
+      PacketSender responseSender();
+  }
+  ```
+  So the sending player is `context.player()`, directly usable to look up/mutate their
+  progression data (e.g. `AttributePointsComponent`/whatever holds spendable points) inside
+  the handler.
+- **Minimal end-to-end shape** for the attribute-point button, following this project's
+  existing payload conventions:
+  ```java
+  // networking/SpendAttributePointPayload.java (record, C2S)
+  public record SpendAttributePointPayload(Attribute attribute) implements CustomPayload {
+      public static final Identifier ID = Identifier.of("baum2", "spend_attribute_point");
+      public static final CustomPayload.Id<SpendAttributePointPayload> TYPE = new CustomPayload.Id<>(ID);
+      public static final PacketCodec<RegistryByteBuf, SpendAttributePointPayload> CODEC = ...;
+      @Override public CustomPayload.Id<? extends CustomPayload> getId() { return TYPE; }
+  }
+
+  // registration, in the common Baum2.onInitialize() path (alongside the existing playS2C() calls):
+  PayloadTypeRegistry.playC2S().register(SpendAttributePointPayload.TYPE, SpendAttributePointPayload.CODEC);
+
+  // server-side receiver registration (server-only init path):
+  ServerPlayNetworking.registerGlobalReceiver(SpendAttributePointPayload.TYPE, (payload, context) -> {
+      ServerPlayerEntity player = context.player();
+      // spend the point for payload.attribute() on player, server thread, safe to mutate directly
+  });
+
+  // client-side send, directly inside a ButtonWidget's onPress lambda (see GUI/Screens > ButtonWidget):
+  ClientPlayNetworking.send(new SpendAttributePointPayload(Attribute.STRENGTH));
+  ```
+
 ## Input / Keybindings
 
 Researched for the 'C' character-stats-screen keybind. Verified against the decompiled
@@ -274,6 +367,180 @@ screen's title bar.
   planned to grow more tabs, it's the same amount of code as a hand-rolled version would need
   once you also hand-roll active/inactive styling and highlight state, and it avoids a later
   migration.
+
+### `ButtonWidget` — clickable buttons in a `GridWidget`
+
+Researched for a "+1" attribute-point spend button next to a stat row in
+`CharacterStatsScreen`. Verified against the decompiled named `minecraft-clientOnly` 1.21.11
+sources jar, `net/minecraft/client/gui/widget/ButtonWidget.java` and `GridWidget.java`.
+
+- `net.minecraft.client.gui.widget.ButtonWidget` still exists at this exact name/package, an
+  `abstract class` extending `PressableWidget`. Build one via the static builder, not a public
+  constructor:
+  ```java
+  ButtonWidget.builder(Text message, ButtonWidget.PressAction onPress)
+      .dimensions(x, y, width, height)   // or .position(x, y) + .size(width, height) separately
+      .build();
+  ```
+  `ButtonWidget.PressAction` is `@FunctionalInterface`-shaped: `void onPress(ButtonWidget button)`
+  — the lambda passed to `builder(...)` runs on the client (render/main client thread) when
+  clicked.
+- Builder chain methods confirmed: `.position(int x, int y)`, `.width(int width)`,
+  `.size(int width, int height)`, `.dimensions(int x, int y, int width, int height)` (= position +
+  size combined), `.tooltip(Tooltip)`, `.narrationSupplier(NarrationSupplier)`, `.build()`.
+  Defaults if unset: `width = 150`, `height = 20` (also exposed as constants
+  `ButtonWidget.DEFAULT_WIDTH = 150`, `ButtonWidget.DEFAULT_WIDTH_SMALL = 120`,
+  `ButtonWidget.DEFAULT_HEIGHT = 20`).
+- **No standard "small square" button convention exists in vanilla `ButtonWidget` itself** —
+  there's no `DEFAULT_WIDTH_TINY` or similar for icon-only/compact buttons; the smallest named
+  constant is `DEFAULT_WIDTH_SMALL = 120` (still full-height text-button width, just narrower).
+  For a compact "+1" button, just pick dimensions directly via `.size(w, h)` /
+  `.dimensions(...)` — e.g. `20x20` (matching `DEFAULT_HEIGHT`) is a reasonable, unenforced
+  choice; nothing in the API requires or suggests a specific compact size.
+- **Works in a `GridWidget` exactly like the project's existing `TextWidget` rows.**
+  `GridWidget.add` is generic over `Widget` (`public <T extends Widget> T add(T widget, int row,
+  int column)`, plus overloads taking `occupiedRows`/`occupiedColumns`/`Positioner`) — since
+  `ButtonWidget` (via `PressableWidget`) implements `Widget` the same as `TextWidget`, it drops
+  into `CharacterStatsScreen`'s `StatsTab.grid.add(...)` calls with no special handling, e.g.
+  `this.grid.add(ButtonWidget.builder(Text.literal("+"), btn -> {...}).size(20, 20).build(), row,
+  column)`. No need to also call `addDrawableChild` separately — `GridScreenTab`/`TabManager`
+  wiring (already used in this project) takes care of registering the grid's children as
+  drawable/clickable once, same as it does for `TextWidget`.
+- **Sending a C2S packet from `onPress`**: no special threading needed. The `PressAction`
+  lambda already runs on the client thread from a UI callback, so `ClientPlayNetworking.send(new
+  MyPayload(...))` can be called directly inside it — same as any other client-thread code (see
+  the C2S networking section below for the exact `send` signature).
+
+### Scrolling a dense `GridScreenTab` (vertical overflow inside a single tab)
+
+Researched for a real bug: `CharacterStatsScreen`'s single `StatsTab` (~15 `GridWidget` rows)
+overflows vertically at high GUI Scale, with bottom rows (e.g. Dexterity's derived stats)
+completely unreachable — no scrolling exists today. Verified against the decompiled named
+`minecraft-clientOnly` 1.21.11 sources jar: `net/minecraft/client/gui/widget/ScrollableWidget.java`,
+`ScrollableLayoutWidget.java`, `ContainerWidget.java`, `WrapperWidget.java`, `GridWidget.java`,
+`LayoutWidget.java`, `net/minecraft/client/gui/tab/{Tab,GridScreenTab}.java`, plus two real
+vanilla call sites: `net/minecraft/client/gui/screen/world/ExperimentsScreen.java` (a plain
+`Screen` using `ScrollableLayoutWidget` directly) and a search across the whole sources jar for
+any `Tab` combining `GridScreenTab` with scrolling (none exists — no vanilla screen scrolls
+*inside* a `Tab`, so there's no vanilla precedent to copy verbatim for that specific
+combination; the wiring below is derived from the confirmed class APIs, not copied from an
+existing vanilla tab).
+
+- **Yes, a generic scrollable container exists: `net.minecraft.client.gui.widget.ScrollableLayoutWidget`.**
+  This is the right class for wrapping an arbitrary already-built widget tree (like a
+  `GridWidget`), not just a uniform list of entries (`EntryListWidget`/
+  `AlwaysSelectedEntryListWidget` are for that latter case and don't fit here). Confirmed
+  constructor and key methods:
+  ```java
+  public ScrollableLayoutWidget(MinecraftClient client, LayoutWidget layout, int height);
+  public void setWidth(int width);
+  public void setHeight(int height);
+  // implements LayoutWidget: refreshPositions(), forEachChild(...), setX/setY/getX/getY/getWidth/getHeight
+  ```
+  It takes **any `LayoutWidget`**, and `GridWidget extends WrapperWidget implements LayoutWidget`
+  — so **the project's existing `GridWidget` (`StatsTab.grid`) can be wrapped as-is**, no
+  conversion to `DirectionalLayoutWidget`/`ThreePartsLayoutWidget` needed.
+- **How it works internally** (why it needs no manual scissor/input code): it wraps the given
+  `layout` in a private `Container` class that `extends ContainerWidget` (itself `abstract class
+  ContainerWidget extends ScrollableWidget implements ParentElement`). `forEachElement` exposes
+  **only that one `Container`** as the externally-visible widget — the wrapped grid's real
+  widgets become the `Container`'s internal `ParentElement` children, invisible to the outside
+  layout system. This is why only **one** widget needs to be registered as a drawable/clickable
+  child for the whole scrollable region (see wiring below).
+- **`GridWidget`/`WrapperWidget` themselves have no scroll-offset concept at all** — confirmed,
+  neither class has any scroll field/method. Scrolling only exists at the `ScrollableWidget`
+  layer; wrapping is mandatory, there's no "turn on scrolling" flag on `GridWidget`.
+- **Scrollbar + input are fully automatic, no manual `DrawContext` calls needed.** Confirmed in
+  `ScrollableWidget` (the abstract base of `ContainerWidget`):
+  - `mouseScrolled(...)` — wheel support, built in.
+  - `mouseDragged(...)` + `checkScrollbarDragged(...)`/`onRelease(...)` (wired via
+    `ContainerWidget.mouseClicked`/`mouseReleased`/`mouseDragged` overrides) — scrollbar-thumb
+    drag support, built in.
+  - `drawScrollbar(DrawContext, mouseX, mouseY)` — called automatically from
+    `ScrollableLayoutWidget.Container.renderWidget(...)`, which does
+    `context.enableScissor(...)` around the children's render calls, then
+    `this.drawScrollbar(context, mouseX, mouseY)` after `disableScissor()`. Draws using
+    vanilla's own textures: `Identifier.ofVanilla("widget/scroller")` (thumb) and
+    `.../"widget/scroller_background"` (track) via
+    `context.drawGuiTexture(RenderPipelines.GUI_TEXTURED, ...)` — **the same textures/visual
+    convention as vanilla's other scrollable lists** (creative inventory, stats screen list,
+    server list, etc.), so it matches vanilla look automatically with zero custom drawing.
+    `ScrollableWidget.SCROLLBAR_WIDTH = 6` (px) is the confirmed constant; it also reserves the
+    thumb on the right edge (`getScrollbarX() = getRight() - 6`).
+  - Content width budget: `ScrollableLayoutWidget.refreshPositions()` sets
+    `container.setWidth(Math.max(layout.getWidth() + 20, requestedWidth))` — the wrapped
+    layout is inset **10px on each side** (`Container.setX` does `layout.setX(x + 10)`), which
+    is where the 6px scrollbar + a few px of breathing room live. Budget for this — don't set
+    the grid's own width right up against the tab area edge.
+- **Confirmed real vanilla usage sketch** (`ExperimentsScreen.init()`/`refreshWidgetPositions()`,
+  a plain `Screen`, not a `Tab`, but proves the exact call pattern):
+  ```java
+  LayoutWidget content = /* any LayoutWidget, e.g. a GridWidget */;
+  ScrollableLayoutWidget scrollable = new ScrollableLayoutWidget(this.client, content, 130);
+  scrollable.setWidth(310);
+  someParentLayout.add(scrollable); // or add it directly wherever a LayoutWidget can go
+  // ... register the actual drawable/clickable widget(s):
+  scrollable.forEachChild(widget -> this.addDrawableChild(widget)); // adds exactly ONE Container widget
+  // on resize/layout refresh:
+  scrollable.setHeight(newViewportHeight);
+  someParentLayout.refreshPositions(); // triggers ScrollableLayoutWidget.refreshPositions() internally
+  ```
+- **Wiring into our existing `GridScreenTab`-based `StatsTab` — confirmed, does NOT require
+  abandoning `GridScreenTab`.** `GridScreenTab` is a thin class (`protected final GridWidget
+  grid` + 3 overridden `Tab` methods); nothing stops a subclass from overriding
+  `forEachChild`/`refreshGrid` again to route through a `ScrollableLayoutWidget` that wraps the
+  same `this.grid` field, while leaving 100% of the existing row-building constructor code
+  (`this.grid.add(label(...), row, col)` etc.) completely unchanged:
+  ```java
+  private static class StatsTab extends GridScreenTab {
+      private final ScrollableLayoutWidget scrollable;
+
+      StatsTab(TextRenderer textRenderer) {
+          super(Text.literal("Stats"));
+          this.grid.setRowSpacing(5).setColumnSpacing(6);
+          // ...exact same this.grid.add(...) row-building code as today, unchanged...
+          this.scrollable = new ScrollableLayoutWidget(MinecraftClient.getInstance(), this.grid, 200);
+      }
+
+      @Override
+      public void forEachChild(Consumer<ClickableWidget> consumer) {
+          this.scrollable.forEachChild(consumer); // registers exactly one Container widget
+      }
+
+      @Override
+      public void refreshGrid(ScreenRect tabArea) {
+          ScreenRect padded = new ScreenRect(tabArea.getLeft(), tabArea.getTop() + TOP_PADDING,
+                  tabArea.width(), Math.max(0, tabArea.height() - TOP_PADDING));
+          this.scrollable.setWidth(padded.width());
+          this.scrollable.setHeight(padded.height());
+          this.scrollable.refreshPositions(); // internally calls this.grid.refreshPositions() too
+          SimplePositioningWidget.setPos(this.scrollable, padded, 0.5F, 0.0F);
+      }
+  }
+  ```
+  Notes on this sketch: `ScrollableLayoutWidget` implements `LayoutWidget` so
+  `SimplePositioningWidget.setPos(...)` accepts it exactly like it already accepts `this.grid`
+  today — no new positioning API needed. `refreshPositions()` on the wrapper internally calls
+  `layout.refreshPositions()` (i.e. `this.grid.refreshPositions()`) for you, so the grid's own
+  row/column sizing math still runs unchanged. `refreshValues()` (called every `render()` frame
+  in `CharacterStatsScreen`) needs no change at all — it already mutates the `TextWidget`s held
+  by fields on `StatsTab`, which are still the same widget instances, just now scrolled/clipped
+  by the wrapping `Container`.
+- **Recommendation: real scrolling is straightforward enough to implement directly, given the
+  confirmed API above** — it's a small, surgical, additive change (one new field + two
+  overridden methods), not a rewrite, and the existing row-building code and `refreshValues()`
+  logic are untouched. Scrollbar rendering, wheel input, and drag-to-scroll are all automatic
+  (zero manual `DrawContext` scrollbar code needed) and match vanilla's own scrollbar look.
+  **Splitting into 2-3 sub-tabs by attribute family remains a valid, even lower-risk fallback**
+  if scrolling turns out to misbehave in practice (e.g. subtle focus/narration issues, or the
+  10px inset math needing tuning) — it reuses the *exact* already-proven `GridScreenTab`/
+  `TabNavigationWidget.builder(...).tabs(...)` pattern with **zero new API surface**: just more
+  `Tab` instances passed to the existing `.tabs(...)` vararg call, no new classes to learn. The
+  only real downside of sub-tabs is a UX one (splitting logically-related derived stats, e.g.
+  Dexterity and its derived Attack/Cast Speed and Crit Chance rows, across a tab boundary),
+  not an implementation-risk one — so choose based on whether that split reads awkwardly to a
+  player, not based on implementation difficulty; both are low-risk given what's confirmed
+  above.
 
 ## Rendering / HUD
 

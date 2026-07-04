@@ -6,6 +6,7 @@ import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import de.baum2dev.baum2.progression.ProgressionCurve;
+import de.baum2dev.baum2.progression.VitalsCurve;
 
 /**
  * Client-side networking handler for Baum2 custom packets.
@@ -20,8 +21,11 @@ public class ClientNetworkingHandler {
      */
     private static volatile int currentMana = 0;
     private static volatile int currentMaxMana = 1;
-    private static volatile float currentBaseDamage = 0f;
-    private static volatile float currentBaseMagicDamage = 0f;
+    private static volatile int currentEndurance = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentIntelligence = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentStrength = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentDexterity = VitalsCurve.STARTING_ATTRIBUTE_POINTS;
+    private static volatile int currentUnspentAttributePoints = 0;
 
     public static void registerClientHandlers() {
         // Register receiver for experience sync payload
@@ -36,10 +40,10 @@ public class ClientNetworkingHandler {
                 ClientNetworkingHandler::handleManaSyncPayload
         );
 
-        // Register receiver for combat stats sync payload
+        // Register receiver for attribute sync payload
         ClientPlayNetworking.registerGlobalReceiver(
-                CombatStatsSyncPayload.TYPE,
-                ClientNetworkingHandler::handleCombatStatsSyncPayload
+                AttributeSyncPayload.TYPE,
+                ClientNetworkingHandler::handleAttributeSyncPayload
         );
     }
 
@@ -48,9 +52,12 @@ public class ClientNetworkingHandler {
         currentMaxMana = payload.maxMana();
     }
 
-    private static void handleCombatStatsSyncPayload(CombatStatsSyncPayload payload, ClientPlayNetworking.Context context) {
-        currentBaseDamage = payload.baseDamage();
-        currentBaseMagicDamage = payload.baseMagicDamage();
+    private static void handleAttributeSyncPayload(AttributeSyncPayload payload, ClientPlayNetworking.Context context) {
+        currentEndurance = payload.endurance();
+        currentIntelligence = payload.intelligence();
+        currentStrength = payload.strength();
+        currentDexterity = payload.dexterity();
+        currentUnspentAttributePoints = payload.unspentAttributePoints();
     }
 
     public static int getCurrentMana() {
@@ -61,12 +68,24 @@ public class ClientNetworkingHandler {
         return currentMaxMana;
     }
 
-    public static float getCurrentBaseDamage() {
-        return currentBaseDamage;
+    public static int getCurrentEndurance() {
+        return currentEndurance;
     }
 
-    public static float getCurrentBaseMagicDamage() {
-        return currentBaseMagicDamage;
+    public static int getCurrentIntelligence() {
+        return currentIntelligence;
+    }
+
+    public static int getCurrentStrength() {
+        return currentStrength;
+    }
+
+    public static int getCurrentDexterity() {
+        return currentDexterity;
+    }
+
+    public static int getCurrentUnspentAttributePoints() {
+        return currentUnspentAttributePoints;
     }
 
     /**

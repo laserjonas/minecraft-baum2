@@ -9,50 +9,70 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
   (verified clean boot and clean world-join, no Mixin/payload/HUD-registration errors).
-- **Life and Mana systems — implemented, HUD reworked, vanilla heart removed:**
-  - `progression/VitalsCurve.java`: `getMaxLife(level) = 500 + 10*level` (510 at level 1, 1500
-    at level 100), `getMaxMana(level) = 100 + 5*level` (105 to 600).
-  - Life is real vanilla health (`EntityAttributes.MAX_HEALTH`), rescaled via
-    `progression/VitalsManager.applyMaxLife` — deliberate choice so combat/damage/death/regen
-    keep working unchanged; only the attribute's base value and the HUD are touched. **Vanilla
-    clamps this attribute's effective value at 1024**, which the formula would silently exceed
-    past level ~53 (every level after that would compute a bigger number but have zero actual
-    effect) — fixed via an accessor Mixin (`mixin/ClampedEntityAttributeAccessor.java`) that
-    widens the clamp to 2048 once at mod init (`VitalsManager.widenMaxHealthCeiling()`, called
-    first thing in `Baum2.onInitialize()`, before `PlayerLevelSystem.bootstrap()`'s guarantee
-    matters for players). If a future balance change pushes Life past 2048, raise this
-    constant too.
-  - Mana is new, persisted in `progression/PlayerProgressData.java` (`mana` field, `Codec.INT`
-    via `optionalFieldOf("Mana", 100)` — **must stay optional, not `fieldOf`**, see "Last
-    change" for why), clamped/regenerated every tick in `events/VitalsTickHandler.java`
-    (~2% of max per second, `VitalsManager.regenMana`), synced to the client via a new
-    `networking/ManaSyncPayload.java` (same `PacketCodec`/`RegistryByteBuf` pattern as
-    `ExperienceSyncPayload`). No skill/system consumes Mana yet — this is future-use plumbing.
-  - HUD: `ui/VitalsHud.java` replaces the vanilla heart bar in place (`HudElementRegistry
-    .replaceElement(VanillaHudElements.HEALTH_BAR, ...)` — **not** `removeElement`, see "Last
-    change") and adds a new Mana bar directly above it (`attachElementBefore(ARMOR_BAR, ...)`),
-    both left-aligned where vanilla hearts used to sit. Colors/dimensions are documented in the
-    new `docs/visual-style-guide.md`. Old dead `ui/ProgressionHud.java` (never wired up, see
-    prior "Rendering / HUD" note in `docs/fabric-modding.md`) was deleted and replaced by this.
-  - A fifth subagent, `graphics-designer`, was added (pulled in from `jonas_workbranch`, which
-    had it but hadn't merged it yet) and used to produce the Life/Mana bar visual spec — see
+- **Life, Mana, and a 4-attribute system (Endurance/Intelligence/Strength/Dexterity) —
+  implemented, HUD reworked, vanilla heart removed, Character Stats screen ('C' key):**
+  - `progression/VitalsCurve.java` is the single source of truth for every formula below.
+    Every attribute starts at `STARTING_ATTRIBUTE_POINTS` (5) and grants
+    `ATTRIBUTE_POINTS_PER_LEVEL` (1) unspent point per level-up, for the player to invest via
+    a "+1" button in the Stats screen (`AttributeManager.trySpendPoint`, validated
+    server-side, never trust the client). Max level 100, so max attainable in one attribute
+    via pure leveling is 5+99=104.
+  - **Life is no longer level-based** — an earlier session's `500 + 10*level` formula was
+    explicitly replaced (user-confirmed decision) with a purely **Endurance**-driven one:
+    `getMaxLife(endurance) = 500 + 20*(endurance-5)` (500 at start, 2480 at max Endurance
+    104). Still real vanilla health (`EntityAttributes.MAX_HEALTH`), rescaled via
+    `VitalsManager.applyMaxLife` so combat/damage/death/regen keep working unchanged.
+    Endurance also drives Life Regen (`getLifeRegen`, 0.25/sec at start, applied once/sec in
+    `VitalsManager.regenLife`). **Vanilla clamps this attribute's effective value at 1024** —
+    fixed via an accessor Mixin (`mixin/ClampedEntityAttributeAccessor.java`) widening the
+    clamp once at mod init; currently set to **4096** (bumped up from an earlier session's
+    2048, to cover the new higher real max of 2480 with headroom — see
+    `VitalsManager.widenMaxHealthCeiling()`, called first in `Baum2.onInitialize()`).
+  - **Strength** drives Base Attack + Physical Defence (`getBaseAttack`/`getPhysicalDefence`,
+    both `5 + 1.0*(str-5)`). **Intelligence** drives Base Magic Attack + Magic Defence
+    (`getBaseMagicAttack`/`getMagicDefence`, same shape). **Dexterity** drives Attack Speed
+    Multiplier, Cast Speed Multiplier (`1.0 + 0.01*(dex-5)`, capped at `MAX_SPEED_MULTIPLIER`
+    = 3.0) and Crit Chance (`5 + 0.5*(dex-5)`, capped at `MAX_CRIT_CHANCE` = 75%). **None of
+    these caps actually bind via pure leveling alone** (e.g. max attainable Crit Chance is
+    54.5%, not 75%) — they're intentional headroom for a future gear/skill system that might
+    push an attribute's *effective* value higher, not a currently-reachable limit. **No
+    `combat/` package exists yet, so none of these combat-facing formulas actually affect
+    damage/defence/speed/crit in-game right now** — display-only plumbing, same as Mana.
+  - Mana is **unchanged** from the previous session (still level-based, `100 + 5*level`,
+    NOT attribute-driven — no attribute was ever said to drive Mana).
+  - Networking: `networking/AttributeSyncPayload.java` (S2C, synced every tick alongside
+    Mana) carries only the 4 raw attribute ints + unspent points — **derived stats are NOT
+    synced separately**, the client computes them locally by calling the same
+    `VitalsCurve` methods (shared common-sourceset code), exactly like it already does for
+    total XP. `networking/SpendAttributePointPayload.java` is this project's **first C2S
+    payload** (`PayloadTypeRegistry.playC2S()`, `ServerPlayNetworking.registerGlobalReceiver`
+    reading `context.player()` as the sender) — sent when a Stats-screen "+1" button is
+    clicked. The old `Base Damage`/`Base Magic Damage` flat-5.0 fields and
+    `CombatStatsSyncPayload` from the previous session are **gone**, fully superseded by the
+    Strength/Intelligence formulas above.
+  - HUD (unchanged from previous session): `ui/VitalsHud.java` replaces the vanilla heart bar
+    in place (`HudElementRegistry.replaceElement(VanillaHudElements.HEALTH_BAR, ...)` — **not**
+    `removeElement`) and adds a Mana bar above it. Colors/dimensions in
     `docs/visual-style-guide.md`.
-- **Base Damage / Base Magic Damage + Character Stats screen ('C' key) — implemented:**
-  - Flat starting combat stats (not level-scaled): `VitalsCurve.getBaseDamage()` /
-    `getBaseMagicDamage()`, both `5.0f`. Persisted in `PlayerProgressData` (`baseDamage`/
-    `baseMagicDamage` fields, `Codec.FLOAT` via `optionalFieldOf`), synced to the client once on
-    join via a new `networking/CombatStatsSyncPayload.java` (not every tick like Mana — these
-    don't change on their own). Future gear/skills/talents are meant to raise these values;
-    nothing does yet.
-  - Pressing 'C' (`ui/Baum2KeyBindings.java`, `KeyBinding.Category.MISC`) opens
-    `ui/CharacterStatsScreen.java`, a full menu `Screen` (not a HUD overlay) built on vanilla's
-    real `Tab`/`TabManager`/`TabNavigationWidget`/`GridScreenTab` system, with one tab named
-    "Stats" showing Current/Max Life, Current/Max Mana, Base Damage, Base Magic Damage as
-    colored `TextWidget` rows refreshed every frame. More tabs can be added later via
-    `.tabs(...)` without redesigning the chrome. Pressing 'C' again closes it (handled in
-    `CharacterStatsScreen.keyPressed`, matching the same `KeyBinding` — see "Last change" for
-    why a global keybind poll alone doesn't reliably close a screen that has focus). Colors/
-    layout documented in `docs/visual-style-guide.md`'s "Character Stats Screen" section.
+  - Character Stats screen: pressing 'C' (`ui/Baum2KeyBindings.java`, `KeyBinding.Category
+    .MISC`) opens `ui/CharacterStatsScreen.java`, a full menu `Screen` built on vanilla's real
+    `Tab`/`TabManager`/`TabNavigationWidget`/`GridScreenTab` system, one tab ("Stats") with
+    ~15 rows: Life, Mana, Unspent Points, then each attribute (with its "+1" button)
+    interleaved with its derived stats. Pressing 'C' again closes it
+    (`CharacterStatsScreen.keyPressed` matching the same `KeyBinding`). Has its own opaque
+    panel background (`renderDarkening` override) and a `refreshGrid` override that top-aligns
+    content instead of vanilla's default centering anchor. **The `StatsTab`'s grid is now
+    wrapped in a `ScrollableLayoutWidget`** (`net.minecraft.client.gui.widget
+    .ScrollableLayoutWidget`) so all ~15 rows stay reachable (scrollbar/wheel/drag, fully
+    automatic, vanilla's own scrollbar look) even when content is taller than the available
+    tab area (high GUI Scale, small window) — before this, bottom rows (Dexterity's derived
+    stats) were simply unreachable, a real bug caught via a second real screenshot. See "Last
+    change" for both this and the header-overlap fix, both found via user screenshots, not
+    guessed. Colors/row order/layout documented in `docs/visual-style-guide.md`'s "Character
+    Stats Screen" section.
+  - A fifth subagent, `graphics-designer`, was added (pulled in from `jonas_workbranch`, which
+    had it but hadn't merged it yet) and used to produce the Life/Mana/Stats-screen visual
+    specs — see `docs/visual-style-guide.md`.
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 - **Progression System — FULLY WORKING, including real-time client display:**
@@ -103,6 +123,129 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
     directly — this workaround is a fallback, not the preferred path.
 
 ## Last change (on `fischey_workbranch`, not yet merged to `master`)
+
+Added scrolling to the Character Stats screen after a second round of user screenshot feedback:
+
+- After the previous session's header-overlap and opaque-background fixes, the user sent
+  another real screenshot: "The UI is still not optimal... pixels should not scale with the
+  UI, it should be just readable. If there is not enough place, create scrollbar. If
+  scrollbar is not supported make senseful extra sub-tabs." The screenshot itself showed the
+  actual bug plainly: content was cut off mid-row at "Dexterity", with Attack Speed/Cast
+  Speed/Crit Chance below it completely unreachable — not a style complaint, a real
+  reachability bug (at a high GUI Scale or small window, ~15 rows can be taller than the
+  available tab area).
+- Researched whether vanilla 1.21.11 has a ready-to-use scrollable container before building
+  anything custom (persisted to `docs/fabric-modding.md`'s "GUI / Screens" section): confirmed
+  `net.minecraft.client.gui.widget.ScrollableLayoutWidget` wraps **any** `LayoutWidget`
+  (`GridWidget` already implements `LayoutWidget`, so no conversion needed), and handles
+  scrollbar rendering, mouse wheel, and drag-to-scroll **fully automatically** using vanilla's
+  own `widget/scroller`/`widget/scroller_background` textures — no manual `DrawContext` code.
+  Real vanilla precedent: `ExperimentsScreen` uses the exact same class (on a plain `Screen`,
+  not inside a `Tab` — there's no vanilla example combining it with `GridScreenTab`
+  specifically, but the wiring only needed the confirmed public API, not a copied pattern).
+- Implementation (`ui/CharacterStatsScreen.java`'s `StatsTab`): added a
+  `ScrollableLayoutWidget` field wrapping the existing `this.grid` (row-building code
+  completely unchanged), overrode `forEachChild` to register the wrapper's single `Container`
+  widget instead of the grid's rows directly, and changed `refreshGrid` to size/position the
+  wrapper (not the grid) within the tab area. `refreshValues()` needed **no changes at all** —
+  it already mutates the same `TextWidget` field instances, which are now just
+  scrolled/clipped by the wrapper rather than repositioned.
+- Chose real scrolling over the "sub-tabs" fallback the user also explicitly sanctioned,
+  since the confirmed API made it a small additive change (one field, two overridden methods)
+  with zero new UI surface for the user to navigate — sub-tabs remain a valid lower-risk
+  fallback if scrolling turns out to misbehave in practice (documented in "Next recommended
+  step" below), but there was no concrete reason to prefer it here.
+- Did not attempt to make the screen's rendering scale independent of the player's GUI Scale
+  setting (a literal reading of "pixels should not scale with the UI") — that would require
+  a matrix-transform trick to counter-scale rendering while keeping mouse-click hit-testing
+  coordinates correctly aligned, which is a meaningfully riskier change (misaligned
+  hit-testing would silently break the "+1" buttons) for a problem that scrolling already
+  solves robustly regardless of *why* content overflowed. If a future session wants literal
+  GUI-Scale independence rather than "always reachable via scroll," that's a separate,
+  larger piece of work — flagged in "Next recommended step," not attempted here.
+- Verified: `./gradlew build` passes, `runClient` boots cleanly with no Mixin/crash errors.
+  **Not re-confirmed visually** — same no-GUI-automation limitation as every prior UI change
+  this session; the next person to open the Stats screen at a high GUI Scale (or shrink the
+  window) should confirm the scrollbar appears and all rows through Crit Chance are reachable.
+
+Earlier, still on `fischey_workbranch`:
+
+Added a 4-attribute system (Endurance/Intelligence/Strength/Dexterity) and reworked the
+Character Stats screen to match, then fixed two UI bugs the user caught via a real screenshot:
+
+- User request: 4 attributes, each starting at 5, gaining 1 point per level-up (player
+  chooses which to invest in). Endurance -> Life + Life Regen; Intelligence -> Base Magic
+  Attack + Magic Defence; Strength -> Base Attack + Physical Defence; Dexterity -> Attack/Cast
+  Speed + Crit Chance. Base values given explicitly: Life Regen 0.25, Phys/Magic Defence 5
+  each, Attack/Cast Speed Multiplier 1.0x each, Base Crit Chance 5%. User explicitly delegated
+  the actual scaling-per-point formulas ("make the balance on yourself").
+- Two decisions confirmed with the user before implementing (both changed the shape of the
+  work materially, not just numbers, so worth a quick check rather than guessing): Life
+  becomes **purely** Endurance-driven, replacing the old level formula entirely (not additive)
+  — this was the bigger of the two, since it discards a formula from an earlier session that
+  had already been through balance review; and attribute points are 1-per-level, spent freely
+  any time via the Stats screen (not a forced choice at the moment of leveling up).
+- My formulas (`progression/VitalsCurve.java`, see "Current state" above for the actual
+  numbers) all follow one pattern: `base_at_start + coefficient * (attribute - 5)`, calibrated
+  so plugging in the starting value (5) reproduces each stat's given base value exactly.
+- New files: `progression/AttributeType.java` (enum), `progression/AttributeManager.java`
+  (grants points on level-up via `ExperienceManager.levelUp()` - chosen over the more fragile
+  `LevelUpHandler.checkLevelUp()` detection layer, since `levelUp()` fires for every level
+  gained regardless of source, mob-kill or `/baum2 addxp`, while `checkLevelUp` is only ever
+  invoked from `MobDeathHandler`; validates spending server-side, never trusts the client),
+  `networking/AttributeSyncPayload.java` (S2C), `networking/SpendAttributePointPayload.java`
+  (this project's first C2S payload). Deleted: `networking/CombatStatsSyncPayload.java` (fully
+  superseded — Base Attack/Magic Attack are now computed from Strength/Intelligence instead of
+  being an independently-stored flat value).
+- **`balance-reviewer` pass (via the general-purpose-agent workaround, see "Known limitation"
+  above) found two real issues, both fixed**:
+  1. Vanilla's `MAX_HEALTH` clamp (widened to 2048 last session) wasn't enough headroom for
+     the new real max Life (2480 at Endurance 104) — bumped to 4096.
+  2. Crit Chance had a 75% safety cap but Attack/Cast Speed Multiplier didn't, despite both
+     being equally uncapped-by-formula — added a matching `MAX_SPEED_MULTIPLIER` (3.0) cap to
+     both, for consistency. Neither cap actually binds via pure leveling alone (confirmed by
+     the reviewer via real arithmetic, not eyeballed) — both exist as headroom against a future
+     gear/skill system pushing an attribute's effective value higher, which is intentional, not
+     a bug — just flagging so a future reader doesn't "fix" the caps to make them bind sooner.
+     Also fixed a stale doc comment in `mixin/ClampedEntityAttributeAccessor.java` that still
+     cited the old level-based Life formula and its old 1500 max.
+- Verified: `./gradlew build` passes, `runClient` boots and joins a world cleanly, no
+  Mixin/attachment/codec errors (the `optionalFieldOf` lesson from the Mana codec bug was
+  applied from the start this time for all 5 new persisted fields — endurance/intelligence/
+  strength/dexterity/unspentAttributePoints — so no repeat of that data-loss bug).
+- **The user then sent an actual in-game screenshot of the Stats screen and said "The UI must
+  be improved" — this caught two real, concrete bugs that build success and clean-boot
+  verification could never have caught, since they're pure rendering/layout issues:**
+  1. **The tab header visibly overlapped the Life/Mana rows.** Root cause, confirmed by
+     reading `SimplePositioningWidget.setPos`'s actual source (not guessed): vanilla's
+     `GridScreenTab.refreshGrid` default centers content using a vertical anchor 1/6 down from
+     the top of the tab area, computed as `tabArea.top + lerp(1/6, 0, tabArea.height -
+     gridHeight)`. That assumes content shorter than the available area. With ~15 rows, the
+     grid is often **taller** than the tab area, making `(tabArea.height - gridHeight)`
+     **negative** — the lerp then produces a negative offset, pushing the grid's top edge
+     *above* the tab area's top boundary, directly into the header. Fixed by overriding
+     `StatsTab.refreshGrid` to top-align (`relativeY = 0.0F`) instead of using the inherited
+     default, plus a small fixed top-padding constant so content doesn't sit flush against the
+     header. **General lesson: `GridScreenTab`'s default centering anchor is only safe for
+     content you're confident is shorter than the tab area — override `refreshGrid` for
+     anything that might grow past a single screen's worth of rows**, which a Stats screen
+     with more attributes/tabs planned later definitely will.
+  2. **The screen barely read as a screen** — vanilla's default `renderDarkening` is a subtle
+     translucent gradient, fine for dimming gameplay slightly behind a typical menu, but far
+     too weak against a bright sky (the screenshot showed clouds/trees/hotbar all clearly
+     visible "through" the panel). Fixed by overriding `renderDarkening` to draw a solid
+     near-opaque fill instead — this is exactly what vanilla's own `StatsScreen` does too (it
+     overrides `renderDarkening` to draw an actual header-background texture plus its own
+     darkening region), confirmed by reading that class's real source rather than assuming the
+     default was fine. Also shrank spacer-row height and "+1" button size slightly for a
+     tighter, less sparse layout.
+  3. Re-verified after both fixes: `./gradlew build` passes, `runClient` boots/joins cleanly,
+     no new crashes. **Still not re-confirmed visually** — same no-GUI-automation limitation as
+     before, this environment can't screenshot the native Minecraft window itself. The next
+     person to open the Stats screen should confirm the header no longer overlaps and the
+     panel background reads as solid/opaque.
+
+Earlier, still on `fischey_workbranch`:
 
 Added Base Damage / Base Magic Damage stats and a 'C'-key Character Stats screen:
 
@@ -503,36 +646,50 @@ from persistence).
 
 ## Next recommended step
 
-1. **Not yet visually confirmed in-game** (highest priority manual check): press 'C' and
-   eyeball the Character Stats screen against `docs/visual-style-guide.md` — tab bar, row
-   spacing/colors, and that a second 'C' press actually closes it cleanly (no crash — one crash
-   was already found and fixed this session, see "Last change", but only via one incidental
-   real keypress; this environment has no GUI-automation tool to script a second confirmation).
-   Also re-check the Life/Mana HUD bars from the previous change while there (position, colors,
-   fill-ratio as you take damage/heal) — neither has been eyeballed yet.
-2. Still not visually confirmed from before: the vanilla XP bar animates smoothly as
-   `/baum2 addxp <n>` is run repeatedly (not just on level-up), and the level number matches
-   `/baum2 level`. Believed correct from a code standpoint but nobody has watched it happen.
+1. **Not yet re-confirmed in-game after the scrolling fix** (highest priority manual check):
+   press 'C', confirm a scrollbar appears on the right edge of the tab content (it should only
+   actually need to scroll at a high GUI Scale or small window — at a normal/low GUI Scale all
+   15 rows may already fit without one, which is fine, not a bug), confirm every row through
+   Crit Chance is reachable by scrolling, and that mouse wheel + scrollbar-drag both work. Also
+   still open from the prior round: confirm the header no longer overlaps Life/Mana, the panel
+   background reads as solid/opaque, the 4 "+1" buttons work end-to-end (click one, confirm the
+   value increments and Unspent Points decrements), and a second 'C' press still closes it
+   cleanly. This environment has no GUI-automation tool for the native Minecraft window — every
+   UI bug found so far was only caught because the user played manually and sent a screenshot;
+   that remains the only real verification path here.
+1a. If scrolling turns out to misbehave in practice (e.g. focus/narration order feels wrong,
+    or the scrollbar overlaps content awkwardly), the user already explicitly sanctioned a
+    fallback: split the dense "Stats" tab into 2-3 sub-tabs by attribute family. This reuses
+    the exact already-proven `TabNavigationWidget.builder(...).tabs(tabA, tabB, ...)` pattern
+    with zero new API surface — see "Last change" for why scrolling was tried first.
+1b. Not attempted: making the Stats screen's rendering scale independent of the player's GUI
+    Scale setting (a literal reading of part of the user's feedback). Scrolling solves the
+    practical "content unreachable" problem regardless of GUI Scale, but if a future session
+    specifically wants the screen to *never* grow with a high GUI Scale setting (rather than
+    just staying scrollable), that needs a matrix-transform counter-scale approach with careful
+    attention to keeping mouse hit-testing coordinates aligned with the rendered scale — flagged
+    as a separate, larger piece of work, not started.
+2. Still not visually confirmed from earlier sessions: the Life/Mana HUD bars' position/colors/
+   fill-ratio, and the vanilla XP bar animating smoothly as `/baum2 addxp <n>` runs repeatedly.
 3. In a fresh session where the custom subagent types actually resolve (see "Known limitation"
    above — untested whether this environment-specific issue affects other setups too): run
-   `balance-reviewer` on the progression system's XP curve/mob-reward formula (already run via
-   the workaround for the Life/Mana formulas — see the Life/Mana "Last change" entry — but not
-   yet for the original XP curve) and `ip-naming-compliance-checker` on existing player-facing
-   strings (command output, level-up broadcast text) — neither has been reviewed yet.
-4. Merge `fischey_workbranch` back into `master` — this session's commits (Base Damage/Base
-   Magic Damage + Stats screen, Life/Mana/HUD, plus the earlier XP-rebalance commits) are still
-   only on `fischey_workbranch`.
-5. Neither Mana nor Base Damage/Base Magic Damage have consumers yet by design ("future use" /
-   flat starting values per the user's requests) — the first skill/combat-formula that reads
-   these should pull from `VitalsCurve`/`PlayerProgressData` rather than inventing parallel
-   fields. Base Damage/Magic Damage in particular have no combat system to plug into yet at all
-   (no `combat/` package exists) — this is display-only plumbing until that exists.
-6. A class-name banner + level-diamond badge (as pictured in the reference image that prompted
-   the Life/Mana change) was explicitly deferred — no `classes/` package exists yet. When that
-   work starts, it should sit *above* the Life/Mana bars per `docs/visual-style-guide.md`'s note
-   on this, and will need its own `HudElementRegistry`/`HudStatusBarHeightRegistry` entries. It
-   could also become a second tab on `CharacterStatsScreen` rather than (or in addition to) a
-   HUD banner — worth deciding when that work starts, not now.
+   `balance-reviewer` on the progression system's original XP curve/mob-reward formula (the
+   attribute formulas and Life/Mana formulas have each already been reviewed via the
+   general-purpose-agent workaround — see their respective "Last change" entries — but the XP
+   curve itself never has) and `ip-naming-compliance-checker` on existing player-facing strings
+   (command output, level-up broadcast text, attribute/stat names) — neither has been reviewed.
+4. Merge `fischey_workbranch` back into `master` — this session's commits (attribute system +
+   Stats screen rework, the earlier Base Damage/Stats-screen commit, Life/Mana/HUD, and the
+   earlier XP-rebalance commits) are still only on `fischey_workbranch`.
+5. **The biggest open gap: none of the new combat-facing formulas (Base Attack, Base Magic
+   Attack, Physical/Magic Defence, Attack/Cast Speed Multiplier, Crit Chance) actually affect
+   gameplay yet** — no `combat/` package exists, so these are purely computed-and-displayed
+   right now. The first real combat/skill system should read them via `VitalsCurve`'s getters
+   (fed by the player's persisted attribute values), not invent parallel damage numbers.
+6. A class-name banner + level-diamond badge (as pictured in the reference image from the
+   Life/Mana session) was explicitly deferred — no `classes/` package exists yet. Could become
+   a second tab on `CharacterStatsScreen` (which is now explicitly built to support more tabs)
+   rather than a separate HUD banner — worth deciding when that work starts, not now.
 7. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is

@@ -7,10 +7,12 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 /**
  * Vanilla registers EntityAttributes.MAX_HEALTH with a hardcoded max clamp of 1024, which
- * VitalsCurve.getMaxLife (500 + 10/level, up to 1500 at level 100) would silently exceed
- * from level ~53 onward - every level past that would compute a higher value but have zero
+ * VitalsCurve.getMaxLife (Endurance-driven: 500 + 20/point above the starting 5, up to 2480
+ * at the real max attainable Endurance of 104) would silently exceed once a player invests
+ * enough level-up points - every point past that would compute a higher value but have zero
  * actual effect, since ClampedEntityAttribute#clamp() caps it back down. Used by
- * VitalsManager to widen the ceiling once during mod init.
+ * VitalsManager to widen the ceiling once during mod init (currently to 4096, comfortable
+ * headroom above the real 2480 max - see VitalsManager.widenMaxHealthCeiling()).
  */
 @Mixin(ClampedEntityAttribute.class)
 public interface ClampedEntityAttributeAccessor {

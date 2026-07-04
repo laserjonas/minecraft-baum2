@@ -27,7 +27,7 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change (on `jonas_workbranch`)
 
-- Commit: (this commit) — "Add fabric-docs-researcher agent and shared Fabric modding docs"
+- Commit: `fd9e385` — "Add fabric-docs-researcher agent and shared Fabric modding docs"
 - What: Added `.claude/agents/fabric-docs-researcher.md` (a subagent that researches Fabric/MC
   1.21.11 APIs from primary sources — decompiled sources, Fabric API GitHub, Fabric meta API,
   Mixin wiki — rather than guessing from training data) and `docs/fabric-modding.md` (the

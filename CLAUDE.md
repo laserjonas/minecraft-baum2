@@ -123,9 +123,14 @@ rather than guessing or skipping the check:
   another (or onto `master`), and before starting work that might overlap with what's active
   on the other contributor's branch. Flags file/system overlap and design conflicts, not just
   textual git conflicts.
+- **`graphics-designer`** — any time new visual/graphical identity work is needed: a texture,
+  model, icon, UI/HUD layout, or color/style system (rarity, class, faction). Unlike the four
+  above, it produces deliverables (specs, placeholder assets, model/blockstate JSON), not just
+  findings — maintains `docs/visual-style-guide.md`.
 
-All four report findings; none of them edit files or make decisions themselves — apply their
-findings yourself, or ask the user when a finding needs a judgment call.
+The first four report findings only; none of them edit files or make decisions themselves —
+apply their findings yourself, or ask the user when a finding needs a judgment call.
+`graphics-designer` is the exception and does write files (see above).
 
 ## Handoff Rule (multi-developer sync)
 

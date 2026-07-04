@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "LivingEntityMixin",
-    "ExperienceOrbSpawnMixin"
+    "ExperienceOrbSpawnMixin",
+    "ClampedEntityAttributeAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -18,12 +18,34 @@ public class ClientNetworkingHandler {
      * Register all client-side packet receivers.
      * Must be called from Baum2Client.onInitializeClient().
      */
+    private static volatile int currentMana = 0;
+    private static volatile int currentMaxMana = 1;
+
     public static void registerClientHandlers() {
         // Register receiver for experience sync payload
         ClientPlayNetworking.registerGlobalReceiver(
                 ExperienceSyncPayload.TYPE,
                 ClientNetworkingHandler::handleExperienceSyncPayload
         );
+
+        // Register receiver for mana sync payload
+        ClientPlayNetworking.registerGlobalReceiver(
+                ManaSyncPayload.TYPE,
+                ClientNetworkingHandler::handleManaSyncPayload
+        );
+    }
+
+    private static void handleManaSyncPayload(ManaSyncPayload payload, ClientPlayNetworking.Context context) {
+        currentMana = payload.mana();
+        currentMaxMana = payload.maxMana();
+    }
+
+    public static int getCurrentMana() {
+        return currentMana;
+    }
+
+    public static int getCurrentMaxMana() {
+        return currentMaxMana;
     }
 
     /**

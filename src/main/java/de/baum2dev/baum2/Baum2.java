@@ -7,8 +7,10 @@ import de.baum2dev.baum2.commands.Baum2Commands;
 import de.baum2dev.baum2.events.LevelUpHandler;
 import de.baum2dev.baum2.events.MobDeathHandler;
 import de.baum2dev.baum2.events.ProgressionTickHandler;
+import de.baum2dev.baum2.events.VitalsTickHandler;
 import de.baum2dev.baum2.networking.Baum2Networking;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
+import de.baum2dev.baum2.progression.VitalsManager;
 
 public class Baum2 implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("baum2");
@@ -21,11 +23,16 @@ public class Baum2 implements ModInitializer {
         // possibly join and have their saved data deserialized. See PlayerLevelSystem.bootstrap().
         PlayerLevelSystem.bootstrap();
 
+        // Must run before any player can join: widens vanilla's max-health clamp so the Life
+        // formula (up to 1500 at level 100) isn't silently capped at vanilla's default 1024.
+        VitalsManager.widenMaxHealthCeiling();
+
         Baum2Commands.registerCommands();
         Baum2Networking.registerServerPayloads();
         LevelUpHandler.registerEvents();
         MobDeathHandler.registerEvents();
         ProgressionTickHandler.registerEvents();
+        VitalsTickHandler.registerEvents();
 
         LOGGER.info("Baum2 progression system loaded");
     }

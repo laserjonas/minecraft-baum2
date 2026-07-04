@@ -24,6 +24,12 @@ public class Baum2Networking {
                 ExperienceSyncPayload.TYPE,
                 ExperienceSyncPayload.CODEC
         );
+
+        // Register the mana sync payload for S2C transmission
+        PayloadTypeRegistry.playS2C().register(
+                ManaSyncPayload.TYPE,
+                ManaSyncPayload.CODEC
+        );
     }
 
     /**
@@ -37,6 +43,14 @@ public class Baum2Networking {
      */
     public static void syncPlayerExperience(ServerPlayerEntity player, int level, long experience, long maxExperience) {
         ExperienceSyncPayload payload = new ExperienceSyncPayload(level, experience, maxExperience);
+        ServerPlayNetworking.send(player, payload);
+    }
+
+    /**
+     * Send current/max Mana to a player. Thread-safe: can be called from any thread.
+     */
+    public static void syncPlayerMana(ServerPlayerEntity player, int mana, int maxMana) {
+        ManaSyncPayload payload = new ManaSyncPayload(mana, maxMana);
         ServerPlayNetworking.send(player, payload);
     }
 }

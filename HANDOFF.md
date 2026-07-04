@@ -7,8 +7,36 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 ## Current state
 
 - Fabric mod builds successfully (`./gradlew build` passes).
-- Client runs: `./gradlew runClient` loads and reaches main menu (verified clean boot, no
-  Mixin/payload registration errors).
+- Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
+  (verified clean boot and clean world-join, no Mixin/payload/HUD-registration errors).
+- **Life and Mana systems — implemented, HUD reworked, vanilla heart removed:**
+  - `progression/VitalsCurve.java`: `getMaxLife(level) = 500 + 10*level` (510 at level 1, 1500
+    at level 100), `getMaxMana(level) = 100 + 5*level` (105 to 600).
+  - Life is real vanilla health (`EntityAttributes.MAX_HEALTH`), rescaled via
+    `progression/VitalsManager.applyMaxLife` — deliberate choice so combat/damage/death/regen
+    keep working unchanged; only the attribute's base value and the HUD are touched. **Vanilla
+    clamps this attribute's effective value at 1024**, which the formula would silently exceed
+    past level ~53 (every level after that would compute a bigger number but have zero actual
+    effect) — fixed via an accessor Mixin (`mixin/ClampedEntityAttributeAccessor.java`) that
+    widens the clamp to 2048 once at mod init (`VitalsManager.widenMaxHealthCeiling()`, called
+    first thing in `Baum2.onInitialize()`, before `PlayerLevelSystem.bootstrap()`'s guarantee
+    matters for players). If a future balance change pushes Life past 2048, raise this
+    constant too.
+  - Mana is new, persisted in `progression/PlayerProgressData.java` (`mana` field, `Codec.INT`
+    via `optionalFieldOf("Mana", 100)` — **must stay optional, not `fieldOf`**, see "Last
+    change" for why), clamped/regenerated every tick in `events/VitalsTickHandler.java`
+    (~2% of max per second, `VitalsManager.regenMana`), synced to the client via a new
+    `networking/ManaSyncPayload.java` (same `PacketCodec`/`RegistryByteBuf` pattern as
+    `ExperienceSyncPayload`). No skill/system consumes Mana yet — this is future-use plumbing.
+  - HUD: `ui/VitalsHud.java` replaces the vanilla heart bar in place (`HudElementRegistry
+    .replaceElement(VanillaHudElements.HEALTH_BAR, ...)` — **not** `removeElement`, see "Last
+    change") and adds a new Mana bar directly above it (`attachElementBefore(ARMOR_BAR, ...)`),
+    both left-aligned where vanilla hearts used to sit. Colors/dimensions are documented in the
+    new `docs/visual-style-guide.md`. Old dead `ui/ProgressionHud.java` (never wired up, see
+    prior "Rendering / HUD" note in `docs/fabric-modding.md`) was deleted and replaced by this.
+  - A fifth subagent, `graphics-designer`, was added (pulled in from `jonas_workbranch`, which
+    had it but hadn't merged it yet) and used to produce the Life/Mana bar visual spec — see
+    `docs/visual-style-guide.md`.
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 - **Progression System — FULLY WORKING, including real-time client display:**
@@ -32,13 +60,15 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   reason to keep working on one specifically.
 - `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets Java+Gradle
   recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
-- Four subagents under `.claude/agents/` (shared via git, so both contributors get them):
+- Five subagents under `.claude/agents/` (shared via git, so both contributors get them):
   `fabric-docs-researcher` (Fabric/MC API research -> `docs/fabric-modding.md`),
   `ip-naming-compliance-checker` (reviews new names/text against IP/naming rules),
   `balance-reviewer` (internal-consistency/exploit review of numeric balance values),
-  `merge-integration-reviewer` (pre-merge overlap/design-conflict check between branches).
-  All four report findings only — they don't edit files. See `CLAUDE.md` -> "Project Agents"
-  for exact trigger conditions; use them proactively, don't wait to be asked.
+  `merge-integration-reviewer` (pre-merge overlap/design-conflict check between branches),
+  `graphics-designer` (produces visual/HUD specs and assets, maintains
+  `docs/visual-style-guide.md` — the exception that *does* write files, see below).
+  The first four report findings only — they don't edit files. See `CLAUDE.md` -> "Project
+  Agents" for exact trigger conditions; use them proactively, don't wait to be asked.
   Still not yet run against the progression system's balance values / player-facing strings —
   see "Next recommended step".
 - **Known limitation**: a running Claude Code session loads its available agent list at
@@ -46,8 +76,97 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   become available the next time a session starts fresh (restart, or a fresh session after
   pulling). If an agent invocation fails with "Agent type not found" right after one was
   added, that's why — not a bug in the agent definition.
+  - Update: in at least one environment (the VS Code extension host), custom `.claude/agents/`
+    subagents were **never** available via the `Agent` tool's `subagent_type`, even in a
+    freshly started session with the files already present on disk — only the built-in types
+    (`claude`, `claude-code-guide`, `Explore`, `general-purpose`, `Plan`, `statusline-setup`)
+    showed up. Workaround used successfully: read the target `.claude/agents/<name>.md` file
+    yourself, then dispatch a `general-purpose` agent whose prompt reproduces that file's role/
+    instructions/context verbatim. This gets the same review quality without needing the
+    dedicated subagent type. If a future session finds custom types *do* resolve, prefer that
+    directly — this workaround is a fallback, not the preferred path.
 
 ## Last change (on `fischey_workbranch`, not yet merged to `master`)
+
+Added Life and Mana systems plus a HUD rework, replacing the vanilla heart bar:
+
+- User request: rework Life, add Mana "for future use," show both on the HUD, remove the
+  vanilla heart. Formulas given explicitly: Life = 500 + 10/level, Mana = 100 + 5/level.
+- Scoping decisions made with the user up front (see conversation, not re-derivable from code):
+  no class-name banner/level-diamond badge yet (no `classes/` package exists — deferred, out of
+  scope for this change); Life scales the *real* vanilla max-health attribute rather than being
+  a fully decoupled custom stat (keeps combat/damage/death/regen working with zero extra code);
+  Mana gets passive regen now even though nothing consumes it yet (a rate, not zero, so the
+  system isn't inert — see `VitalsManager.regenMana`).
+- New files: `progression/VitalsCurve.java` (formulas), `progression/VitalsManager.java`
+  (applies Life, clamps/regens Mana, widens the health-attribute clamp), `events/
+  VitalsTickHandler.java` (per-tick apply/regen/sync + join hook), `networking/
+  ManaSyncPayload.java` (S2C sync, mirrors `ExperienceSyncPayload`), `ui/VitalsHud.java`
+  (the actual HUD element, replaces dead `ui/ProgressionHud.java`), `mixin/
+  ClampedEntityAttributeAccessor.java` (see bug below), `docs/visual-style-guide.md` (new,
+  written by the `graphics-designer` agent), `.claude/agents/graphics-designer.md` (pulled in
+  from `jonas_workbranch`, which had added it but hadn't merged it into `master` yet — zero
+  conflict, docs-only file, brought over directly rather than via a branch merge).
+- **Bug #1, caught by static/formula review (the project's own `balance-reviewer` agent, run
+  via the workaround above since the subagent type doesn't resolve in this environment): vanilla
+  hardcodes `EntityAttributes.MAX_HEALTH` as a `ClampedEntityAttribute` with max 1024**
+  (confirmed via decompiled source, not assumption). The Life formula reaches 1500 at level
+  100, so everything past level ~53 would have silently computed a bigger number with zero
+  actual in-game effect — the health bar would just stop growing, with nothing logged. Fixed
+  with `mixin/ClampedEntityAttributeAccessor.java` (a `@Mutable @Accessor("maxValue")` on
+  `ClampedEntityAttribute`), widening the clamp to 2048 once via `VitalsManager
+  .widenMaxHealthCeiling()`, called first thing in `Baum2.onInitialize()`. If a future balance
+  pass pushes Life past 2048, raise that constant too — it's not derived from `VitalsCurve`
+  automatically, they're two separate numbers that both need to stay ahead of the real max.
+- **Bug #2, caught only by actually running `./gradlew runClient` and joining a save** (the
+  `verify` workflow — this would **not** have been caught by `./gradlew build` alone, since it's
+  a runtime data-loss bug, not a compile error): the initial `PlayerProgressData` Codec used
+  `Codec.INT.fieldOf("Mana")` (a *required* field) for the new `mana` field. Loading any
+  pre-existing save (one predating this change) failed to decode the **entire** attachment —
+  not just the missing field — because `RecordCodecBuilder`'s `instance.group(...)` fails the
+  whole record if any required field is absent. Confirmed directly: loaded a local level-45 dev
+  test save, saw `[fabric-data-attachment-api-v1] Skipping invalid attachments: No key Mana in
+  MapLike[...]` in the log, and the player fell back to the initializer default (level 1) —
+  the exact same silent-reset failure mode documented earlier in this file for a completely
+  different root cause (lazy class loading). **General lesson, in addition to the existing one
+  about force-loading attachment classes: adding a new field to an already-`persistent()`
+  attachment Codec must use `optionalFieldOf(name, default)`, never `fieldOf(name)`, or every
+  save predating the new field silently loses *all* of its data, not just the new field.** Fixed
+  by switching to `Codec.INT.optionalFieldOf("Mana", 100)`; re-verified with the same save file
+  that the codec now decodes successfully (no "Skipping invalid attachments" warning) and
+  `VitalsManager` corrects the fallback value up/down within a tick or two regardless.
+- The local dev-sandbox save this was tested against (`run/saves/...`, gitignored, disposable
+  test data per the project's existing convention — see the `usercache.json`/`Baum2Dev` note
+  elsewhere in this file) had its level-45 test character actually reset to level 1 by Bug #2
+  during verification, before the fix landed. Not attempted to recover (scratch data, not
+  source-controlled) — flagging only so it isn't mistaken for a report of the bug still being
+  live; the fix was verified against the same save afterward and no further resets occurred.
+- HUD implementation notes (Fabric API 0.141.4+1.21.11 specifics, verified via decompiled
+  sources — see `docs/fabric-modding.md`'s new "HUD element registry" section for full detail):
+  the old `HudLayerRegistrationCallback`/`IdentifiedLayer` API from older Fabric API versions
+  **does not exist** in this version; the current API is `HudElementRegistry` +
+  `VanillaHudElements` + `HudStatusBarHeightRegistry`, all in
+  `net.fabricmc.fabric.api.client.rendering.v1.hud`. Tried `HudElementRegistry.removeElement
+  (VanillaHudElements.HEALTH_BAR)` first — **this crashes the client at startup** with
+  `IllegalStateException: Unregistered hud elements: [minecraft:health_bar]`, because the
+  framework validates that every id with a registered `StatusBarHeightProvider` still has a
+  matching `HudElement`, and removing health_bar entirely leaves its built-in height provider
+  dangling. Fix: use `replaceElement(VanillaHudElements.HEALTH_BAR, old -> ourRenderer)`
+  instead (keeps the vanilla id "occupied" so the built-in height-provider entry stays valid),
+  and explicitly re-register that id's height provider too via `HudStatusBarHeightRegistry
+  .addLeft(VanillaHudElements.HEALTH_BAR, ...)` — vanilla's own default height provider for
+  that id does a dynamic multi-row heart-count calculation that no longer means anything once
+  hearts aren't being drawn there. The new Mana bar is a genuinely new element (own
+  `Identifier`), inserted via `attachElementBefore(VanillaHudElements.ARMOR_BAR, ...)` so armor
+  still renders (untouched) and gets pushed up to make room.
+- Verified: `./gradlew build` passes; `./gradlew runClient` boots cleanly and joins a world
+  with no Mixin/HUD/attachment errors (post-fix). **Not visually confirmed** — this environment
+  has no GUI-automation tool that can drive the actual Minecraft window (it's a native LWJGL
+  app, not a browser/Electron app the `run`/Playwright tooling can screenshot), so the on-
+  screen bar positions/colors from `docs/visual-style-guide.md` haven't been eyeballed in-game
+  yet. That's expected manual follow-up, not a gap in this session's verification.
+
+Earlier, still on `fischey_workbranch`:
 
 Rebalanced the XP curve and renamed `VanillaXpFormula` → `ProgressionCurve`:
 
@@ -313,20 +432,31 @@ from persistence).
 
 ## Next recommended step
 
-1. **Done**: persistence across rebuild/relaunch is now confirmed working, both via a controlled
-   restored-save test and by the user independently re-testing manually (gain XP → rebuild →
-   relaunch, repeated). See "Last change" above for the root cause and fix.
-2. Still not visually confirmed in a real play session: the vanilla XP bar animates smoothly as
+1. **Not yet visually confirmed in-game**: open the new Life/Mana bars in an actual play
+   session and eyeball them against `docs/visual-style-guide.md` — position (should sit where
+   vanilla hearts used to, armor bar pushed up above the Mana bar), colors, and fill-ratio
+   behavior as you take damage/heal. This environment has no GUI-automation tool for the native
+   Minecraft window, so this genuinely hasn't been seen, only logically verified (clean boot,
+   clean world-join, no crashes) — see "Last change" above.
+2. Still not visually confirmed from before: the vanilla XP bar animates smoothly as
    `/baum2 addxp <n>` is run repeatedly (not just on level-up), and the level number matches
    `/baum2 level`. Believed correct from a code standpoint but nobody has watched it happen.
-3. In a fresh session (so the four agents are actually loaded): run `balance-reviewer` on the
-   progression system's XP curve/mob-reward formula and `ip-naming-compliance-checker` on
-   existing player-facing strings (command output, level-up broadcast text) — neither has been
-   reviewed yet.
-4. Merge `fischey_workbranch` back into `master` — persistence is now confirmed solid, so this
-   is unblocked (it hasn't been merged yet — this session's commits are still only on
-   `fischey_workbranch`).
-5. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
+3. In a fresh session where the custom subagent types actually resolve (see "Known limitation"
+   above — untested whether this environment-specific issue affects other setups too): run
+   `balance-reviewer` on the progression system's XP curve/mob-reward formula (already run via
+   the workaround for the new Life/Mana formulas — see "Last change" — but not yet for the
+   original XP curve) and `ip-naming-compliance-checker` on existing player-facing strings
+   (command output, level-up broadcast text) — neither has been reviewed yet.
+4. Merge `fischey_workbranch` back into `master` — this session's commits (Life/Mana/HUD, plus
+   the earlier XP-rebalance commits) are still only on `fischey_workbranch`.
+5. Mana has no consumers yet by design ("future use" per the user's request) — the first skill
+   that spends Mana should read `VitalsCurve.getMaxMana`/`PlayerProgressData.getMana` rather
+   than inventing a parallel resource field.
+6. A class-name banner + level-diamond badge (as pictured in the reference image that prompted
+   this change) was explicitly deferred — no `classes/` package exists yet. When that work
+   starts, it should sit *above* the Life/Mana bars per `docs/visual-style-guide.md`'s note on
+   this, and will need its own `HudElementRegistry`/`HudStatusBarHeightRegistry` entries.
+7. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
    unclear.

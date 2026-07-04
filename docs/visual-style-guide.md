@@ -116,8 +116,102 @@ table with a new row pair instead.
 - HUD element `Identifier`s live in the `baum2` namespace, e.g.
   `Identifier.of("baum2", "life_mana_bars")` per `docs/fabric-modding.md`.
 
+## Character Stats Screen (full-screen, opened/closed with 'C')
+
+**Status**: spec finalized, not yet implemented. Built on vanilla's real tab-navigation widget
+system (`Tab` / `TabManager` / `TabNavigationWidget` / `GridScreenTab`), starting with exactly
+one tab ("Stats") so more tabs (Skills, Class, etc.) can be added later without redesigning the
+chrome. Content is a `GridWidget` inside the `GridScreenTab`, populated with `TextWidget` rows,
+refreshed every frame from live data. This is a full menu `Screen` (like vanilla's own
+Statistics/options screens) — normal `renderBackground` darkening applies behind it, and text
+renders through the normal `DrawContext.drawText` pipeline (reliable, unlike the ad-hoc HUD
+overlay text problem noted in the HUD section above).
+
+### Why this treatment
+
+The HUD bars above deliberately carry **no numeric text** (bar-only, per the HUD section's open
+items). This screen is the "togglable numeric readout" that section anticipated, but built
+properly as a menu screen using vanilla's tab system rather than bolted onto the HUD overlay.
+Splitting it this way keeps the HUD minimal/glanceable and gives numeric detail a dedicated,
+low-frequency-access screen — a standard, unclaimed genre convention (every MMORPG has *a*
+character/stats panel; the specific chrome and palette here are original).
+
+### Row order and format
+
+Two-column layout per row: a label (column 0) and a value (column 1), left-aligned label /
+value pair rather than a single inlined "Life: 340/510" string — keeps values scannable in a
+vertical list and lets label vs. value carry separate colors (see below).
+
+| # | Label text | Value format | Example |
+|---|---|---|---|
+| 1 | `Life` | `current / max`, integers, no unit suffix | `412 / 510` |
+| 2 | `Mana` | `current / max`, integers, no unit suffix | `180 / 320` |
+| 3 | `Base Damage` | 1 decimal place, always shown (`%.1f`) | `12.5` |
+| 4 | `Base Magic Damage` | 1 decimal place, always shown (`%.1f`) | `8.0` |
+
+Rationale for the order: Life/Mana (resource stats, matching HUD stacking order — Life first)
+come before Base Damage/Base Magic Damage (offense stats), grouping "what sustains you" before
+"what you deal." Always render the `.1f` decimal (even for whole numbers like `8.0`, not `8`)
+so the four value strings stay vertically aligned as a column instead of jittering width frame
+to frame — cheap consistency win since values refresh every frame anyway. Life/Mana intentionally
+carry no unit suffix ("hp"/"mp"), consistent with how the HUD bars themselves never labeled units
+either.
+
+### Color treatment
+
+Labels all share one muted, low-saturation tone so only the *values* carry hue-coded meaning —
+scanning down the value column tells you at a glance which stat is which, even without reading
+the label:
+
+| Row | Label hex | Value hex | Notes |
+|---|---|---|---|
+| Life | `#9C9186` (muted warm stone-grey, shared by all 4 labels) | `#E2574B` | Reuses the Life bar's top-band ember/coral exactly — same identity as the HUD bar, not just "same hue family." |
+| Mana | `#9C9186` | `#5E9BE0` | Reuses the Mana bar's top-band azure exactly, same rationale. |
+| Base Damage | `#9C9186` | `#D98A3D` | **New** — warm bronze-amber. Deliberately *not* red: red is already Life's identity on this same screen, and reusing it for "damage" would visually collide with the Life row two lines up. Amber/bronze reads as "physical/metal/weapon" without the generic red-damage cliché. |
+| Base Magic Damage | `#9C9186` | `#9B5FE0` | **New** — arcane violet. Deliberately *not* blue: blue is Mana's identity here, and magic-damage-as-blue would make it look like a Mana sub-stat rather than its own thing. Violet sits clearly between Life's red and Mana's blue on the wheel, reads as "arcane/magic" via widely-used genre convention (violet/purple = magic) without copying any specific game's exact spell-damage color. |
+
+All four value hexes are pure reuses or new additions from this session — none were copy-pasted
+from a known game's exact stat-screen palette. The amber/violet pair was chosen specifically to
+avoid the "damage = red, magic = blue" cliché pairing that would otherwise visually collide with
+Life/Mana directly above them on the same screen.
+
+### Layout guidance
+
+- **Grouping via spacing, not a divider widget**: keep it to the `GridWidget`'s built-in row
+  spacing rather than adding a separate divider/line widget for a 4-row list — simplicity per
+  `CLAUDE.md`'s "do not create large systems before a minimal version works." Use a smaller
+  vertical gap *within* each pair and a larger gap *between* the two pairs so the grouping
+  (resource stats vs. offense stats) reads visually without extra widgets:
+  - Within a pair (Life↔Mana, Base Damage↔Base Magic Damage): ~6 px row spacing.
+  - Between the two pairs: ~14 px (roughly double the within-pair gap).
+  - Label→value column gap: ~4–6 px (enough that they don't visually merge into one string).
+- **No extra header inside the tab content.** The `TabNavigationWidget` button itself already
+  reads "Stats" — repeating a "Stats" header inside the `GridScreenTab` content would be
+  redundant. If a second tab is added later and the content still feels like it needs a title,
+  revisit this then rather than pre-building it now.
+- **Alignment**: label column left-aligned, value column left-aligned immediately after it
+  (not right-aligned/tabular-number-style) — matches vanilla's own options-list and statistics
+  screens rather than inventing a spreadsheet-like layout.
+- Exact pixel row-spacing values above are reasonable defaults to hand to implementation, not
+  verified in-game yet — normal "eyeball it once it renders and nudge ±2-4px" polish, not a
+  design gap blocking implementation.
+
+### Naming/asset conventions established here
+
+- No new texture/model/icon files — this screen is entirely vanilla widget composition
+  (`GridWidget` + `TextWidget`) plus text color, no PNGs.
+- If a second tab is added later (e.g. "Skills"), give it its own subsection here documenting
+  any tab-specific palette rather than assuming it inherits this one's amber/violet pair —
+  those two hexes are specifically Base Damage/Base Magic Damage's identity, not a general
+  "second accent pair" free for reuse elsewhere.
+
 ## Changelog
 
+- 2026-07-04: Added "Character Stats Screen" section — row order/format and label/value color
+  spec for the 'C'-key full-screen stats tab (Life, Mana, Base Damage, Base Magic Damage).
+  Reuses the HUD's exact Life/Mana hexes for those two rows; introduces a new amber
+  (`#D98A3D`) / violet (`#9B5FE0`) pair for Base Damage / Base Magic Damage, chosen specifically
+  to avoid colliding with Life's red or Mana's blue on the same screen.
 - 2026-07-04: Initial creation of this document. Defined the Life bar / Mana bar HUD color
   palette, layout, and stacking spec (this section). No prior visual identity existed to
   reconcile with.

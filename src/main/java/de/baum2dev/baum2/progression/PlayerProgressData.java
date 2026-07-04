@@ -10,30 +10,40 @@ public class PlayerProgressData {
     // save missing only "Mana" silently discarded Level/Experience too, resetting a level-45
     // test character back to level 1). VitalsManager re-clamps/regenerates Mana every tick
     // regardless, so the fallback value here only matters for the first tick after upgrade.
+    // Base Damage/Base Magic Damage are flat starting values (not level-scaled), same
+    // optionalFieldOf-not-fieldOf rule as Mana above applies to them too.
     public static final Codec<PlayerProgressData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.INT.fieldOf("Level").forGetter(PlayerProgressData::getLevel),
             Codec.LONG.fieldOf("Experience").forGetter(PlayerProgressData::getExperience),
             Codec.LONG.fieldOf("ExperienceForNextLevel").forGetter(PlayerProgressData::getExperienceForNextLevel),
-            Codec.INT.optionalFieldOf("Mana", 100).forGetter(PlayerProgressData::getMana)
+            Codec.INT.optionalFieldOf("Mana", 100).forGetter(PlayerProgressData::getMana),
+            Codec.FLOAT.optionalFieldOf("BaseDamage", VitalsCurve.getBaseDamage()).forGetter(PlayerProgressData::getBaseDamage),
+            Codec.FLOAT.optionalFieldOf("BaseMagicDamage", VitalsCurve.getBaseMagicDamage()).forGetter(PlayerProgressData::getBaseMagicDamage)
     ).apply(instance, PlayerProgressData::new));
 
     private int level;
     private long experience;
     private long experienceForNextLevel;
     private int mana;
+    private float baseDamage;
+    private float baseMagicDamage;
 
     public PlayerProgressData() {
         this.level = 1;
         this.experience = 0;
         this.experienceForNextLevel = 100;
         this.mana = VitalsCurve.getMaxMana(this.level);
+        this.baseDamage = VitalsCurve.getBaseDamage();
+        this.baseMagicDamage = VitalsCurve.getBaseMagicDamage();
     }
 
-    public PlayerProgressData(int level, long experience, long experienceForNextLevel, int mana) {
+    public PlayerProgressData(int level, long experience, long experienceForNextLevel, int mana, float baseDamage, float baseMagicDamage) {
         this.level = level;
         this.experience = experience;
         this.experienceForNextLevel = experienceForNextLevel;
         this.mana = mana;
+        this.baseDamage = baseDamage;
+        this.baseMagicDamage = baseMagicDamage;
     }
 
     public int getMana() {
@@ -42,6 +52,22 @@ public class PlayerProgressData {
 
     public void setMana(int mana) {
         this.mana = mana;
+    }
+
+    public float getBaseDamage() {
+        return baseDamage;
+    }
+
+    public void setBaseDamage(float baseDamage) {
+        this.baseDamage = baseDamage;
+    }
+
+    public float getBaseMagicDamage() {
+        return baseMagicDamage;
+    }
+
+    public void setBaseMagicDamage(float baseMagicDamage) {
+        this.baseMagicDamage = baseMagicDamage;
     }
 
     public int getLevel() {

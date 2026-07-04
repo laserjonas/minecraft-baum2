@@ -30,6 +30,12 @@ public class Baum2Networking {
                 ManaSyncPayload.TYPE,
                 ManaSyncPayload.CODEC
         );
+
+        // Register the combat stats sync payload for S2C transmission
+        PayloadTypeRegistry.playS2C().register(
+                CombatStatsSyncPayload.TYPE,
+                CombatStatsSyncPayload.CODEC
+        );
     }
 
     /**
@@ -51,6 +57,16 @@ public class Baum2Networking {
      */
     public static void syncPlayerMana(ServerPlayerEntity player, int mana, int maxMana) {
         ManaSyncPayload payload = new ManaSyncPayload(mana, maxMana);
+        ServerPlayNetworking.send(player, payload);
+    }
+
+    /**
+     * Send Base Damage/Base Magic Damage to a player. Thread-safe: can be called from any
+     * thread. These are flat values that don't change on their own, so unlike Mana this only
+     * needs to be sent on join (or again if a future gear/skill system changes them).
+     */
+    public static void syncPlayerCombatStats(ServerPlayerEntity player, float baseDamage, float baseMagicDamage) {
+        CombatStatsSyncPayload payload = new CombatStatsSyncPayload(baseDamage, baseMagicDamage);
         ServerPlayNetworking.send(player, payload);
     }
 }

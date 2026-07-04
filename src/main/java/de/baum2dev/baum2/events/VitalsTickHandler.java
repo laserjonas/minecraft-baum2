@@ -22,8 +22,11 @@ public class VitalsTickHandler {
     public static void registerEvents() {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
-            int level = PlayerLevelSystem.getPlayerLevel(player);
-            VitalsManager.applyMaxLife(player, level);
+            PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
+            VitalsManager.applyMaxLife(player, progress.getLevel());
+            // Base Damage/Magic Damage are flat, not level-scaled - unlike Mana, nothing
+            // changes them per tick, so a single sync on join is enough.
+            Baum2Networking.syncPlayerCombatStats(player, progress.getBaseDamage(), progress.getBaseMagicDamage());
         });
 
         ServerTickEvents.END_SERVER_TICK.register(VitalsTickHandler::onServerTick);

@@ -37,6 +37,22 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   - A fifth subagent, `graphics-designer`, was added (pulled in from `jonas_workbranch`, which
     had it but hadn't merged it yet) and used to produce the Life/Mana bar visual spec — see
     `docs/visual-style-guide.md`.
+- **Base Damage / Base Magic Damage + Character Stats screen ('C' key) — implemented:**
+  - Flat starting combat stats (not level-scaled): `VitalsCurve.getBaseDamage()` /
+    `getBaseMagicDamage()`, both `5.0f`. Persisted in `PlayerProgressData` (`baseDamage`/
+    `baseMagicDamage` fields, `Codec.FLOAT` via `optionalFieldOf`), synced to the client once on
+    join via a new `networking/CombatStatsSyncPayload.java` (not every tick like Mana — these
+    don't change on their own). Future gear/skills/talents are meant to raise these values;
+    nothing does yet.
+  - Pressing 'C' (`ui/Baum2KeyBindings.java`, `KeyBinding.Category.MISC`) opens
+    `ui/CharacterStatsScreen.java`, a full menu `Screen` (not a HUD overlay) built on vanilla's
+    real `Tab`/`TabManager`/`TabNavigationWidget`/`GridScreenTab` system, with one tab named
+    "Stats" showing Current/Max Life, Current/Max Mana, Base Damage, Base Magic Damage as
+    colored `TextWidget` rows refreshed every frame. More tabs can be added later via
+    `.tabs(...)` without redesigning the chrome. Pressing 'C' again closes it (handled in
+    `CharacterStatsScreen.keyPressed`, matching the same `KeyBinding` — see "Last change" for
+    why a global keybind poll alone doesn't reliably close a screen that has focus). Colors/
+    layout documented in `docs/visual-style-guide.md`'s "Character Stats Screen" section.
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 - **Progression System — FULLY WORKING, including real-time client display:**
@@ -87,6 +103,61 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
     directly — this workaround is a fallback, not the preferred path.
 
 ## Last change (on `fischey_workbranch`, not yet merged to `master`)
+
+Added Base Damage / Base Magic Damage stats and a 'C'-key Character Stats screen:
+
+- User request: two new flat (not level-scaled) combat stats, both starting at `5.0`, plus a
+  screen toggled by 'C' showing Current/Max Life, Current/Max Mana, Base Damage, Base Magic
+  Damage, with a "Stats" tab (more tabs planned later, only one needed for now).
+- New/changed files: `progression/VitalsCurve.java` (added `getBaseDamage()`/
+  `getBaseMagicDamage()`, both flat `5.0f` constants), `progression/PlayerProgressData.java`
+  (added `baseDamage`/`baseMagicDamage` `Codec.FLOAT` fields via `optionalFieldOf` — same
+  backward-compat rule as Mana, see the entry below), `networking/CombatStatsSyncPayload.java`
+  (new S2C payload, sent once on join from `events/VitalsTickHandler.java`'s JOIN handler, not
+  every tick like Mana since these don't change on their own), `ui/Baum2KeyBindings.java` (new,
+  registers the 'C' `KeyBinding` via `KeyBindingHelper`, category `KeyBinding.Category.MISC`),
+  `ui/CharacterStatsScreen.java` (new, the actual screen), `assets/baum2/lang/en_us.json` (new
+  — first lang file in the project, just the one keybinding's display name so it doesn't show
+  as a raw untranslated key in the Controls menu).
+- **API research before implementing** (persisted to `docs/fabric-modding.md`'s new "Input /
+  Keybindings" and "GUI / Screens" sections): confirmed `KeyBinding.Category` is a
+  `record Category(Identifier id)` in this version, not a bare string like older tutorials
+  show; confirmed vanilla exposes a real, mod-usable tab system
+  (`net.minecraft.client.gui.tab.Tab`/`GridScreenTab`/`TabManager`,
+  `net.minecraft.client.gui.widget.TabNavigationWidget`) used by vanilla's own "Statistics"
+  screen, and used it directly rather than hand-rolling a tab-button row, since more tabs are
+  explicitly planned; confirmed `Screen.keyPressed` takes a `KeyInput` record
+  (`record KeyInput(int key, int scancode, int modifiers)`) in 1.21.11, not the older
+  `(int keyCode, int scanCode, int modifiers)` triplet, and that `KeyBinding.matchesKey(KeyInput)`
+  is the correct way to check "did this keypress match my registered keybind" against it.
+- **Bug, caught only by actually running `runClient` and opening the screen** (again: not a
+  compile error, `./gradlew build` was green the whole time) — a real key press against a real
+  `MinecraftClient` window during a `runClient` smoke-test session crashed the game with
+  `IllegalStateException: Can only blur once per frame` inside `CharacterStatsScreen.render`.
+  Root cause: `CharacterStatsScreen.render()` called `this.renderBackground(...)` explicitly —
+  but the framework (`GameRenderer`'s screen-render pipeline) **already calls
+  `Screen.renderBackground(...)` once before invoking `render()`**; `renderBackground()`
+  internally calls `applyBlur()`, and applying the blur pass twice in one frame throws. Fix:
+  removed the explicit `renderBackground()` call from `render()` entirely — a Screen's own
+  `render()` override should only draw its *own* additional content (and call
+  `super.render(...)` to render registered drawables), never re-invoke `renderBackground()`
+  itself. **General lesson for any future custom `Screen`: don't call `renderBackground()` from
+  inside `render()`— the framework already renders the background before `render()` runs.**
+  Re-verified: `./gradlew build` passes after the fix; could not re-trigger an actual second
+  keypress inside this environment to get a second live repro (no GUI-automation tool can
+  script input into the native LWJGL window - see the HUD entry below for the same limitation),
+  but the fix directly addresses the confirmed double-`applyBlur()` root cause, verified against
+  decompiled `Screen.java`/`DrawContext.java` source, not guessed.
+- Verified: `./gradlew build` passes. `runClient` boots and reaches a joined world cleanly with
+  the new keybinding/screen code loaded (no Mixin/registration errors at boot — the crash above
+  only happens when the screen is actually opened, which was caught via one real keypress
+  during testing, then fixed and could not be re-triggered on demand afterward for a second
+  confirmation — see limitation above). **Not visually confirmed**: the actual in-game look of
+  the Stats screen (colors, spacing, tab bar) per `docs/visual-style-guide.md` — same
+  no-GUI-automation limitation as the HUD bars below. Next person to play should press 'C' and
+  eyeball it.
+
+Earlier, still on `fischey_workbranch`:
 
 Added Life and Mana systems plus a HUD rework, replacing the vanilla heart bar:
 
@@ -432,30 +503,36 @@ from persistence).
 
 ## Next recommended step
 
-1. **Not yet visually confirmed in-game**: open the new Life/Mana bars in an actual play
-   session and eyeball them against `docs/visual-style-guide.md` — position (should sit where
-   vanilla hearts used to, armor bar pushed up above the Mana bar), colors, and fill-ratio
-   behavior as you take damage/heal. This environment has no GUI-automation tool for the native
-   Minecraft window, so this genuinely hasn't been seen, only logically verified (clean boot,
-   clean world-join, no crashes) — see "Last change" above.
+1. **Not yet visually confirmed in-game** (highest priority manual check): press 'C' and
+   eyeball the Character Stats screen against `docs/visual-style-guide.md` — tab bar, row
+   spacing/colors, and that a second 'C' press actually closes it cleanly (no crash — one crash
+   was already found and fixed this session, see "Last change", but only via one incidental
+   real keypress; this environment has no GUI-automation tool to script a second confirmation).
+   Also re-check the Life/Mana HUD bars from the previous change while there (position, colors,
+   fill-ratio as you take damage/heal) — neither has been eyeballed yet.
 2. Still not visually confirmed from before: the vanilla XP bar animates smoothly as
    `/baum2 addxp <n>` is run repeatedly (not just on level-up), and the level number matches
    `/baum2 level`. Believed correct from a code standpoint but nobody has watched it happen.
 3. In a fresh session where the custom subagent types actually resolve (see "Known limitation"
    above — untested whether this environment-specific issue affects other setups too): run
    `balance-reviewer` on the progression system's XP curve/mob-reward formula (already run via
-   the workaround for the new Life/Mana formulas — see "Last change" — but not yet for the
-   original XP curve) and `ip-naming-compliance-checker` on existing player-facing strings
-   (command output, level-up broadcast text) — neither has been reviewed yet.
-4. Merge `fischey_workbranch` back into `master` — this session's commits (Life/Mana/HUD, plus
-   the earlier XP-rebalance commits) are still only on `fischey_workbranch`.
-5. Mana has no consumers yet by design ("future use" per the user's request) — the first skill
-   that spends Mana should read `VitalsCurve.getMaxMana`/`PlayerProgressData.getMana` rather
-   than inventing a parallel resource field.
+   the workaround for the Life/Mana formulas — see the Life/Mana "Last change" entry — but not
+   yet for the original XP curve) and `ip-naming-compliance-checker` on existing player-facing
+   strings (command output, level-up broadcast text) — neither has been reviewed yet.
+4. Merge `fischey_workbranch` back into `master` — this session's commits (Base Damage/Base
+   Magic Damage + Stats screen, Life/Mana/HUD, plus the earlier XP-rebalance commits) are still
+   only on `fischey_workbranch`.
+5. Neither Mana nor Base Damage/Base Magic Damage have consumers yet by design ("future use" /
+   flat starting values per the user's requests) — the first skill/combat-formula that reads
+   these should pull from `VitalsCurve`/`PlayerProgressData` rather than inventing parallel
+   fields. Base Damage/Magic Damage in particular have no combat system to plug into yet at all
+   (no `combat/` package exists) — this is display-only plumbing until that exists.
 6. A class-name banner + level-diamond badge (as pictured in the reference image that prompted
-   this change) was explicitly deferred — no `classes/` package exists yet. When that work
-   starts, it should sit *above* the Life/Mana bars per `docs/visual-style-guide.md`'s note on
-   this, and will need its own `HudElementRegistry`/`HudStatusBarHeightRegistry` entries.
+   the Life/Mana change) was explicitly deferred — no `classes/` package exists yet. When that
+   work starts, it should sit *above* the Life/Mana bars per `docs/visual-style-guide.md`'s note
+   on this, and will need its own `HudElementRegistry`/`HudStatusBarHeightRegistry` entries. It
+   could also become a second tab on `CharacterStatsScreen` rather than (or in addition to) a
+   HUD banner — worth deciding when that work starts, not now.
 7. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is

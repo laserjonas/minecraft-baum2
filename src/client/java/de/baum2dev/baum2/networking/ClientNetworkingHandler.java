@@ -20,6 +20,8 @@ public class ClientNetworkingHandler {
      */
     private static volatile int currentMana = 0;
     private static volatile int currentMaxMana = 1;
+    private static volatile float currentBaseDamage = 0f;
+    private static volatile float currentBaseMagicDamage = 0f;
 
     public static void registerClientHandlers() {
         // Register receiver for experience sync payload
@@ -33,11 +35,22 @@ public class ClientNetworkingHandler {
                 ManaSyncPayload.TYPE,
                 ClientNetworkingHandler::handleManaSyncPayload
         );
+
+        // Register receiver for combat stats sync payload
+        ClientPlayNetworking.registerGlobalReceiver(
+                CombatStatsSyncPayload.TYPE,
+                ClientNetworkingHandler::handleCombatStatsSyncPayload
+        );
     }
 
     private static void handleManaSyncPayload(ManaSyncPayload payload, ClientPlayNetworking.Context context) {
         currentMana = payload.mana();
         currentMaxMana = payload.maxMana();
+    }
+
+    private static void handleCombatStatsSyncPayload(CombatStatsSyncPayload payload, ClientPlayNetworking.Context context) {
+        currentBaseDamage = payload.baseDamage();
+        currentBaseMagicDamage = payload.baseMagicDamage();
     }
 
     public static int getCurrentMana() {
@@ -46,6 +59,14 @@ public class ClientNetworkingHandler {
 
     public static int getCurrentMaxMana() {
         return currentMaxMana;
+    }
+
+    public static float getCurrentBaseDamage() {
+        return currentBaseDamage;
+    }
+
+    public static float getCurrentBaseMagicDamage() {
+        return currentBaseMagicDamage;
     }
 
     /**

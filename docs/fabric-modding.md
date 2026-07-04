@@ -75,6 +75,206 @@ here once `registry/ModItems` etc. exist.)_
 - `CommandRegistrationCallback.EVENT` — used in `commands/Baum2Commands.java` to register the
   `/baum2` command tree via Brigadier.
 
+## Input / Keybindings
+
+Researched for the 'C' character-stats-screen keybind. Verified against the decompiled
+`fabric-key-binding-api-v1-1.1.7+4fc5413f3e-sources.jar` (pulled in transitively by
+`fabric-api-0.141.4+1.21.11`) and the named `minecraft-clientOnly` 1.21.11 sources jar
+(`net/minecraft/client/option/KeyBinding.java`, `net/minecraft/client/util/InputUtil.java`).
+
+- **Registering a keybinding**: `net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper`
+  still exists, unchanged shape — one method that matters:
+  `KeyBindingHelper.registerKeyBinding(KeyBinding keyBinding)` (there's also
+  `getBoundKeyOf(KeyBinding)` for reading the currently-configured key). Call it once, e.g. in
+  your `ClientModInitializer.onInitializeClient()`, and keep the returned `KeyBinding` in a
+  static field.
+- **`KeyBinding` constructors** (all in `net.minecraft.client.option.KeyBinding`):
+  - `KeyBinding(String id, int code, KeyBinding.Category category)` — implicit
+    `InputUtil.Type.KEYSYM`.
+  - `KeyBinding(String id, InputUtil.Type type, int code, KeyBinding.Category category)` — the
+    one used in Fabric API's own javadoc example.
+  - `KeyBinding(String id, InputUtil.Type type, int code, KeyBinding.Category category, int priority)`
+    — full constructor; `priority` only affects sort order within a category, pass `0` unless
+    you care.
+  - `id` is a translation key you supply directly, e.g. `"key.baum2.open_stats"` (add the
+    matching `lang` JSON entry yourself — there's no separate "register the id" step).
+- **`KeyBinding.Category` changed shape in this version — do not treat it as a plain string.**
+  It is now `public record Category(Identifier id)`, not a bare translation-key `String` like
+  older tutorials show. Vanilla constants: `KeyBinding.Category.MOVEMENT`, `.MISC`,
+  `.MULTIPLAYER`, `.GAMEPLAY`, `.INVENTORY`, `.CREATIVE`, `.SPECTATOR`, `.DEBUG`. For a mod-owned
+  category, call `KeyBinding.Category.create(Identifier.of("baum2", "general"))` once (it
+  self-registers into a global list and throws `IllegalArgumentException` if that `Identifier`
+  is already registered, so don't call `create` more than once per id — store the returned
+  `Category` in a static field instead). For a single first keybind, reusing
+  `KeyBinding.Category.MISC` is fine and simplest.
+- **GLFW key constant**: `org.lwjgl.glfw.GLFW.GLFW_KEY_C` — confirmed the import path is still
+  plain `org.lwjgl.glfw.GLFW` (vanilla's own `InputUtil.java` imports and uses `GLFW.*`
+  constants the same way, e.g. `GLFW.GLFW_KEY_UNKNOWN`). Not Fabric/Yarn-mapped, so this is
+  stable across mapping updates.
+- **`InputUtil.Type` enum** (`net.minecraft.client.util.InputUtil.Type`): `KEYSYM`, `SCANCODE`,
+  `MOUSE` all still exist unchanged. Use `KEYSYM` for a regular keyboard key like 'C'.
+- **`wasPressed()` vs `isPressed()`** (both on `KeyBinding`, both confirmed present and
+  unchanged): `isPressed()` reports "is currently held right now" and **can miss a fast
+  press-and-release that happens between polls** (documented on the method itself, citing
+  MC-118107). `wasPressed()` is queue-based — `KeyBinding` internally counts key-down events
+  (`timesPressed`), and each call to `wasPressed()` decrements the counter and returns `true`
+  once per queued press until the counter hits zero. For a toggle-a-screen keybind, poll
+  `wasPressed()` (not `isPressed()`) so a quick tap is never silently dropped. If more than one
+  press could plausibly queue up between polls, vanilla's own javadoc suggests draining with
+  `while (keyBinding.wasPressed()) { ... }`; for a simple open/close toggle a single
+  `if (keyBinding.wasPressed())` per tick is fine since only the last state matters.
+- **Where to poll**: `net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents` still
+  exists at this exact package/name, confirmed unchanged in the decompiled
+  `fabric-lifecycle-events-v1-2.6.15+4ebb5c083e` sources. Register on
+  `ClientTickEvents.END_CLIENT_TICK` (`Event<EndTick>`, functional method
+  `onEndTick(MinecraftClient client)`) and call `wasPressed()` there — this is still the
+  standard place, same as older-version tutorials describe.
+- Minimal end-to-end sketch:
+  ```java
+  private static final KeyBinding OPEN_STATS_KEY = KeyBindingHelper.registerKeyBinding(
+      new KeyBinding("key.baum2.open_stats", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_C, KeyBinding.Category.MISC)
+  );
+  // in onInitializeClient():
+  ClientTickEvents.END_CLIENT_TICK.register(client -> {
+      while (OPEN_STATS_KEY.wasPressed()) {
+          if (client.currentScreen == null) {
+              client.setScreen(new CharacterStatsScreen());
+          }
+      }
+  });
+  ```
+  (Closing on a second 'C' press while the screen is open needs the screen's own `keyPressed`
+  override instead, since `wasPressed()` on a global keybind isn't polled while a `Screen` has
+  focus in the same way — vanilla screens typically close via Escape or a Done button; a
+  same-key toggle-close would need explicit handling in `CharacterStatsScreen.keyPressed`.)
+
+## GUI / Screens
+
+Researched for the 'C' character-stats screen with a tab bar. Verified against the named
+`minecraft-clientOnly` 1.21.11 sources jar — `net/minecraft/client/gui/screen/Screen.java`,
+`net/minecraft/client/gui/DrawContext.java`, `net/minecraft/client/gui/tab/*.java`,
+`net/minecraft/client/gui/widget/TabNavigationWidget.java`, and vanilla's own
+`net/minecraft/client/gui/screen/StatsScreen.java` (the "Statistics" screen — a near-exact
+analog for what we're building, since it's a vanilla screen with a tab bar).
+
+### Basic `Screen` conventions
+
+- `protected Screen(Text title)` — confirmed, protected (not public), delegates to
+  `Screen(MinecraftClient, TextRenderer, Text)`. Subclass constructors call `super(title)`.
+- `protected void init()` — confirmed override point, called when the screen is opened
+  (`MinecraftClient.setScreen(...)`) or on window resize. Build/add your widgets here.
+- `public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks)` —
+  confirmed exact signature: **plain `float deltaTicks`, not `RenderTickCounter`.** The
+  `RenderTickCounter`-based signature (`HudElement.render(DrawContext, RenderTickCounter)`,
+  see the Rendering/HUD section above) is specific to `HudElement`/`InGameHud`, not `Screen`.
+  `Screen`'s own base `render()` just iterates registered `drawables` and renders each.
+- `public void renderBackground(DrawContext context, int mouseX, int mouseY, float deltaTicks)`
+  — confirmed still exists, same signature. Renders the translucent in-world darkening or the
+  panorama/menu background texture depending on whether `client.world == null`. Call it from
+  your own `render()` override (typically `super.render(...)` first, or call it directly, then
+  draw your own content on top).
+- **Closing a screen**: `close()` is `public void close() { this.client.setScreen(null); }` —
+  confirmed. Default Escape-key handling (`shouldCloseOnEsc()` returns `true` by default) already
+  calls `close()` for you, so a plain Escape-to-close needs no extra code. For a custom
+  toggle-key close, call `client.setScreen(null)` (or the screen's own `close()`) directly from
+  wherever you detect the second key press.
+- **`DrawContext` text-drawing overloads** (all `void`, confirmed via decompiled
+  `DrawContext.java`, one triplet per text type — `String` / `OrderedText` / `Text`):
+  ```java
+  drawContext.drawTextWithShadow(textRenderer, Text text, int x, int y, int color);
+  drawContext.drawText(textRenderer, Text text, int x, int y, int color, boolean shadow);
+  drawContext.drawCenteredTextWithShadow(textRenderer, Text text, int centerX, int y, int color);
+  ```
+  Use the `Text`-typed overload for anything going through `Text.translatable(...)`/
+  `Text.literal(...)` (which is everything player-facing per this project's i18n conventions).
+
+### Tabbed screens — vanilla's real `Tab`/`TabManager`/`TabNavigationWidget` API
+
+Vanilla exposes a genuine, mod-usable tab-navigation system, used by its own "Statistics"
+screen (`StatsScreen`) among others (also Realms screens). It is **not** overkill boilerplate
+from an old version — it's the exact widget vanilla renders as the row of tab buttons under a
+screen's title bar.
+
+- `net.minecraft.client.gui.tab.Tab` — the interface a tab implements:
+  ```java
+  public interface Tab {
+      Text getTitle();
+      Text getNarratedHint();
+      void forEachChild(Consumer<ClickableWidget> consumer);
+      void refreshGrid(ScreenRect tabArea);
+  }
+  ```
+- `net.minecraft.client.gui.tab.GridScreenTab` — the practical base class to extend instead of
+  implementing `Tab` raw. Constructor `GridScreenTab(Text title)`; it owns a `protected final
+  GridWidget grid` you add your content widgets to (`this.grid.add(widget, col, row)`), and its
+  `refreshGrid` centers the grid in the tab area (`SimplePositioningWidget.setPos(grid, tabArea,
+  0.5F, 0.16666667F)`). Override `refreshGrid` if a child widget needs explicit re-positioning/
+  resizing first (see `StatsScreen.StatsTab`, which resizes its list widget before calling
+  `super.refreshGrid(tabArea)`).
+- `net.minecraft.client.gui.tab.TabManager` — owns "which tab is currently shown" and wires
+  widget add/remove:
+  ```java
+  private final TabManager tabManager = new TabManager(this::addDrawableChild, this::remove);
+  ```
+  (2-arg constructor: widget-load consumer, widget-unload consumer; there's also a 4-arg
+  variant with extra `Consumer<Tab>` load/unload callbacks if you need tab-level lifecycle
+  hooks.) Call `tabManager.setTabArea(ScreenRect)` whenever the screen lays itself out, and
+  `setCurrentTab(Tab, boolean playClickSound)` to switch (this is normally done for you by
+  `TabNavigationWidget`, not called directly).
+- `net.minecraft.client.gui.widget.TabNavigationWidget` — the actual clickable tab-button row.
+  Built via a builder, not a public constructor:
+  ```java
+  this.tabNavigationWidget = TabNavigationWidget.builder(this.tabManager, this.width)
+      .tabs(new StatsTab(...))   // one or more Tab instances, vararg
+      .build();
+  this.addDrawableChild(this.tabNavigationWidget);
+  this.tabNavigationWidget.selectTab(0, false);   // false = no UI click sound on initial select
+  ```
+  Other methods used by `StatsScreen`: `setWidth(int)` + `init()` (call both together on
+  resize, before reading `getNavigationFocus()` to find where the tab bar ends and content
+  should start), `setTabActive(int index, boolean)` (enable/disable a tab button, e.g. while
+  data for it is still loading), `setTabTooltip(int index, @Nullable Tooltip)`, `getTabs()`.
+  Forward keyboard input so Ctrl+Tab / Ctrl+number tab switching works:
+  ```java
+  @Override
+  public boolean keyPressed(KeyInput input) {
+      return this.tabNavigationWidget != null && this.tabNavigationWidget.keyPressed(input)
+          ? true : super.keyPressed(input);
+  }
+  ```
+- **Minimal wiring example**, distilled from `StatsScreen.init()`/`refreshWidgetPositions()`:
+  ```java
+  private final TabManager tabManager = new TabManager(this::addDrawableChild, this::remove);
+  private TabNavigationWidget tabNavigationWidget;
+
+  @Override
+  protected void init() {
+      this.tabNavigationWidget = TabNavigationWidget.builder(this.tabManager, this.width)
+          .tabs(new StatsTabPlaceholder(Text.translatable("gui.baum2.stats.tab")))
+          .build();
+      this.addDrawableChild(this.tabNavigationWidget);
+      this.tabNavigationWidget.selectTab(0, false);
+      this.refreshWidgetPositions();
+  }
+
+  private void refreshWidgetPositions() {
+      this.tabNavigationWidget.setWidth(this.width);
+      this.tabNavigationWidget.init();
+      int headerBottom = this.tabNavigationWidget.getNavigationFocus().getBottom();
+      this.tabManager.setTabArea(new ScreenRect(0, headerBottom, this.width, this.height - headerBottom));
+  }
+  ```
+- **Practical verdict for the first version**: the real API is not hard to wire up (the
+  snippet above is essentially the whole thing), and using it now means adding a second tab
+  later is just another `Tab` instance in `.tabs(...)` — no rewrite. It also gives you Ctrl+Tab/
+  Ctrl+number keyboard switching, tooltips, and narration for free. The only meaningful
+  overhead versus a hand-rolled row of `ButtonWidget`s is the `GridScreenTab`/`ScreenRect`
+  layout dance in `refreshGrid`/`refreshWidgetPositions`. Recommendation: **use the real
+  `Tab`/`TabManager`/`TabNavigationWidget` trio from the start** — for a screen explicitly
+  planned to grow more tabs, it's the same amount of code as a hand-rolled version would need
+  once you also hand-roll active/inactive styling and highlight state, and it avoids a later
+  migration.
+
 ## Rendering / HUD
 
 - `HudRenderCallback.EVENT` (client-side) was used for a custom XP HUD overlay

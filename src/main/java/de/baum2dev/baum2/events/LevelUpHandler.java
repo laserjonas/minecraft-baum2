@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
+import de.baum2dev.baum2.progression.PlayerProgressData;
 
 public class LevelUpHandler {
     private static final Map<UUID, Integer> playerLevels = new HashMap<>();
@@ -14,12 +15,20 @@ public class LevelUpHandler {
     public static void registerEvents() {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
-            playerLevels.put(player.getUuid(), PlayerLevelSystem.getPlayerLevel(player));
+            int customLevel = PlayerLevelSystem.getPlayerLevel(player);
+            playerLevels.put(player.getUuid(), customLevel);
+            syncVanillaLevelDisplay(player);
         });
 
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             playerLevels.remove(handler.getPlayer().getUuid());
         });
+    }
+
+    private static void syncVanillaLevelDisplay(ServerPlayerEntity player) {
+        PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
+        int customLevel = progress.getLevel();
+        player.setExperienceLevel(customLevel);
     }
 
     public static void checkLevelUp(ServerPlayerEntity player) {
@@ -29,6 +38,7 @@ public class LevelUpHandler {
 
         if (currentLevel > previousLevel) {
             playerLevels.put(uuid, currentLevel);
+            syncVanillaLevelDisplay(player);
             broadcastLevelUp(player, currentLevel);
         }
     }

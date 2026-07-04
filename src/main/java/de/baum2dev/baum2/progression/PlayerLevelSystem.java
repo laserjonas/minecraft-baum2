@@ -27,8 +27,7 @@ public class PlayerLevelSystem {
         PlayerProgressData progress = getPlayerProgress(player);
         ExperienceManager.addExperience(progress, amount);
         savePlayerProgress(player, progress);
-
-        player.addExperience((int) amount);
+        syncVanillaLevelDisplay(player, progress);
     }
 
     public static int getPlayerLevel(ServerPlayerEntity player) {
@@ -37,5 +36,10 @@ public class PlayerLevelSystem {
 
     public static long getPlayerExperience(ServerPlayerEntity player) {
         return getPlayerProgress(player).getExperience();
+    }
+
+    private static void syncVanillaLevelDisplay(ServerPlayerEntity player, PlayerProgressData progress) {
+        int customLevel = progress.getLevel();
+        player.setExperienceLevel(customLevel);
     }
 }

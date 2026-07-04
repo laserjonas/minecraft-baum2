@@ -123,9 +123,16 @@ rather than guessing or skipping the check:
   another (or onto `master`), and before starting work that might overlap with what's active
   on the other contributor's branch. Flags file/system overlap and design conflicts, not just
   textual git conflicts.
+- **`graphics-designer`** — whenever new visual/graphical work is needed: a texture or model
+  for a new item/block/mob/boss, an icon or color identity for a new skill/class/faction/
+  rarity tier, or a new UI/HUD layout. Acts as the mod's senior graphic designer — unlike the
+  other four, it produces deliverables (specs, placeholder textures, model/blockstate JSON,
+  and a persisted style guide at `docs/visual-style-guide.md`), not just findings.
 
-All four report findings; none of them edit files or make decisions themselves — apply their
-findings yourself, or ask the user when a finding needs a judgment call.
+The first four report findings; none of them edit files or make decisions themselves — apply
+their findings yourself, or ask the user when a finding needs a judgment call.
+`graphics-designer` is the exception: it's expected to write/edit asset and doc files
+directly.
 
 ## Handoff Rule (multi-developer sync)
 

@@ -25,31 +25,46 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
     "Networking API reference" section below for the exact API and why earlier attempts failed.
   - Server-side in-memory storage; persistence still deferred to a future phase.
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
-- **Branches**: `master` is now the merge of both work branches (see "Last change" below).
-  `fischey_workbranch` and `jonas_workbranch` still exist and still track their respective
-  remotes for any follow-up work, but master has absorbed everything from both as of this
-  commit — start new work from `master` rather than the old work branches unless there's a
-  reason to keep working on one specifically.
+- **Branches**: `master` was merged from both work branches (see prior HANDOFF revision /
+  `git log -p HANDOFF.md` for that merge's detail); `jonas_workbranch` was then fast-forwarded
+  to match `master` and pushed. Per explicit user instruction, active work is back on
+  `jonas_workbranch` now, until the user asks for another merge into `master`.
+  `fischey_workbranch` still exists and tracks its own remote for Fischey's follow-up work.
 - `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets Java+Gradle
   recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
-- Four subagents under `.claude/agents/` (shared via git, so both contributors get them):
+- Five subagents under `.claude/agents/` (shared via git, so both contributors get them):
   `fabric-docs-researcher` (Fabric/MC API research -> `docs/fabric-modding.md`),
   `ip-naming-compliance-checker` (reviews new names/text against IP/naming rules),
   `balance-reviewer` (internal-consistency/exploit review of numeric balance values),
-  `merge-integration-reviewer` (pre-merge overlap/design-conflict check between branches).
-  All four report findings only — they don't edit files. See `CLAUDE.md` -> "Project Agents"
-  for exact trigger conditions; use them proactively, don't wait to be asked.
-  Still not yet run against the progression system's balance values / player-facing strings —
-  see "Next recommended step".
+  `merge-integration-reviewer` (pre-merge overlap/design-conflict check between branches),
+  `graphics-designer` (new — the mod's senior graphic designer: textures, models, icons,
+  UI/HUD layout, color/style identity per rarity/class/faction; persists a style guide to
+  `docs/visual-style-guide.md`). The first four report findings only and don't edit files;
+  `graphics-designer` is the exception and is expected to write/edit asset and doc files
+  directly. See `CLAUDE.md` -> "Project Agents" for exact trigger conditions; use all five
+  proactively, don't wait to be asked.
+  `balance-reviewer` and `ip-naming-compliance-checker` still haven't been run against the
+  progression system's balance values / player-facing strings — see "Next recommended step".
 - **Known limitation**: a running Claude Code session loads its available agent list at
   startup, so newly added `.claude/agents/*.md` files aren't picked up mid-session — they
   become available the next time a session starts fresh (restart, or a fresh session after
   pulling). If an agent invocation fails with "Agent type not found" right after one was
   added, that's why — not a bug in the agent definition.
 
-## Last change (on `master`)
+## Last change (on `jonas_workbranch`)
 
-Merged both active work branches into `master`:
+Added a fifth subagent, `graphics-designer` (`.claude/agents/graphics-designer.md`), and
+documented it in `CLAUDE.md` -> "Project Agents". Unlike the existing four (review/report
+only), this one is a producing agent — the mod's senior graphic designer, responsible for
+textures, models, icons, UI/HUD layout, and color/style identity (rarity tiers, classes,
+factions), with a persisted style guide at `docs/visual-style-guide.md` (not created yet — no
+visual assets exist in the project at all so far). Why: user asked for a dedicated graphics-
+focused agent now that the progression system is stable and Priority 1 items (first item/
+weapon/skill/event block) are coming up and will need original visual assets. Not yet
+exercised on a real task — same "known limitation" applies (new agent files aren't loaded
+mid-session, only from a fresh session start).
+
+Earlier, on `master`: merged both active work branches into `master`:
 
 - Merged `origin/jonas_workbranch` (fast-forward, commit `c979769`) — adds the four
   `.claude/agents/*.md` subagents, the "Project Agents" section in `CLAUDE.md`, and
@@ -149,4 +164,5 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` as the temp
 4. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
-   unclear.
+   unclear. Use `graphics-designer` (in a fresh session, per the known limitation) for the
+   texture/model/icon each of these will need.

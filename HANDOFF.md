@@ -51,7 +51,36 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change (on `fischey_workbranch`, not yet merged to `master`)
 
-Persisted progression data via Fabric's Data Attachment API instead of an in-memory `HashMap`:
+Fixed a dev-environment gotcha that looked exactly like a persistence bug: **user reported
+"level resets when I rebuild, but not on a plain restart of the same world."**
+
+- Root cause: Fabric Loom's `runClient` assigns a fresh random `PlayerNNN` username (and
+  therefore a fresh UUID, since offline/dev UUIDs are derived from the username) on **every
+  single launch** unless a fixed one is configured. Confirmed empirically —
+  `run/usercache.json` had 29 distinct `PlayerNNN` entries after one afternoon of testing.
+  Since progression is (correctly) stored per-player-UUID via the attachment added in the change
+  below, every fresh `runClient` launch was really a brand new player joining, not the same
+  player losing data. A plain "restart the world" without stopping/restarting the Gradle task
+  keeps the same client session and thus the same random username, which is why *that* case
+  looked fine and only the rebuild-then-relaunch case looked broken.
+- Fix: `build.gradle`'s `loom { runs { client { ... } } }` now sets a fixed dev identity via
+  `programArg("--username")` / `programArg("Baum2Dev")` / `programArg("--uuid")` /
+  `programArg("<fixed-offline-uuid>")`. The UUID is the standard offline-player UUID for that
+  username (`UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(UTF_8))`), computed once
+  and hardcoded — it doesn't need to be recomputed, it just needs to stay stable.
+  - Gotcha while implementing: `RunConfigSettings.getProgramArgs()` returns an **immutable**
+    `List<String>` in Loom 1.17.13 — calling `.add(...)` on it throws
+    `UnsupportedOperationException` with no message. Use the singular `programArg(String)`
+    method (one call per argument) instead, not `programArgs.add(...)`.
+- Verified: `runClient` log now shows `Setting user: Baum2Dev` and `Baum2Dev joined the game`
+  on every launch, instead of a random name.
+- Note for contributors: this only fixes identity stability inside *this* dev environment's
+  `run/` directory. It has no effect on a real server/launcher session, where usernames/UUIDs
+  come from the actual (online-mode or configured-offline) auth flow, not this dev-only arg
+  injection — nothing to reconcile there.
+
+Earlier, still on `fischey_workbranch`: persisted progression data via Fabric's Data Attachment
+API instead of an in-memory `HashMap`:
 
 - `PlayerProgressData` gained a `com.mojang.serialization.Codec<PlayerProgressData>` (via
   `RecordCodecBuilder`), replacing the old unused manual `writeNbt`/`readNbt` methods (they were
@@ -206,6 +235,9 @@ from persistence).
      level-up), and the level number matches `/baum2 level`.
    - Progression survives a real disconnect/reconnect and a full server restart (gain some XP,
      stop the server, restart it, rejoin, confirm `/baum2 level` still shows the same values).
+     Now that `runClient` uses a fixed dev identity (`Baum2Dev`, see "Last change" above), this
+     is finally testable without a rebuild silently swapping in a new player — before this fix
+     it wasn't possible to tell persistence-working from persistence-broken this way at all.
    Both are believed correct from a code-and-clean-boot-log standpoint but nobody has driven the
    actual GUI to watch either happen yet — do this before considering either feature fully closed.
 2. In a fresh session (so the four agents are actually loaded): run `balance-reviewer` on the

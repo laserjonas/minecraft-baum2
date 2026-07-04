@@ -14,6 +14,18 @@ public class PlayerLevelSystem {
                     .initializer(PlayerProgressData::new)
     );
 
+    /**
+     * Forces this class to load (and therefore registers {@link #PROGRESSION}) during mod init.
+     * Must be called from {@code Baum2.onInitialize()}. Without this, the class only loads on
+     * the first actual call to one of its methods, which happens inside event/command callback
+     * bodies that only run after a player has already joined — by which point Fabric has already
+     * tried to deserialize that player's saved attachment NBT and found no matching registered
+     * type, silently dropping it. That looked exactly like "progress resets on every rebuild"
+     * even with a stable player UUID.
+     */
+    public static void bootstrap() {
+    }
+
     public static PlayerProgressData getPlayerProgress(ServerPlayerEntity player) {
         return player.getAttachedOrCreate(PROGRESSION);
     }

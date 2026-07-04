@@ -51,8 +51,45 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change (on `fischey_workbranch`, not yet merged to `master`)
 
-Fixed a dev-environment gotcha that looked exactly like a persistence bug: **user reported
-"level resets when I rebuild, but not on a plain restart of the same world."**
+Fixed the *actual* persistence bug. The fixed dev-username change below (previous "Last change"
+entry) was real and necessary but **not sufficient** — user re-tested with the stable `Baum2Dev`
+identity, gained XP, rebuilt, relaunched, and still lost progress. This is the real root cause:
+
+- Root cause: `PlayerLevelSystem`'s `AttachmentType<PlayerProgressData> PROGRESSION` field is a
+  Java static field, initialized lazily the first time something calls a static method on that
+  class. Nothing in `Baum2.onInitialize()` touched `PlayerLevelSystem` directly — the only
+  references were inside event/command callback *bodies* (e.g. `LevelUpHandler`'s JOIN handler
+  calling `PlayerLevelSystem.getPlayerLevel(...)`), which don't execute until a player actually
+  joins. But Fabric's attachment deserialization (`EntityMixin.readEntityAttachments`, hooked
+  into the entity's own NBT-read process) runs *during* that same join sequence, and by decompiling
+  `AttachmentSerializingImpl` it's confirmed this deserialization looks up the `AttachmentType` by
+  `Identifier` in a global registry at that exact moment — if our type wasn't registered yet
+  (because `PlayerLevelSystem` hadn't loaded yet), the persisted `baum2:progression` NBT entry is
+  silently dropped, and the next `getAttachedOrCreate` call falls back to `initializer()`'s fresh
+  `PlayerProgressData` (level 1). That fresh default then gets written back on disconnect,
+  **overwriting** the real saved progress with the reset value.
+- This was confirmed, not guessed: dumped the raw NBT of an affected player file with a small
+  ad-hoc NBT reader (gzip + manual tag parsing, no library needed) and found `.dat_old` (the
+  previous save) correctly held `Level=5`, while the current `.dat` had been overwritten back to
+  `Level=1` — proving the write path was always fine and the *read* was silently failing exactly
+  once, then persisting that failure.
+- Fix: added `PlayerLevelSystem.bootstrap()` (a no-op method whose only purpose is to force the
+  class to load) and call it as the **first line** of `Baum2.onInitialize()`, guaranteeing the
+  attachment type is registered before any world or player can possibly load.
+- Verified end-to-end, not just via clean-boot logs this time: restored a known
+  `Level=5`/`Experience=1` player save as the "current" `.dat`, relaunched with the fix in place,
+  and confirmed (both via chat log and by re-dumping the NBT afterward) that the player correctly
+  loaded back in at level 5 rather than resetting. The user then independently re-tested manually
+  (gain XP → rebuild → relaunch → gain more XP → rebuild → relaunch) and confirmed it holds.
+- General lesson for this codebase: **any `AttachmentType` (or similar static-registered thing
+  whose registration must happen before world load) must be touched by an explicit call from
+  `Baum2.onInitialize()`, not merely referenced inside a lambda/callback body that registers
+  itself at init time but only executes later.** If a future attachment/registry addition shows
+  the same "works this session, silently resets next load" symptom, check this first.
+
+Earlier, still on `fischey_workbranch`: fixed a dev-environment gotcha that looked exactly like a
+persistence bug (**but wasn't the full story** — see above): user reported "level resets when I
+rebuild, but not on a plain restart of the same world."
 
 - Root cause: Fabric Loom's `runClient` assigns a fresh random `PlayerNNN` username (and
   therefore a fresh UUID, since offline/dev UUIDs are derived from the username) on **every
@@ -169,6 +206,19 @@ hand-rolled `HashMap<UUID, ...>` + manual save/load. Reference implementation:
 `progression/PlayerLevelSystem.java` (the `PROGRESSION` field) + `progression/PlayerProgressData.java`
 (the `CODEC` field).
 
+**Critical gotcha, learned the hard way (cost a full debugging cycle — see "Last change"):** the
+class holding your `AttachmentType` static field must be force-loaded during
+`Baum2.onInitialize()`, via an explicit call to some no-op method on it (see
+`PlayerLevelSystem.bootstrap()`). If the class is only ever referenced from inside an event
+callback *body* (lambda registered at init time but not executed until later), Java's lazy class
+initialization means the `AttachmentType` won't actually be registered until the first time a
+player triggers that callback — by which point Fabric may have already tried and failed to
+deserialize that player's persisted attachment data (silently, no error/warning surfaced to the
+log at the level we were checking), permanently losing it on the next save. Symptom: progress
+"resets" but only sometimes, and looks exactly like a persistence failure even though writes are
+working fine. If you add a new attachment and see this pattern, check that its owning class is
+actually being force-loaded at init, not just referenced from a lambda.
+
 Key classes, all in `net.fabricmc.fabric.api.attachment.v1` (Fabric's own names — stable across
 mapping sets, unlike the networking classes above):
 - `AttachmentType<A>` — the "key" for a piece of attached data.
@@ -229,25 +279,20 @@ from persistence).
 
 ## Next recommended step
 
-1. In-game manual verification, two things now pending together since neither has been visually
-   confirmed yet in a real play session:
-   - The vanilla XP bar animates smoothly as `/baum2 addxp <n>` is run repeatedly (not just on
-     level-up), and the level number matches `/baum2 level`.
-   - Progression survives a real disconnect/reconnect and a full server restart (gain some XP,
-     stop the server, restart it, rejoin, confirm `/baum2 level` still shows the same values).
-     Now that `runClient` uses a fixed dev identity (`Baum2Dev`, see "Last change" above), this
-     is finally testable without a rebuild silently swapping in a new player — before this fix
-     it wasn't possible to tell persistence-working from persistence-broken this way at all.
-   Both are believed correct from a code-and-clean-boot-log standpoint but nobody has driven the
-   actual GUI to watch either happen yet — do this before considering either feature fully closed.
-2. In a fresh session (so the four agents are actually loaded): run `balance-reviewer` on the
+1. **Done**: persistence across rebuild/relaunch is now confirmed working, both via a controlled
+   restored-save test and by the user independently re-testing manually (gain XP → rebuild →
+   relaunch, repeated). See "Last change" above for the root cause and fix.
+2. Still not visually confirmed in a real play session: the vanilla XP bar animates smoothly as
+   `/baum2 addxp <n>` is run repeatedly (not just on level-up), and the level number matches
+   `/baum2 level`. Believed correct from a code standpoint but nobody has watched it happen.
+3. In a fresh session (so the four agents are actually loaded): run `balance-reviewer` on the
    progression system's XP curve/mob-reward formula and `ip-naming-compliance-checker` on
    existing player-facing strings (command output, level-up broadcast text) — neither has been
    reviewed yet.
-3. Merge `fischey_workbranch` back into `master` once step 1 above confirms this session's
-   persistence work is solid (it hasn't been merged yet — this session's commit is still only
-   on `fischey_workbranch`).
-4. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
+4. Merge `fischey_workbranch` back into `master` — persistence is now confirmed solid, so this
+   is unblocked (it hasn't been merged yet — this session's commits are still only on
+   `fischey_workbranch`).
+5. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
    unclear.

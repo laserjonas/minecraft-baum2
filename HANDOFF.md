@@ -19,26 +19,21 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Last change
 
-- Commit: (this commit) — "Fix Java 21/25 mismatch blocking runClient; add VS Code run config"
+- Commit: (this commit) — "Add README with project description and dev quickstart"
 - What:
-  - `build.gradle`: the `java { toolchain.languageVersion = ... }` pin was conditional
-    (`if (JavaVersion.current() < javaVersion)`), so once Gradle itself ran on a JDK 21, the
-    pin was skipped entirely and Fabric Loom's `runClient`/`runServer` JavaExec tasks fell back
-    to auto-detecting *any* installed JDK on the machine — which picked up a stray
-    IntelliJ-managed `openjdk-25.0.1` under `~/.jdks`. Made the pin unconditional so the run
-    tasks always resolve JDK 21.
-  - `src/main/resources/baum2.mixins.json` and `src/client/resources/baum2.client.mixins.json`:
-    both had `"compatibilityLevel": "JAVA_25"` hardcoded from whatever JDK generated the
-    template. Sponge Mixin/ASM on this project's actual Java 21 target cannot set that level
-    and crashed on startup (`IllegalArgumentException: The requested compatibility level
-    JAVA_25 could not be set`). Changed both to `JAVA_21`.
-  - Added `.vscode/extensions.json`, `.vscode/settings.json`, `.vscode/tasks.json`.
-- Why: a fresh clone had no JDK installed at all, and once one was installed (Temurin 21, to
-  match `gradle.properties`/`build.gradle`'s Java 21 target) `runClient` still failed for the
-  two reasons above — both stemming from the template having been generated under a local
-  JDK 25 rather than the project's pinned JDK 21.
+  - Added `README.md`: describes the project (Baum2 MMORPG mod, original mechanics, feature
+    roadmap), prerequisites (Java 21), quick-start instructions (how to run the client from VS
+    Code or terminal), project structure, and guidelines for contributors.
+  - Fixed `.vscode/tasks.json`: the Windows task commands were missing `.\` path prefix, so
+    PowerShell couldn't find `gradlew.bat`. Now tasks like "Run Minecraft Client" (Ctrl+Shift+B)
+    work correctly on Windows.
+- Why: other developers cloning the repo need a friendly entry point explaining what the project
+  is, how to set up Java, and the exact steps to launch the game. The tasks.json fix ensures the
+  "Run Minecraft Client" VS Code task actually works on Windows.
 
-Earlier: `731c5a3` — "Fix commit hash reference in HANDOFF.md"; `7f228e8` — "Add MASTERPROMPT.md
+Earlier: `2405ca7` — "Fix Java 21/25 mismatch blocking runClient; add VS Code run config"
+(fixed `build.gradle` toolchain pin, both mixins.json compatibility levels, added
+`.vscode/` config); `731c5a3` — "Fix commit hash reference in HANDOFF.md"; `7f228e8` — "Add MASTERPROMPT.md
 and reference it from CLAUDE.md" (full original project brief, feature roadmap, legal/naming
 guidelines); `4923a85` — "Initial Minecraft MMORPG mod setup" (project scaffold, package renamed
 from `baum2dev.baum2` to `de.baum2dev.baum2`, `CLAUDE.md`/`.gitignore` added, version mismatch

@@ -6,7 +6,7 @@
       "type": "shell",
       "command": "./gradlew.bat runClient",
       "windows": {
-        "command": "gradlew.bat runClient"
+        "command": ".\\gradlew.bat runClient"
       },
       "group": {
         "kind": "build",
@@ -17,20 +17,29 @@
     {
       "label": "Run Minecraft Server",
       "type": "shell",
-      "command": "gradlew.bat runServer",
+      "command": "./gradlew.bat runServer",
+      "windows": {
+        "command": ".\\gradlew.bat runServer"
+      },
       "problemMatcher": []
     },
     {
       "label": "Build Mod",
       "type": "shell",
-      "command": "gradlew.bat build",
+      "command": "./gradlew.bat build",
+      "windows": {
+        "command": ".\\gradlew.bat build"
+      },
       "group": "build",
       "problemMatcher": []
     },
     {
       "label": "Generate Sources",
       "type": "shell",
-      "command": "gradlew.bat genSources",
+      "command": "./gradlew.bat genSources",
+      "windows": {
+        "command": ".\\gradlew.bat genSources"
+      },
       "problemMatcher": []
     }
   ]

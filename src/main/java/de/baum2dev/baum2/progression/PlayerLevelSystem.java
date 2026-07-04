@@ -1,26 +1,29 @@
 package de.baum2dev.baum2.progression;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import net.fabricmc.fabric.api.attachment.v1.AttachmentRegistry;
+import net.fabricmc.fabric.api.attachment.v1.AttachmentType;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.Identifier;
 
 public class PlayerLevelSystem {
-    private static final Map<UUID, PlayerProgressData> playerProgressMap = new HashMap<>();
+    private static final AttachmentType<PlayerProgressData> PROGRESSION = AttachmentRegistry.create(
+            Identifier.of("baum2", "progression"),
+            builder -> builder
+                    .persistent(PlayerProgressData.CODEC)
+                    .copyOnDeath()
+                    .initializer(PlayerProgressData::new)
+    );
 
     public static PlayerProgressData getPlayerProgress(ServerPlayerEntity player) {
-        UUID uuid = player.getUuid();
-        return playerProgressMap.getOrDefault(uuid, new PlayerProgressData());
+        return player.getAttachedOrCreate(PROGRESSION);
     }
 
     public static void savePlayerProgress(ServerPlayerEntity player, PlayerProgressData progress) {
-        UUID uuid = player.getUuid();
-        playerProgressMap.put(uuid, progress);
+        player.setAttached(PROGRESSION, progress);
     }
 
     public static void clearPlayerProgress(ServerPlayerEntity player) {
-        UUID uuid = player.getUuid();
-        playerProgressMap.remove(uuid);
+        player.removeAttached(PROGRESSION);
     }
 
     public static void addExperience(ServerPlayerEntity player, long amount) {

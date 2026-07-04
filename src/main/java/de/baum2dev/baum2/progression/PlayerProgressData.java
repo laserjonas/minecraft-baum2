@@ -1,8 +1,15 @@
 package de.baum2dev.baum2.progression;
 
-import net.minecraft.nbt.NbtCompound;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 public class PlayerProgressData {
+    public static final Codec<PlayerProgressData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+            Codec.INT.fieldOf("Level").forGetter(PlayerProgressData::getLevel),
+            Codec.LONG.fieldOf("Experience").forGetter(PlayerProgressData::getExperience),
+            Codec.LONG.fieldOf("ExperienceForNextLevel").forGetter(PlayerProgressData::getExperienceForNextLevel)
+    ).apply(instance, PlayerProgressData::new));
+
     private int level;
     private long experience;
     private long experienceForNextLevel;
@@ -45,19 +52,5 @@ public class PlayerProgressData {
 
     public float getExperienceProgress() {
         return experienceForNextLevel > 0 ? (float) experience / experienceForNextLevel : 0;
-    }
-
-    public NbtCompound writeNbt(NbtCompound tag) {
-        tag.putInt("Level", level);
-        tag.putLong("Experience", experience);
-        tag.putLong("ExperienceForNextLevel", experienceForNextLevel);
-        return tag;
-    }
-
-    public static PlayerProgressData readNbt(NbtCompound tag) {
-        int level = tag.contains("Level") ? tag.getInt("Level").orElse(1) : 1;
-        long experience = tag.contains("Experience") ? tag.getLong("Experience").orElse(0L) : 0;
-        long experienceForNextLevel = tag.contains("ExperienceForNextLevel") ? tag.getLong("ExperienceForNextLevel").orElse(100L) : 100;
-        return new PlayerProgressData(level, experience, experienceForNextLevel);
     }
 }

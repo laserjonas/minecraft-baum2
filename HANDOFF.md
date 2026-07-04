@@ -23,7 +23,9 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
     broadcasts, vanilla XP orb drops disabled via Mixin.
   - **Real-time client sync now works** via a custom S2C packet sent every server tick — see
     "Networking API reference" section below for the exact API and why earlier attempts failed.
-  - Server-side in-memory storage; persistence still deferred to a future phase.
+  - **Persistence now works** via Fabric's Data Attachment API (`fabric-data-attachment-api-v1`,
+    already a dependency) — progression survives server restarts, disconnects, and death. See
+    "Last change" and "Attachment API reference" below.
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `master` is now the merge of both work branches (see "Last change" below).
   `fischey_workbranch` and `jonas_workbranch` still exist and still track their respective
@@ -47,9 +49,31 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   pulling). If an agent invocation fails with "Agent type not found" right after one was
   added, that's why — not a bug in the agent definition.
 
-## Last change (on `master`)
+## Last change (on `fischey_workbranch`, not yet merged to `master`)
 
-Merged both active work branches into `master`:
+Persisted progression data via Fabric's Data Attachment API instead of an in-memory `HashMap`:
+
+- `PlayerProgressData` gained a `com.mojang.serialization.Codec<PlayerProgressData>` (via
+  `RecordCodecBuilder`), replacing the old unused manual `writeNbt`/`readNbt` methods (they were
+  dead code — never called anywhere).
+- `PlayerLevelSystem` now declares `PROGRESSION`, an `AttachmentType<PlayerProgressData>`
+  registered via `AttachmentRegistry.create(Identifier, Consumer<Builder<A>>)` with
+  `.persistent(CODEC)`, `.copyOnDeath()`, and `.initializer(PlayerProgressData::new)`.
+  `getPlayerProgress`/`savePlayerProgress`/`clearPlayerProgress` now delegate to
+  `player.getAttachedOrCreate(PROGRESSION)` / `setAttached(...)` / `removeAttached(...)` instead
+  of a UUID-keyed map.
+- Why: attachments hook directly into vanilla's own player-NBT read/write cycle (the same one
+  that saves inventory, health, etc.), so progression now survives disconnects, server restarts,
+  and — via `copyOnDeath()` — player death, with no manual join/disconnect save/load code needed.
+- Note: used `AttachmentRegistry.create(id, consumer)`, not `AttachmentRegistry.builder()` —
+  the latter compiles but is `@Deprecated` (confirmed via `javap -v`, not just IDE guesswork).
+  See "Attachment API reference" below.
+- Verified: clean build, and a `runClient` boot showed `fabric-data-attachment-api-v1` loading
+  and the resource-manager reload starting with no crash — mod init (where the attachment is
+  registered) ran successfully. Not yet verified in an actual played session that data survives
+  a real restart — see "Next recommended step".
+
+Earlier, merged both active work branches into `master`:
 
 - Merged `origin/jonas_workbranch` (fast-forward, commit `c979769`) — adds the four
   `.claude/agents/*.md` subagents, the "Project Agents" section in `CLAUDE.md`, and
@@ -108,6 +132,43 @@ Registration pattern that actually compiles:
 
 If you add more custom payloads, follow `ExperienceSyncPayload.java` as the template.
 
+## Attachment API reference (persistent per-player/entity data)
+
+For any future "store custom data on a player/entity/block-entity/chunk that should survive
+restarts" need, use `fabric-data-attachment-api-v1` (already a dependency) rather than a
+hand-rolled `HashMap<UUID, ...>` + manual save/load. Reference implementation:
+`progression/PlayerLevelSystem.java` (the `PROGRESSION` field) + `progression/PlayerProgressData.java`
+(the `CODEC` field).
+
+Key classes, all in `net.fabricmc.fabric.api.attachment.v1` (Fabric's own names — stable across
+mapping sets, unlike the networking classes above):
+- `AttachmentType<A>` — the "key" for a piece of attached data.
+- `AttachmentRegistry` — creates and registers an `AttachmentType`. Use
+  `AttachmentRegistry.create(Identifier, Consumer<Builder<A>>)`, **not**
+  `AttachmentRegistry.builder()` — the no-arg `builder()` is `@Deprecated` (verified via
+  `javap -v`, the bytecode carries a real `Deprecated` attribute, not just a Javadoc note).
+- `AttachmentRegistry.Builder<A>` methods used: `.persistent(Codec<A>)` (enables save/load),
+  `.copyOnDeath()` (data survives player death/respawn), `.initializer(Supplier<A>)` (default
+  value for entities that have never had this attachment set).
+- `AttachmentTarget` — interface that `Entity` (and therefore `ServerPlayerEntity`), `BlockEntity`,
+  `Chunk`, and `World` all implement (added via Fabric's build-time interface injection, so it's
+  visible at compile time even though the actual `implements` is woven in by a Mixin at runtime —
+  you don't need to do anything special to get `player.getAttached(...)` etc. to resolve).
+  Methods used: `getAttachedOrCreate(type)`, `setAttached(type, value)`, `removeAttached(type)`.
+
+The `.persistent(Codec<A>)` codec is `com.mojang.serialization.Codec<A>` (Mojang's
+DataFixerUpper serialization library, already on the classpath via Minecraft itself) — **not**
+the `PacketCodec` used for networking above; they're unrelated codec systems despite the similar
+name. For a simple data class, build one with `RecordCodecBuilder.create(...)` as in
+`PlayerProgressData.CODEC` — see that file for the exact pattern.
+
+Persisted attachment data is stored as part of the target's own save data (e.g. for a player,
+inside their `playerdata/<uuid>.dat`), so it's written/read automatically by vanilla's existing
+save cycle — no manual `ServerPlayConnectionEvents.JOIN`/`DISCONNECT` save/load hooks needed for
+persistence itself (those events are still useful for other things, e.g. this mod's
+`LevelUpHandler` uses `JOIN` to prime its level-up-tracking cache, which is a separate concern
+from persistence).
+
 ## Decisions worth knowing about
 
 - Minecraft 26.2 is the actual latest stable release, but Yarn has not published mappings for
@@ -133,19 +194,27 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` as the temp
   caused by three separate copies of this formula drifting apart, not by a display API issue.
 - Vanilla XP orb drops from hostile mobs are disabled via `LivingEntityMixin`. Experience bottles
   were reported to still spawn orbs in an earlier session — not re-verified since; low priority.
+- Progression persistence uses Fabric's Data Attachment API (see "Attachment API reference"
+  above) — **do not** reintroduce a manual `HashMap<UUID, PlayerProgressData>`, that was the
+  previous approach and it's why data was lost on restart.
 
 ## Next recommended step
 
-1. In-game manual verification: join a world, run `/baum2 addxp <n>` a few times, and confirm the
-   vanilla XP bar animates smoothly (not just on level-up) and the level number matches
-   `/baum2 level`. This was verified as a clean client boot with no crashes but the GUI itself
-   hasn't been driven to confirm the visual result — do this before considering the feature
-   fully closed.
+1. In-game manual verification, two things now pending together since neither has been visually
+   confirmed yet in a real play session:
+   - The vanilla XP bar animates smoothly as `/baum2 addxp <n>` is run repeatedly (not just on
+     level-up), and the level number matches `/baum2 level`.
+   - Progression survives a real disconnect/reconnect and a full server restart (gain some XP,
+     stop the server, restart it, rejoin, confirm `/baum2 level` still shows the same values).
+   Both are believed correct from a code-and-clean-boot-log standpoint but nobody has driven the
+   actual GUI to watch either happen yet — do this before considering either feature fully closed.
 2. In a fresh session (so the four agents are actually loaded): run `balance-reviewer` on the
    progression system's XP curve/mob-reward formula and `ip-naming-compliance-checker` on
    existing player-facing strings (command output, level-up broadcast text) — neither has been
    reviewed yet.
-3. Persist progression data (currently in-memory only, lost on server restart).
+3. Merge `fischey_workbranch` back into `master` once step 1 above confirms this session's
+   persistence work is solid (it hasn't been merged yet — this session's commit is still only
+   on `fischey_workbranch`).
 4. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
    skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
    `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is

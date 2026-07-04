@@ -99,6 +99,14 @@ the merge itself.
   where vanilla's default darkening was too weak against a bright sky, and content overlapped
   the tab header — see git history for both root causes). Row order/colors in
   `docs/visual-style-guide.md` section 12.
+- **"+1" attribute buttons polished per user feedback**: label shortened to "+", size reduced
+  18x18 → 12x12. Clicking now updates the displayed attribute/points values **immediately**
+  client-side (`ClientNetworkingHandler.predictAttributeSpend`), rather than waiting for the
+  next `AttributeSyncPayload` tick — the server stays authoritative and corrects this within
+  ~1 tick if the optimistic update was ever wrong (e.g. a race where points ran out), so there's
+  no real desync risk, just a smoother-feeling button. When `Unspent Points` is 0, the buttons
+  are now set `.visible = false` (fully hidden, not just greyed out via `.active`) — confirmed
+  `ClickableWidget.visible` skips both rendering and click handling, not just one or the other.
 - **Two real, confirmed-not-guessed bugs were fixed during this system's development** (both
   found via actual user screenshots, not caught by build/boot verification alone): the tab
   header overlapping content (root cause: `GridScreenTab`'s default centering anchor goes

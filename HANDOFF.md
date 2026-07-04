@@ -11,49 +11,77 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
   Mixin/payload registration errors).
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
-
-**Progression System — FULLY WORKING, including real-time client display:**
-- Custom progression uses Minecraft's non-linear XP curve, centralized in
-  `progression/VanillaXpFormula.java` (single source of truth — `ExperienceManager`,
-  `ProgressionTickHandler`, `PlayerLevelSystem`, `LevelUpHandler`, and the client packet
-  handler all call into it instead of each having their own copy):
-  - Levels 0-15: L² + 6L
-  - Levels 16-31: 2.5L² - 40.5L + 360
-  - Levels 32+: 4.5L² - 162.5L + 2220
-- Features: `/baum2 addxp <amount>`, `/baum2 level`, mob XP drops (10 + max_health/2), level-up
-  broadcasts, vanilla XP orb drops disabled via Mixin.
-- **Real-time client sync now works** via a custom S2C packet sent every server tick — see
-  "Networking" section below for the exact API and why earlier attempts failed.
-- Server-side in-memory storage; persistence still deferred to a future phase.
-
+- **Progression System — FULLY WORKING, including real-time client display:**
+  - Custom progression uses Minecraft's non-linear XP curve, centralized in
+    `progression/VanillaXpFormula.java` (single source of truth — `ExperienceManager`,
+    `ProgressionTickHandler`, `PlayerLevelSystem`, `LevelUpHandler`, and the client packet
+    handler all call into it instead of each having their own copy):
+    - Levels 0-15: L² + 6L
+    - Levels 16-31: 2.5L² - 40.5L + 360
+    - Levels 32+: 4.5L² - 162.5L + 2220
+  - Features: `/baum2 addxp <amount>`, `/baum2 level`, mob XP drops (10 + max_health/2), level-up
+    broadcasts, vanilla XP orb drops disabled via Mixin.
+  - **Real-time client sync now works** via a custom S2C packet sent every server tick — see
+    "Networking API reference" section below for the exact API and why earlier attempts failed.
+  - Server-side in-memory storage; persistence still deferred to a future phase.
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
-- `.vscode/` checked in with run configs.
+- **Branches**: `master` is now the merge of both work branches (see "Last change" below).
+  `fischey_workbranch` and `jonas_workbranch` still exist and still track their respective
+  remotes for any follow-up work, but master has absorbed everything from both as of this
+  commit — start new work from `master` rather than the old work branches unless there's a
+  reason to keep working on one specifically.
+- `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets Java+Gradle
+  recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
+- Four subagents under `.claude/agents/` (shared via git, so both contributors get them):
+  `fabric-docs-researcher` (Fabric/MC API research -> `docs/fabric-modding.md`),
+  `ip-naming-compliance-checker` (reviews new names/text against IP/naming rules),
+  `balance-reviewer` (internal-consistency/exploit review of numeric balance values),
+  `merge-integration-reviewer` (pre-merge overlap/design-conflict check between branches).
+  All four report findings only — they don't edit files. See `CLAUDE.md` -> "Project Agents"
+  for exact trigger conditions; use them proactively, don't wait to be asked.
+  Still not yet run against the progression system's balance values / player-facing strings —
+  see "Next recommended step".
+- **Known limitation**: a running Claude Code session loads its available agent list at
+  startup, so newly added `.claude/agents/*.md` files aren't picked up mid-session — they
+  become available the next time a session starts fresh (restart, or a fresh session after
+  pulling). If an agent invocation fails with "Agent type not found" right after one was
+  added, that's why — not a bug in the agent definition.
 
-## Last change
+## Last change (on `master`)
 
-- Fixed real-time vanilla level/XP bar sync (previously blocked — see git history for the
-  string of failed attempts: totalExperience-only tricks, cancelling `dropExperience`, etc.)
-- What:
-  1. Added `progression/VanillaXpFormula.java` — single shared implementation of the vanilla
-     curve, replacing three separate copies that had drifted out of sync with each other
-     (which was the actual cause of the "level updates but progress bar doesn't" bug reported
-     earlier).
-  2. Added a custom S2C payload (`networking/ExperienceSyncPayload.java` +
-     `networking/Baum2Networking.java` server-side, `networking/ClientNetworkingHandler.java`
-     client-side) sent every server tick from `ProgressionTickHandler`.
-  3. Client-side, call `ClientPlayerEntity.setExperience(float progress, int total, int level)`
-     — **not** `setExperienceLevel(int)`, which only exists on `ServerPlayerEntity` and does
-     not compile in client code. `setExperience` is the exact method vanilla's own network
-     handler calls when it receives a real experience-sync packet from a real server; it sets
-     `experienceProgress`, `totalExperience`, and `experienceLevel` directly and triggers the
-     bar's fill-flash animation. Because it takes the fill fraction directly, there's no need
-     to reverse-engineer the curve on the client at all for the bar's visual fill — only the
-     level number and the `totalExperience` display value need the shared formula.
-- Why: Root cause of "client doesn't update live" was that vanilla only pushes experience to
-  the client on join or on a server-side `setExperienceLevel()`/`addExperience()` call — setting
-  fields directly on `ServerPlayerEntity` every tick never reaches the client. A previous
-  session's fix attempt used `FabricPacket`/`PacketType`, which do not exist in Fabric API
-  0.141.4+1.21.11 (that's a newer/different-mapping API) and failed to compile.
+Merged both active work branches into `master`:
+
+- Merged `origin/jonas_workbranch` (fast-forward, commit `c979769`) — adds the four
+  `.claude/agents/*.md` subagents, the "Project Agents" section in `CLAUDE.md`, and
+  `docs/fabric-modding.md`.
+- Merged `origin/fischey_workbranch` (merge commit, tip `75dd912`) — brings in the
+  Mixin-based XP-orb suppression, the shared `VanillaXpFormula`, and the real-time
+  client XP-bar sync over a custom S2C packet (see "Networking API reference" below).
+- Only conflict was `HANDOFF.md` itself (expected — both branches update it independently);
+  resolved by hand-merging both branches' state into this version. No source-code conflicts:
+  the two branches touched disjoint files (`jonas_workbranch` only touched docs/agent
+  definitions, `fischey_workbranch` only touched progression/networking/mixin code), and a
+  manual overlap check (the `merge-integration-reviewer` agent wasn't loaded in this session)
+  found no competing design assumptions between them either.
+- Why: user requested combining both contributors' branches into `master` now that
+  Fischey's XP-sync work had reached a working state.
+
+Earlier, on `fischey_workbranch` before the merge: "Fixed real-time vanilla level/XP bar sync"
+— added `VanillaXpFormula.java` to replace three drifting copies of the curve (the actual
+cause of "level updates but progress bar doesn't"), and a custom S2C payload
+(`networking/ExperienceSyncPayload.java` + `networking/Baum2Networking.java` server-side,
+`networking/ClientNetworkingHandler.java` client-side) sent every tick from
+`ProgressionTickHandler`. Root cause of the earlier bug: vanilla only pushes experience to the
+client on join or on a server-side `setExperienceLevel()`/`addExperience()` call — setting
+fields directly on `ServerPlayerEntity` every tick never reaches the client.
+
+Earlier, on `jonas_workbranch` before the merge: `09eefd4` — "Add ip-naming-compliance-checker,
+balance-reviewer, and merge-integration-reviewer agents", alongside the pre-existing
+`fabric-docs-researcher`. Attempted to run the review agents against the progression system as
+a first pass but couldn't — new custom agents aren't picked up until a fresh session starts
+(see "Known limitation" above). Still not done; see "Next recommended step".
+
+See `git log -p HANDOFF.md` for the full detail on earlier revisions.
 
 ## Networking API reference for this exact version (Fabric 0.141.4+1.21.11 / Yarn 1.21.11+build.6)
 
@@ -110,7 +138,15 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` as the temp
 
 1. In-game manual verification: join a world, run `/baum2 addxp <n>` a few times, and confirm the
    vanilla XP bar animates smoothly (not just on level-up) and the level number matches
-   `/baum2 level`. This session verified a clean client boot with no crashes but could not drive
-   the GUI to confirm the visual result — do this before considering the feature fully closed.
-2. Persist progression data (currently in-memory only, lost on server restart).
-3. Implement first custom item + skill system per `CLAUDE.md` priorities.
+   `/baum2 level`. This was verified as a clean client boot with no crashes but the GUI itself
+   hasn't been driven to confirm the visual result — do this before considering the feature
+   fully closed.
+2. In a fresh session (so the four agents are actually loaded): run `balance-reviewer` on the
+   progression system's XP curve/mob-reward formula and `ip-naming-compliance-checker` on
+   existing player-facing strings (command output, level-up broadcast text) — neither has been
+   reviewed yet.
+3. Persist progression data (currently in-memory only, lost on server restart).
+4. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first active
+   skill with a cooldown manager, first world-event block. Consult `fabric-docs-researcher` /
+   `docs/fabric-modding.md` before implementing any of these if the relevant Fabric API is
+   unclear.

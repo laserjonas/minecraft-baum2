@@ -101,6 +101,32 @@ Use a consistent original fantasy naming style.
 - Do not commit copied assets.
 - Do not commit API keys, tokens, passwords, credentials, or private config files.
 
+## Project Agents (use proactively, don't wait to be asked)
+
+Custom subagents live in `.claude/agents/` and are shared via git — both contributors' Claude
+Code sessions have them. Invoke the relevant one automatically when its trigger applies,
+rather than guessing or skipping the check:
+
+- **`fabric-docs-researcher`** — whenever a Minecraft/Fabric/Loom/Mixin API is unclear (an
+  unfamiliar class, an event hook that might not exist anymore, a version-compatibility
+  question). Training data can be stale for a version as new as 1.21.11. Persists findings to
+  `docs/fabric-modding.md` — check that file first, the answer may already be there.
+- **`ip-naming-compliance-checker`** — whenever new player-facing names or text are added or
+  changed: items, weapons, skills, mobs, bosses, factions, places, quest text, lore, UI
+  strings. Also before merging a branch that touched any of these. Checks against the IP/
+  naming rules below and in `MASTERPROMPT.md`.
+- **`balance-reviewer`** — whenever a new or changed numeric balance value is introduced: XP/
+  level curves, mob rewards, item stats, upgrade costs/chances, drop rates, damage/health,
+  cooldowns, resource costs. Internal-consistency and exploit review only (values must be
+  original per the Balancing Rules — nothing to compare against).
+- **`merge-integration-reviewer`** — before merging or rebasing one contributor's branch onto
+  another (or onto `master`), and before starting work that might overlap with what's active
+  on the other contributor's branch. Flags file/system overlap and design conflicts, not just
+  textual git conflicts.
+
+All four report findings; none of them edit files or make decisions themselves — apply their
+findings yourself, or ask the user when a finding needs a judgment call.
+
 ## Handoff Rule (multi-developer sync)
 
 This project has more than one human/Claude Code pair working on it. Before every commit,

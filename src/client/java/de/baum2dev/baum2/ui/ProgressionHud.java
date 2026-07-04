@@ -2,11 +2,9 @@ package de.baum2dev.baum2.ui;
 
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.RenderTickCounter;
-import net.minecraft.text.Text;
 
 public class ProgressionHud {
 
@@ -22,11 +20,10 @@ public class ProgressionHud {
             return;
         }
 
-        TextRenderer textRenderer = client.textRenderer;
         int xPos = 10;
         int yPos = 10;
-        int boxWidth = 200;
-        int boxHeight = 60;
+        int boxWidth = 220;
+        int boxHeight = 40;
 
         int backgroundColor = 0xDD1A1A1A;
         int borderColor = 0xFFFFAA00;
@@ -37,23 +34,14 @@ public class ProgressionHud {
         drawContext.fill(xPos, yPos, xPos + 2, yPos + boxHeight, borderColor);
         drawContext.fill(xPos + boxWidth - 2, yPos, xPos + boxWidth, yPos + boxHeight, borderColor);
 
-        int textX = xPos + 8;
-        int textY = yPos + 5;
+        int barStartX = xPos + 10;
+        int barStartY = yPos + 10;
+        int barWidth = boxWidth - 20;
+        int barHeight = 20;
 
-        drawContext.drawText(textRenderer, Text.literal("§6BAUM2 PROGRESSION"), textX, textY, 0xFFFFFF, true);
-
-        textY += 12;
-        drawContext.drawText(textRenderer, Text.literal("§fLevel: 1 | XP: 0/100"), textX, textY, 0xFFFFFF, true);
-
-        textY += 12;
-        int barWidth = boxWidth - 16;
-        int barHeight = 12;
-        int barX = xPos + 8;
-        int barY = textY;
-
-        drawContext.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF333333);
-        drawContext.fill(barX + 1, barY + 1, barX + (int)(barWidth * 0.5f) - 1, barY + barHeight - 1, 0xFF00FF00);
-        drawContext.fill(barX, barY, barX + barWidth, barY + 1, 0xFFFFFFFF);
-        drawContext.fill(barX, barY + barHeight - 1, barX + barWidth, barY + barHeight, 0xFFFFFFFF);
+        drawContext.fill(barStartX, barStartY, barStartX + barWidth, barStartY + barHeight, 0xFF333333);
+        drawContext.fill(barStartX + 1, barStartY + 1, barStartX + (int)(barWidth * 0.5f) - 1, barStartY + barHeight - 1, 0xFF00FF00);
+        drawContext.fill(barStartX, barStartY, barStartX + barWidth, barStartY + 1, 0xFFFFFFFF);
+        drawContext.fill(barStartX, barStartY + barHeight - 1, barStartX + barWidth, barStartY + barHeight, 0xFFFFFFFF);
     }
 }

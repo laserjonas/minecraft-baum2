@@ -28,7 +28,10 @@ public class LevelUpHandler {
     private static void syncVanillaLevelDisplay(ServerPlayerEntity player) {
         PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
         int customLevel = progress.getLevel();
+        float progressPercent = progress.getExperienceProgress();
+
         player.setExperienceLevel(customLevel);
+        player.experienceProgress = progressPercent;
     }
 
     public static void checkLevelUp(ServerPlayerEntity player) {

@@ -23,7 +23,6 @@ public class ProgressionHud {
         }
 
         TextRenderer textRenderer = client.textRenderer;
-        int screenWidth = client.getWindow().getScaledWidth();
         int screenHeight = client.getWindow().getScaledHeight();
 
         int padding = 10;
@@ -47,7 +46,7 @@ public class ProgressionHud {
         drawContext.drawText(textRenderer, Text.literal("§6⭐ Baum2 ⭐"), textX, textY, 0xFFFFAA, true);
 
         textY += 12;
-        drawContext.drawText(textRenderer, Text.literal("Level: 1 | XP: 0/100"), textX, textY, 0xFFFFFF, true);
+        drawContext.drawText(textRenderer, Text.literal("Type: /baum2 level"), textX, textY, 0xFFFFFF, true);
 
         textY += 10;
         int barWidth = boxWidth - 10;
@@ -56,7 +55,7 @@ public class ProgressionHud {
         int barY = textY;
 
         drawContext.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF333333);
-        drawContext.fill(barX, barY, barX + (barWidth / 2), barY + barHeight, 0xFF00FF00);
+        drawContext.fill(barX, barY, barX + (int)(barWidth * 0.5f), barY + barHeight, 0xFF00FF00);
         drawContext.fill(barX, barY, barX + barWidth, barY + 1, 0xFFFFFFFF);
     }
 }

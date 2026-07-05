@@ -8,6 +8,7 @@ import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
+import de.baum2dev.baum2.entity.DrevathisEntity;
 import de.baum2dev.baum2.entity.SpiderQueenEntity;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntity;
 import de.baum2dev.baum2.entity.StoneOfZombiesEntity;
@@ -60,11 +61,27 @@ public class ModEntities {
                     .build(ZOMBIE_COLOSSUS_KEY)
     );
 
+    public static final RegistryKey<EntityType<?>> DREVATHIS_KEY =
+            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "drevathis"));
+
+    public static final EntityType<DrevathisEntity> DREVATHIS = Registry.register(
+            Registries.ENTITY_TYPE,
+            DREVATHIS_KEY,
+            EntityType.Builder.create(DrevathisEntity::new, SpawnGroup.MONSTER)
+                    // 1.8x a normal player's 0.6x1.8 hitbox - matches the 1.8x model scale
+                    // applied in Baum2Client (same "scale derived from vanilla base x factor"
+                    // convention ZombieColossusEntity's 3x-zombie dimensions already use).
+                    .dimensions(1.08F, 3.24F)
+                    .eyeHeight(2.916F)
+                    .build(DREVATHIS_KEY)
+    );
+
     public static void registerAttributes() {
         FabricDefaultAttributeRegistry.register(STONE_OF_SPIDERS, StoneOfSpidersEntity.createStoneOfSpidersAttributes());
         FabricDefaultAttributeRegistry.register(STONE_OF_ZOMBIES, StoneOfZombiesEntity.createStoneOfZombiesAttributes());
         FabricDefaultAttributeRegistry.register(SPIDER_QUEEN, SpiderQueenEntity.createSpiderQueenAttributes());
         FabricDefaultAttributeRegistry.register(ZOMBIE_COLOSSUS, ZombieColossusEntity.createZombieColossusAttributes());
+        FabricDefaultAttributeRegistry.register(DREVATHIS, DrevathisEntity.createDrevathisAttributes());
     }
 
     /** No-op - calling this forces this class (and its static EntityType registrations) to load. */

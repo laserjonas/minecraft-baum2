@@ -4,6 +4,8 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry;
 import net.minecraft.client.render.entity.EntityRendererFactories;
 import net.minecraft.client.render.entity.model.ModelTransformer;
+import de.baum2dev.baum2.entity.DrevathisEntityModel;
+import de.baum2dev.baum2.entity.DrevathisEntityRenderer;
 import de.baum2dev.baum2.entity.HulkingCocoonStoneEntityModel;
 import de.baum2dev.baum2.entity.SpiderQueenEntityModel;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
@@ -47,5 +49,10 @@ public class Baum2Client implements ClientModInitializer {
                 ZombieColossusEntityRenderer.LAYER,
                 () -> ZombieColossusEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
         EntityRendererFactories.register(ModEntities.ZOMBIE_COLOSSUS, ZombieColossusEntityRenderer::new);
+
+        EntityModelLayerRegistry.registerModelLayer(
+                DrevathisEntityRenderer.LAYER,
+                () -> DrevathisEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(1.8F)));
+        EntityRendererFactories.register(ModEntities.DREVATHIS, DrevathisEntityRenderer::new);
     }
 }

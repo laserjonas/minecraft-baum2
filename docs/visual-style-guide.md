@@ -387,15 +387,17 @@ assets/baum2/
       gold_sword.png           (16x16, item icon - see Section 14)
       poison_dagger.png        (16x16, item icon - see Section 16)
       colossal_warclub.png     (16x16, item icon - see Section 18.3)
-      risssplitter.png         (16x16, item icon - see Section 19.6)
+      drevathis_cursed_blade.png (16x16, item icon - see Section 19.4)
+      risssplitter.png         (16x16, item icon - see Section 20.6)
     block/
-      rissobelisk.png          (16x16, side/bottom face - see Section 19)
-      rissobelisk_top.png      (16x16, top face - see Section 19)
+      rissobelisk.png          (16x16, side/bottom face - see Section 20)
+      rissobelisk_top.png      (16x16, top face - see Section 20)
     entity/
       stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
       stone_of_zombies.png     (176x176 box-UV sheet, same layout as above - see Section 15)
       spider_queen.png         (64x32, vanilla spider UV layout - see Section 17)
       zombie_colossus.png      (64x64, vanilla biped/zombie UV layout - see Section 18.2)
+      drevathis.png            (64x64, bespoke biped UV layout, client-only resource - see Section 19.2)
       equipment/
         humanoid/
           queen_spider.png     (64x32, vanilla classic armor-layer UV - see Section 17.4)
@@ -408,9 +410,10 @@ assets/baum2/
       queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
       queen_spider_boots.json  (see Section 17.4)
       colossal_warclub.json    (see Section 18.3)
-      risssplitter.json        (see Section 19.6)
+      drevathis_cursed_blade.json (see Section 19.4)
+      risssplitter.json        (see Section 20.6)
     block/
-      rissobelisk.json         (see Section 19.2 - vanilla `cube_bottom_top` parent, no
+      rissobelisk.json         (see Section 20.2 - vanilla `cube_bottom_top` parent, no
                                 custom geometry in this first pass)
   items/
     gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
@@ -418,18 +421,28 @@ assets/baum2/
     queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
     queen_spider_boots.json    (1.21.11 item-model-definition entry points - see Section 17.4)
     colossal_warclub.json      (1.21.11 item-model-definition entry point - see Section 18.3)
-    rissobelisk.json           (1.21.11 item-model-definition entry point - see Section 19.2;
+    drevathis_cursed_blade.json (1.21.11 item-model-definition entry point - see Section 19.4)
+    rissobelisk.json           (1.21.11 item-model-definition entry point - see Section 20.2;
                                 points directly at `models/block/rissobelisk.json`, no
                                 intervening `models/item/rissobelisk.json` - see that section
                                 for why this differs from every other item's two-file pattern)
-    risssplitter.json          (1.21.11 item-model-definition entry point - see Section 19.6;
+    risssplitter.json          (1.21.11 item-model-definition entry point - see Section 20.6;
                                 plain `Item`, so it follows the normal two-file pattern above,
                                 not Rissobelisk's own divergent block-item pattern)
   equipment/
     queen_spider.json          (1.21.11 equipment-texture definition - see Section 17.4)
   blockstates/
-    rissobelisk.json           (simplest single-variant form - see Section 19.2)
+    rissobelisk.json           (simplest single-variant form - see Section 20.2)
 ```
+
+Note: `drevathis.png` is the first entity texture placed under `src/client/resources/assets/baum2/`
+rather than `src/main/resources/assets/baum2/` (where every prior entity texture in this table
+lives) - intentional, since `DrevathisEntityModel`/`DrevathisEntityRenderer` are themselves
+client-only classes (`src/client/java/...`) with no server-side model/renderer counterpart;
+Loom merges `src/main/resources` and `src/client/resources` into the same `assets/baum2/`
+namespace at build time, so the resulting `Identifier` (`baum2:textures/entity/drevathis.png`)
+resolves identically either way - this is a source-set-placement choice, not a different asset
+convention.
 
 Conventions:
 
@@ -1596,30 +1609,53 @@ for Spider Queen (vanilla's own Giant/Zombie is this exact archetype) - genre co
 The palette and musculature/club design below are original and not modeled on any specific
 existing creature or game's actual design.
 
-### 18.2 Entity texture: `zombie_colossus.png`
+### 18.2 Entity model and texture: bespoke muscular geometry (playtest fix, v2)
 
-- **File:** `assets/baum2/textures/entity/zombie_colossus.png`.
-- **Canvas: 64x64 px, confirmed exactly matching vanilla's own plain biped/zombie UV layout** -
-  verified by reading `BipedEntityModel.getModelData(Dilation, float)` directly out of the
-  decompiled client-sources jar (not assumed): `TexturedModelData.of(BipedEntityModel.getModelData(Dilation.NONE, 0.0F), 64, 64)`,
-  the same call `EntityModels.getModels()` uses to build the shared `TexturedModelData` for
-  vanilla's own `ZOMBIE` **and** `GIANT` model layers (see 18.1). Only the bottom half of the 64x64
-  canvas is used - this base biped call defines just 5 real parts (head, hat-overlay, body, one
-  shared mirrored arm region, one shared mirrored leg region), not the additional jacket/sleeves/
-  pants overlay cuboids the full player-skin format also supports - so, like vanilla's own
-  `zombie.png`, the region below y=32 is unused/transparent.
+**v1 reused vanilla's exact `BipedEntityModel.getModelData()` unmodified** (just scaled 3x). Direct
+playtest feedback ("that zombie looks like it has no muscles") confirmed this was a real geometry
+problem, not a texture-painting problem: a uniformly-thin biped skeleton can't read as "hulking and
+strong" regardless of how its texture is painted. **v2 replaces the geometry with bespoke, visibly
+bulkier cuboids** - broader chest/shoulders, thicker arms, thicker legs - while deliberately keeping
+the exact same standard part names/hierarchy (`head` with child `hat`, `body`, `right_arm`,
+`left_arm`, `right_leg`, `left_leg`) that `BipedEntityModel`'s constructor binds via
+`ModelPart.getChild(name)`. Only each cuboid's size/origin changed; the inherited
+`AbstractZombieModel`/`BipedEntityModel` walk-cycle and attack-swing angle math (which only ever
+rotates/repositions these named parts, never assumes a specific size) keeps working unmodified -
+the same "custom geometry, but same part-naming contract" approach already established for the two
+stone mini-bosses' shared `HulkingCocoonStoneEntityModel`. Total model height (head top at y=-8 to
+feet at y=24) is kept identical to vanilla's own biped so the boss doesn't clip into the ground
+(confirmed ground-level convention: `LivingEntityRenderer`'s fixed `-1.501`-block translate, see
+Section 13.2's rationale).
 
-  | Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) | Notes |
-  |---|---|---|---|---|
-  | Head (inner) | (0, 0) | 8 x 8 x 8 | (0, 0, 32, 16) | Face painted with eyes + jaw line (below) |
-  | Hat (outer head overlay) | (32, 0) | 8 x 8 x 8, dilated | (32, 0, 32, 16) | **Left fully transparent**, matching vanilla `zombie.png`'s own convention of not using this overlay |
-  | Body | (16, 16) | 8 x 12 x 4 | (16, 16, 24, 16) | Bare muscled torso, not a shirt - see 18.3 |
-  | Arm (shared/mirrored, both arms) | (40, 16) | 4 x 12 x 4 | (40, 16, 16, 16) | Bare muscled bicep |
-  | Leg (shared/mirrored, both legs) | (0, 16) | 4 x 12 x 4 | (0, 16, 16, 16) | Tattered cloth wrap, distinct tone from the bare torso/arms |
+- **File:** `assets/baum2/textures/entity/zombie_colossus.png`, still 64x64 px, but now painted
+  against the model's own bespoke UV footprints below (verified against the actual box-UV math in
+  `ModelPart.Cuboid`'s constructor, decompiled 1.21.11 client jar, not assumed) rather than
+  vanilla's stock biped layout.
 
-  Both the arm and leg regions are genuinely shared between left/right (vanilla mirrors the same
-  UV rectangle for both sides via `.mirrored()`, confirmed in the same decompiled source) - painting
-  one side's region paints both limbs automatically.
+  | Part | Cuboid size (dx,dy,dz) | Origin (pivot) | UV origin | Box footprint (x, y, w, h) | Notes |
+  |---|---|---|---|---|---|
+  | Head (inner) | 8 x 8 x 8 | (0, 0, 0) | (0, 0) | (0, 0, 32, 16) | Unchanged from v1 - deliberately small relative to the new bulkier body, itself part of the "brute" silhouette. Front face: eye sockets + amber glare dots, jaw line, tusks |
+  | Hat (outer head overlay) | 8 x 8 x 8, dilated +0.5 | child of head, `ModelTransform.NONE` | (32, 0) | (32, 0, 32, 16) | **Left fully transparent**, matching vanilla `zombie.png`'s own convention |
+  | Body | 14 x 12 x 6 (was 8x12x4) | (0, 0, 0) | (0, 16) | (0, 16, 40, 18) | Broad barrel chest/shoulders - the primary "muscular" silhouette change. Front face: sternum groove + pec/ab highlight-and-shadow striations |
+  | Arm (shared/mirrored, both arms) | 6 x 14 x 6 (was 4x12x4) | right (-7, 2, 0), left (7, 2, 0) | (40, 16) | (40, 16, 24, 20) | Thick, slightly longer club-swinging limb, flush against the body's new wider edge. Front face: bicep bulge highlight + elbow-crease shadow line |
+  | Leg (shared/mirrored, both legs) | 6 x 12 x 6 (was 4x12x4) | right (-2.9, 12, 0), left (2.9, 12, 0) | (0, 34) | (0, 34, 24, 18) | Thick pillar legs, height unchanged so feet still land exactly at y=24 (no floor clipping). Front face: tattered-wrap fold lines + ragged hem |
+
+  Arm and leg regions remain genuinely shared between left/right via `.mirrored()` (same vanilla
+  mechanism as before) - painting one side's region paints both limbs automatically. Canvas stays
+  well within 64x64 (tallest used row ends at y=52, 12px of the canvas below that is unused/
+  transparent).
+
+**Muscle-definition shading, added this pass per the brief** ("touch up the palette with visible
+muscle-definition shading if that helps sell it further"): the body's front face now has a dark
+sternum groove flanked by highlight blocks (pecs) and two horizontal shadow striations across the
+midsection (abs), each followed by another highlight block below - reads as segmented muscle mass
+rather than a flat fill. The arm's front face has a highlight block near the shoulder (bicep bulge)
+and a dark line partway down (elbow crease) separating it from a shadow block below (forearm). This
+is still a **placeholder-effort treatment** (flat programmatic fills plus a handful of hand-placed
+accent rectangles, generated via a small Java/`ImageIO` tool - no Python/ImageMagick available in
+this environment, same placeholder-effort level as every other texture in this document), not
+hand-painted surface detail - a human artist pass would meaningfully raise the ceiling here, same
+caveat as 18.5 below.
 
 ### 18.3 Color palette: "Ashen Brute" (original, distinct from every other palette in this document)
 
@@ -1637,7 +1673,7 @@ recolor.
 | Muscle base | Exposed Muscle | `#7A2E24` | Torso/arm side/back/front base fill - the dominant "visible muscles" color per the brief |
 | Muscle highlight (wet sheen) | Exposed Muscle Sheen | `#B24A3A` | Torso top face, bicep bulge highlight, ab/pec striation highlights |
 | Muscle shadow | Exposed Muscle Dusk | `#4A1712` | Torso bottom face, bicep lower-shadow, ab striation shadows |
-| Wound/seam accent | Wound Edge | `#1F1A16` | Near-black - sternum groove, side striation lines, jaw line, ragged hem |
+| Wound/seam accent | Wound Edge | `#1F1A16` | Near-black - sternum groove, ab striation lines, jaw line, elbow-crease line, ragged hems (torso and leg) |
 | Eye glow (painted, no vanilla overlay involved) | Brute Glare | `#D9C24A` | Dull amber-yellow eye dots on the head's front face |
 | Eye-socket base | Deep Socket | `#140F0A` | Dark base under each eye dot |
 | Cloth-wrap mid-tone | Tattered Wrap | `#2E251C` | Leg region side/front/back faces - ragged trouser remnants, distinct tone from the bare torso/arms |
@@ -1690,35 +1726,374 @@ a broad, unclaimed fantasy-weapon archetype (not any one game's specific IP), an
 silhouette does not reproduce any existing game's specific club/mace icon, nor either of this mod's
 own existing weapon palettes (Gold Sword's bronze/gold hilt, Poison Dagger's green-tinged steel).
 
-### 18.5 Files produced this pass
+### 18.6 Playtest fixes (v2): animation diagnosis + leap/rage telegraph poses
 
-Placeholder texture + real (verified, not guessed) 1.21.11 model/item-definition JSON, generated
-via PowerShell + `System.Drawing` (same technique as every prior placeholder in this document; no
-Python/ImageMagick available in this environment). No traced, extracted, or downloaded source
-material was used.
+The user actually fought this boss (not just build/compile-checked it) and reported: (1) "the
+attack and jump animation are missing, the zombie model is moving very static," and (2) "that
+zombie looks like it has no muscles" (18.2/18.3 above cover the muscle fix). This subsection covers
+the animation diagnosis and the telegraph-pose fix.
+
+**Diagnosis, verified against the decompiled 1.21.11 client jar rather than guessed** (not the
+older-MC-version-recall this project's `HANDOFF.md` repeatedly warns against): the base walk-cycle
+and attack-swing plumbing v1 already had was **not actually broken**. Confirmed by decompiling
+`LivingEntityRenderer.updateRenderState` (populates `limbSwingAnimationProgress`/
+`limbSwingAmplitude` generically for every mob, not just Bipeds - reached via `super.
+updateRenderState()`, since `MobEntityRenderer` doesn't override it) and `BipedEntityRenderer.
+updateBipedRenderState`'s actual body (the static helper this boss's renderer already called in
+v1) - its very first line calls `ArmedEntityRenderState.updateRenderState`, which sets
+`handSwingProgress`/`swingAnimationType` from `entity.getHandSwingProgress(tickDelta)`. Both were
+already correctly wired; `AbstractZombieModel.setAngles` → `ArmPosing.zombieArms` already reads
+`handSwingProgress` to drive the swing on every real `swingHand()` call (`ColossusAttackGoal`/
+`RageAttackGoal` both already call it). **One real, fixable gap found**: vanilla's `MobEntity.
+isAttacking()` is only ever set `true` by vanilla's own `MeleeAttackGoal`/`ZombieAttackGoal`
+machinery, which this boss's fully custom attack `Goal`s never call (and per this task's scope,
+that gameplay code wasn't to be touched) - so `state.attacking` always read `false`, meaning every
+swing used `ArmPosing.zombieArms`' calmer non-attacking pose baseline even mid-strike. **Fixed
+purely client-side**, no gameplay code touched: `ZombieColossusEntityRenderer.updateRenderState`
+now also treats an in-progress hand swing as "attacking" (`state.attacking = entity.isAttacking()
+|| state.handSwingProgress > 0.0F`).
+
+The bigger, real contributor to "very static": the leap's 10-tick wind-up and the rage combo's
+8-tick wind-up were **completely frozen** in v1 - navigation stopped, zero pose change, for up to
+half a second each. Combined with the boss's intentionally slow 0.5-attacks/sec base cadence
+(gameplay-approved, not touched here), long stretches of a fight showed no visible motion at all.
+Fixed with real telegraph poses, same pattern already proven for Spider Queen's leap crouch
+(`SpiderQueenRenderState`/`SpiderQueenEntityModel`):
+
+- **New `ColossusRenderState`** (extends vanilla's `ZombieEntityRenderState`, not plain
+  `LivingEntityRenderState` - this boss's model still needs the zombie-specific `attacking` field
+  and every biped/armed field for its base animation) carries `leapWindupTicks`/`rageWindupTicks`,
+  populated in the renderer from `ZombieColossusEntity.getLeapWindupTicks()`/
+  `getRageWindupTicks()` (already wired server-side, synced via `TrackedData<Integer>` - the exact
+  same mechanism `SpiderQueenEntity.LEAP_WINDUP_TICKS` established).
+- **`ZombieColossusEntityModel.setAngles`** now layers two poses on top of the inherited walk/
+  attack animation, both easing in as their counter counts toward 0 and resolving to neutral right
+  as the real strike/launch fires server-side:
+  - **Leap wind-up** ("prepare to jump"): crouches the torso/head down, bends both legs, and winds
+    the main (club) arm back and up - a coiled, about-to-spring read.
+  - **Rage wind-up** ("prepare to slam"): raises the main arm high overhead (off-arm follows
+    partway for a two-handed read) with a slight backward torso lean - an overhead club-raise read.
+  - Duration constants (10 and 8 ticks) are duplicated as client-only constants in the model class
+    rather than exposed from the entity, since the real constants live on `private static final
+    int WINDUP_TICKS` fields inside `ZombieColossusEntity`'s private inner `Goal` classes, and this
+    task's scope explicitly excludes touching that gameplay code.
+
+**Not yet independently re-verified in an actual game session by this pass** (no GUI-automation
+tool exists in this environment, per every other UI/animation fix logged in `HANDOFF.md`) - next
+playtest should confirm: normal walking limb-swing while chasing, a visible club swing on every
+base attack and rage strike, the new crouch-and-coil pose during the leap wind-up, and the
+overhead-raise pose during the rage wind-up, both resolving right as the attack actually fires.
+
+### 18.7 Files produced this pass
+
+Bespoke model geometry/UV rework (v2) plus the v1 placeholder texture regenerated against the new
+UV footprints, and two new client-only render classes for the telegraph poses. Texture generated
+via a small Java/`ImageIO` command-line tool (no Python/ImageMagick available in this environment -
+same placeholder-effort convention as every other texture in this document, just a different tool
+than the PowerShell/`System.Drawing` approach used for v1). No traced, extracted, or downloaded
+source material was used.
 
 - `assets/baum2/textures/entity/zombie_colossus.png` (64x64, placeholder - flat box-UV fills plus
-  a handful of hand-placed muscle-striation/eye/jaw accent pixels, same effort level as Sections
-  13.4/15.3/17.2's placeholders)
-- `assets/baum2/textures/item/colossal_warclub.png` (16x16, placeholder)
-- `assets/baum2/models/item/colossal_warclub.json` (real, verified schema)
-- `assets/baum2/items/colossal_warclub.json` (real, verified schema)
-- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityModel.java` (real Java, not a
-  placeholder - reuses vanilla's shared `TexturedModelData` factory, no new geometry)
-- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityRenderer.java` (real Java, not a
-  placeholder - mirrors vanilla's `GiantEntityRenderer` mechanism, see 18.1)
-- `Baum2Client.java`'s registration block, extended with this boss's `EntityModelLayerRegistry`/
-  `EntityRendererFactories` pair, mirroring Spider Queen's existing block exactly.
+  hand-placed muscle-striation/eye/jaw/elbow-crease accent pixels, regenerated against the new
+  bespoke UV footprints in 18.2; same placeholder effort level as every other texture in this
+  document, now with added muscle-definition shading per this pass's brief)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityModel.java` (real Java, rewritten -
+  bespoke bulkier geometry replacing v1's unmodified `BipedEntityModel.getModelData()` reuse, plus
+  the leap/rage telegraph-pose logic)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityRenderer.java` (real Java, updated -
+  now creates/populates `ColossusRenderState` instead of vanilla's plain `ZombieEntityRenderState`,
+  plus the `state.attacking` animation fix)
+- `src/client/java/de/baum2dev/baum2/entity/ColossusRenderState.java` (new, real Java - carries the
+  leap/rage wind-up counters, same pattern as `SpiderQueenRenderState`)
+
+**Unchanged from v1, not re-touched this pass:** `assets/baum2/textures/item/colossal_warclub.png`,
+`assets/baum2/models/item/colossal_warclub.json`, `assets/baum2/items/colossal_warclub.json`,
+`Baum2Client.java`'s registration block (still calls `ZombieColossusEntityModel::getTexturedModelData`/
+`ZombieColossusEntityRenderer::new` with the same `ModelTransformer.scaling(3.0F)` wrapper - no
+signature changes were needed there).
 
 **Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
 document): real hand-drawn surface detail (skin texture, fabric weave on the leg-wrap, wood grain
-on the club) - this pass proves the UV layout, establishes the palette/silhouette, and gives this
-boss and its drop something considered to look at in-game, but a human artist pass would meaningfully
-raise the ceiling here.
+on the club) - this pass proves the new bulkier UV layout, establishes muscle-definition shading,
+and adds the telegraph poses, but a human artist pass would meaningfully raise the ceiling here.
 
 ---
 
-## 19. World-event landmark visual identity: "Rissobelisk" (`baum2:rissobelisk`)
+## 19. Boss visual identity: "Drevathis, the Cursed Sovereign" (`baum2:drevathis`) and "Drevathis's Cursed Blade"
+
+The mod's **current top-tier boss** (level 40, above Zombie Colossus's 25) - an ancient cursed/
+demonic sovereign, not another oversized-common-enemy variant like Sections 17/18. Unlike Spider
+Queen and Zombie Colossus (both reused/rescaled a vanilla shared model), `DrevathisEntityModel` is
+a fully bespoke `BipedEntityModel` subclass built from scratch for this boss - tall biped body,
+two backward-curving horns, a trailing cape - so this section's job covers both a wholly new
+model's texture *and* the palette, not just a re-theme of borrowed geometry. Its passive
+(darkens nearby players' vision via vanilla's Darkness effect, even in daylight) and its skills
+("Dash of Death," "Chain of Death," "Wave of Darkness," "Thunder of Darkness") set a **dark,
+regal, ancient-evil register** - deliberately distinct from Zombie Colossus's brutish/feral
+"Ashen Brute" register (Section 18.3), even though both are "boss" tier.
+
+### 19.1 Why this palette direction
+
+Every hostile-mob/boss palette already in this document leans on one of: sickly/toxic green
+(Sections 13.3, 15.2, 17.3), deep violet-and-gold "regal insect" (Section 17.4), or ashen
+brown-and-exposed-red-muscle (Section 18.3). None of those fit "ancient cursed sovereign, cold
+and regal, associated with darkness" - so this section introduces **two new hue families not yet
+used as a dominant tone anywhere else in this document**: a cool slate-gray "cursed flesh" and a
+near-black wine-plum "shroud/robe," both accented by a pale icy cyan-white "curse glow" (used for
+eyes, rune markings, and the sword's fuller) and a deep wine-crimson "sovereign's blood" trim.
+The icy pale-cyan glow is the deliberate signature choice: every prior mob's eye-glow/bioluminescent
+accent in this document (Larval Glow `#C4E064`, Toxic Eye `#E8FF6B`, Brute Glare `#D9C24A`) sits in
+a yellow-green-to-amber family reading as "toxic/diseased." Drevathis's glow reads as "cold/
+spectral/cursed" instead - a different genre register entirely, matching the Darkness-effect
+lore rather than reusing the mod's existing "toxic monster" visual language.
+
+*Compliance note:* "dark regal undead/demon sovereign with cold spectral glow" is a broad,
+unclaimed genre convention (ancient cursed royalty/liches/demon lords with an eerie glow accent
+appear across countless unrelated games, books, and films), not IP tied to any one game. The
+exact palette below was checked hex-by-hex against every existing palette in this document
+(Sections 2, 3.3, 11, 12, 13.3, 15.2, 17.3, 17.4, 18.3) and shares no hex values with any of
+them; see the per-table compliance notes below for the closest neighbors and why they remain
+distinguishable.
+
+### 19.2 Entity model and texture: bespoke biped, 64x64 (playtest fix, v2)
+
+**v1** (unmodified vanilla-biped-proportioned cuboids, a plain rectangular cape, no claws) was
+actually playtested and reported back bluntly: **"the demon boss... looks like a hobbit."** The fix
+had two halves, both documented here since they're inseparable in practice - a texture pass alone
+can't sell "cursed demon sovereign" on vanilla-biped proportions, and new geometry alone reads as
+flat/plain without matching surface detail:
+
+1. `DrevathisEntityModel` (Java) moved off vanilla-biped proportions: broadened chest/arms, much
+   longer/more dramatic back-swept horns, a substantially bigger trailing cape, and small clawed
+   fingertips on both hands (see that file's own v2 doc-comment for the exact cuboid deltas).
+2. This section's texture is **regenerated from scratch against the new UV layout** below (not
+   patched in place - the old UV layout no longer lines up with the new cuboids at all), and pushed
+   substantially further on surface detail: glowing rune-crack patterns across skin and robe, an
+   asymmetric/jagged (not plain-rectangle) cape hem, stronger 3-band shadow-shading on every major
+   face to sell the broadened silhouette, a larger/brighter glowing-core eye treatment, and a new
+   thin "circlet" band on the hat layer for a cheap extra sovereign/crown cue.
+
+- **File:** `assets/baum2/textures/entity/drevathis.png` (placed under
+  `src/client/resources/assets/baum2/...` - see the note in Section 6 on why this one entity
+  texture lives in the client source set rather than main).
+- **Canvas:** 64x64 px, matching `DrevathisEntityModel`'s `TexturedModelData.of(modelData, 64, 64)`
+  registration exactly.
+- **UV layout** (derived directly from the box-UV cuboid sizes/origins given in this boss's own
+  model class, using the standard Minecraft box-UV unwrap formula - not guessed; re-derived in full
+  for v2, since every part except the head/hat changed size and/or UV origin):
+
+  | Part | Cuboid size (dx,dy,dz) | UV origin | Box footprint (x, y, w, h) | Notes |
+  |---|---|---|---|---|
+  | Head (inner) | 8x8x8 | (0, 0) | (0, 0, 32, 16) | Unchanged from v1 |
+  | Hat (outer overlay) | 8x8x8 | (32, 0) | (32, 0, 32, 16) | **v2:** no longer fully transparent - carries a thin circlet band, see below |
+  | Body | 9x13x5 (was 8x12x4) | (0, 16) | (0, 16, 28, 18) (was 16,16,24,16) | Broader robed torso |
+  | Cape | 10x18x1 (was 9x16x1) | (28, 16) | (28, 16, 22, 19) (was 24,32,20,17) | Substantially larger; moved next to the body in UV space |
+  | Arms (shared/mirrored) | 5x13x5 (was 4x12x4) | (0, 36) | (0, 36, 20, 18) (was 40,16,16,16) | Broader sleeve + bare hand at the wrist |
+  | Legs (shared/mirrored) | 4x12x4 | (20, 36) | (20, 36, 16, 16) (was 0,16,16,16) | Robe leg-wrap, size unchanged, UV origin moved |
+  | Horn (right) | 2x9x2 (was 2x6x2) | (36, 36) | (36, 36, 8, 11) (was 0,32,8,8) | Longer, more dramatic back-swept horn |
+  | Horn (left) | 2x9x2 (was 2x6x2) | (44, 36) | (44, 36, 8, 11) (was 8,32,8,8) | Second horn, mirrored position |
+  | Claw (right, **new in v2**) | 3x2x2 | (52, 36) | (52, 36, 10, 4) | Small clawed fingertip |
+  | Claw (left, **new in v2**, shares the claw UV box mirrored) | 3x2x2 | (52, 36) | (52, 36, 10, 4) | Same UV box as the right claw, mirrored at render time - same sharing convention arms/legs already use |
+
+  All regions still fit the 64x64 canvas with no overlap (tallest region, the arms, ends at y=54;
+  remaining canvas space stays unused/transparent margin, same convention as Section 18.2's
+  `zombie_colossus.png`).
+
+- **Face-by-face treatment**, following this document's established "top=highlight, bottom=shadow,
+  front=detail, sides=mid-tone" convention (Sections 13.3, 18.2), with v2's added detail called out:
+  - **Head:** top/back = pale/shadow Cursed Hide tones. Front face carries a 2x2 hollow-socket
+    patch per eye (up from a single flat dot in v1) with a bright Grave Frost core pixel plus a
+    Grave Frost Dim "bleed" pixel beside it for a visibly glowing (not just colored-in) eye, a
+    Sovereign Blood jaw-line accent, and **(v2)** one short asymmetric Grave Frost crack per face
+    (front/right/left/back each get a differently-shaped crack, not a mirrored pair) - painted
+    eye-glow and cracks both, no vanilla overlay involved (this model has no vanilla eye-feature-
+    renderer to rely on, same situation Section 17.3 already documented for Spider Queen).
+  - **Hat (v2 addition):** a thin 2px Sovereign Blood "circlet" band wraps the right/front/left/back
+    faces at brow height, with a Grave Frost + Grave Frost Pale gem accent centered on the front -
+    a crown/coronet read that needed no new geometry, sitting on the already-existing (if
+    previously blank) hat overlay layer.
+  - **Body:** Shroud tones with **(v2)** an explicit 3-band vertical gradient (Shroud Pale top /
+    Shroud mid / Shroud Void bottom) on every side face, to sell the new 9-wide broadened chest's
+    contour instead of a flat fill reading as flat. A widened 2px Sovereign Blood sash runs down
+    the front, flanked by two small plus-shaped Grave Frost rune marks, each now trailing its own
+    asymmetric crack toward the sash (the left one longer than the right - deliberately not
+    mirrored), plus one extra crack each on the side faces.
+  - **Cape (the headline fix):** an irregular **per-column hem cutoff**, cut via alpha rather than
+    left as a straight rectangle edge, so the cape reads as a jagged/tattered "sovereign's torn
+    cloak" silhouette instead of a plain rectangle - the concrete fix for "looks generic." Same
+    3-band vertical shading as the body, Sovereign Blood edge piping down both long edges, the
+    existing small Sovereign Blood diamond crest with a Grave Frost accent dot near the top, and
+    **(v2)** two new asymmetric Grave Frost crack lines running from near the crest down toward the
+    hem at different lengths/paths on the left vs. right half.
+  - **Arms:** Shroud sleeve on the upper ~2/3 of the front face, Cursed Hide (bare skin) on the
+    lower ~1/3 (hand/wrist showing), separated by a thin Sovereign Blood cuff band - **(v2)** now
+    with a small Grave Frost crack + Grave Frost Dim bleed pixel painted directly onto the bare
+    hand/wrist on the front face (the curse-glow bleeding into flesh itself, not just the robe) and
+    one crack on the back face.
+  - **Claws (new in v2):** small Cursed Hide Shadow fill with a single Grave Frost Dim glint on
+    each fingertip's front face - the cheapest possible palette-level cue that these are claws, not
+    human fingers.
+  - **Legs:** Shroud tones with a Sovereign Blood hem trim line near the bottom, **(v2)** now with
+    the same 3-band vertical shading as the body/arms and one small Grave Frost Dim crack accent on
+    the front face only (kept sparse - legs are the smallest, least-seen faces, so a single accent
+    stays legible rather than over-cluttering a tiny UV area).
+  - **Horns:** Cursed Bone tones (not the flesh/shroud palette - horns are a separate bone-like
+    material). **(v2)** the tip glow widened from a single accent dot to a full 2px Grave Frost Dim
+    band near the tip end, a clearer "the tip glows" read now that the horns are 50% longer.
+
+### 19.3 Color palette: "Abyssal Sovereign"
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Flesh shadow | Cursed Hide Shadow | `#1E2028` | Head bottom/back faces |
+| Flesh mid-tone | Cursed Hide | `#3E4250` | Head side faces; bare hand/wrist on the arms |
+| Flesh highlight | Cursed Hide Pale | `#656B7D` | Head top face |
+| Robe shadow | Shroud Void | `#1B0C14` | Body/arm/leg bottom faces; cape back face and hem borders |
+| Robe mid-tone | Shroud | `#331A26` | Dominant robe/cape/sleeve fill |
+| Robe highlight | Shroud Pale | `#4F2B3D` | Body/arm/leg top faces; cape attachment sliver |
+| Regal trim / accent | Sovereign Blood | `#6B1330` | Sash, cuff band, hem trim, cape edge piping, jaw-line accent, cape emblem |
+| Curse glow (signature) | Grave Frost | `#AEE8F5` | Eye-glow dots, chest rune marks, cape emblem accent dot |
+| Curse glow, dim | Grave Frost Dim | `#4E7A8C` | Horn-tip glow accent (subtler than the eye/rune glow) |
+| Curse glow, pale (glint) | Grave Frost Pale | `#D9F5FA` | Reserved for sparse bright highlight pixels only (sword pommel/tip - Section 19.4) |
+| Eye-socket base | Hollow Socket | `#0A0710` | Dark base under each painted eye-glow dot |
+| Bone (horns) | Cursed Bone | `#5C5340` | Horn mid-tone |
+| Bone shadow (horns) | Cursed Bone Dusk | `#2B2620` | Horn bottom/back faces |
+
+*Compliance note:* checked hex-by-hex against every palette already in this document. Nearest
+neighbors and why they stay distinguishable: Shroud's near-black wine-plum family (`#1B0C14`/
+`#331A26`/`#4F2B3D`) is deliberately warmer/more red-shifted than both Royal Carapace's saturated
+blue-violet (`#4B2170`/`#7A46A6`, Section 17.4 - much lighter and more saturated, a genuinely
+different violet) and Astral rarity's indigo undertone (`#2E2A5C`, Section 2.4 - that one is
+blue-leaning, Shroud is red-leaning); Sovereign Blood (`#6B1330`) is a cooler, more magenta-shifted
+crimson than both the Life bar's warm coral-ember (`#E2574B`, Section 11) and Exposed Muscle's
+brick-brown-red (`#7A2E24`, Section 18.3); Grave Frost (`#AEE8F5`) is a paler, whiter, more
+blue-shifted cyan than Rune Cyan (`#7FD8E0`, Section 2.2 - noticeably more saturated/green) and a
+different hue family entirely from Astral's lavender-white (`#D9CFFF` on indigo, Section 2.4).
+Cursed Hide's cool blue-gray family is the inverse of Ashen Brute's warm brown-gray (Section
+18.3's `#332C22`/`#5C5142`/`#7D715C` all have R>G>B; Cursed Hide's `#1E2028`/`#3E4250`/`#656B7D`
+all have B>R>G) - same "ashen dead flesh" genre idea, opposite temperature, so the mod's two
+"long-dead skin" bosses don't read as recolors of each other.
+
+### 19.4 Weapon visual identity: "Drevathis's Cursed Blade" (`baum2:drevathis_cursed_blade`) (playtest fix, v2)
+
+**v1's** straight, parallel-edged diagonal blade was reported back just as bluntly as the entity:
+**"the weapon does not look like it comes from a demon cursed blade"** - the silhouette read as a
+generic straight iron sword despite already using the boss's own palette; palette alone wasn't
+doing the job, execution needed to change. **v2 keeps the exact same six hexes** (nothing in the
+palette was the problem, only the shape/detail built from it) and pushes the *silhouette* itself
+much further:
+
+Follows Section 14/16/18.4's exact item conventions (plain `Item`, `minecraft:item/handheld`
+parent, the same `assets/baum2/items/<name>.json` + `assets/baum2/models/item/<name>.json` entry-
+point pair) - **unchanged in v2**: the model/parent JSON was reviewed, not modified. Vanilla's
+`minecraft:item/handheld` (inheriting `item/generated`) already extrudes the flat icon texture
+into a thin 3D shape using that texture's own alpha silhouette - the same built-in mechanism every
+vanilla sword icon's in-hand "thickness" comes from. That means a jagged, asymmetric *alpha* shape
+in the 16x16 texture alone is sufficient to read as a jagged 3D silhouette in hand, in the GUI, and
+on the ground; no model/geometry change was necessary to fix this complaint, only the texture.
+
+The item still has 0 base combat stats (pure support - its value is the on-hit dark AoE wave proc,
+not stat lines), so the visual still has to carry the "this is special" read entirely through
+silhouette/palette rather than any stat-comparison affordance.
+
+- **Silhouette (v2):** same established bottom-left-pommel-to-top-right-tip diagonal convention as
+  Gold Sword/Poison Dagger/Colossal Warclub, but the blade's two edges are now **deliberately
+  asymmetric** rather than a mirrored taper: the lower/left edge is a smooth, clean taper (the
+  "cutting edge"), while the upper/right edge's width oscillates row-by-row (2/1/2/1/2/1/2/3 rather
+  than a straight line), reading as a chipped, jagged, unnatural spine rather than a factory-clean
+  blade. A continuous Grave Frost fuller/glow groove still runs the blade's centerline, now joined
+  by **two separate Sovereign Blood crimson vein-branch pixels** breaking off the fuller partway
+  down the blade - both signature glow colors visible on the blade at once, not just cyan alone.
+  The crossguard is no longer a straight symmetric bar: it keeps its Sovereign Blood flare and two
+  Ebon Steel Sheen accent pixels, but now also grows a **curling, asymmetric hook-horn accent on
+  one side only** (a Sovereign Blood shaft ending in an Ebon Steel Sheen glint at its curled tip) -
+  the concrete "wicked curved hilt" execution the brief asked for. The pommel gets one deliberate
+  notch cut out of its block shape so even the hilt end reads as slightly irregular rather than a
+  clean rectangle. Deliberately shares its palette with the boss's own texture (Sovereign Blood
+  crossguard/pommel/hook, Grave Frost fuller and vein-branches) so the blade the boss wields
+  (rendered ~1.8x oversized by `DrevathisHeldWeaponFeatureRenderer`) and the same blade as a
+  dropped/held item read as one consistent object at both scales, rather than two independently-
+  designed weapons that happen to share a name.
+- **Parts, bottom-left to top-right:** a Sovereign Blood pommel (with one notch cut out and a
+  single Grave Frost Pale glint pixel at the very corner), a short dark Shroud grip, a Sovereign
+  Blood crossguard flare (two Ebon Steel Sheen accent pixels, plus the asymmetric curling hook
+  accent described above extending off the upper side only), then the jagged tapering blade -
+  Ebon Steel Sheen edge pixels on a jagged/asymmetric outline, Ebon Steel fill, a continuous Grave
+  Frost fuller line down its center with two Sovereign Blood vein-branch pixels breaking off it,
+  narrowing to a single-pixel taper at the tip, ending in a Grave Frost Pale glint pixel at the very
+  point.
+
+| Role | Hex | Notes |
+|---|---|---|
+| Pommel / crossguard / trim | `#6B1330` (Sovereign Blood) | Reused from the boss's own palette exactly, for cross-object cohesion |
+| Grip | `#331A26` (Shroud) | Reused from the boss's own palette |
+| Blade base / edge | `#14151C` (Ebon Steel) | New - near-black cold steel, distinct from Colossal Warclub's warm wood-brown (`#3E2A1A`/`#5A3D24`) and Gold Sword's warm bronze-gold |
+| Blade edge sheen | `#3A3D4A` (Ebon Steel Sheen) | New - a cool steel highlight, close in value but distinct hue role from Cursed Hide (kept as a separate named role since it's steel, not flesh) |
+| Fuller / curse-glow groove | `#AEE8F5` (Grave Frost) | Reused from the boss's own palette exactly |
+| Glint (pommel + tip) | `#D9F5FA` (Grave Frost Pale) | Reused from the boss's own palette exactly |
+
+*Compliance note:* this is an original 6-color diagonal-greatsword treatment sharing its palette
+family with Section 19.3's Abyssal Sovereign entity palette by design (not accidental overlap) -
+does not reproduce any existing game's specific sword icon, and shares no hex values with any of
+this mod's three other existing weapon palettes (Gold Sword's bronze/gold, Poison Dagger's
+green-tinged steel, Colossal Warclub's wood-and-stud brown).
+
+### 19.5 Files produced this pass (all explicitly temporary placeholders)
+
+Per `MASTERPROMPT.md`'s asset rule - flat-color/gradient pixel fills generated programmatically
+(Python + Pillow), not hand-drawn final art. No traced, extracted, or downloaded source material
+was used. **v2 regenerates both PNGs from scratch** (not patched in place) against the new UV
+layout/silhouette described in 19.2/19.4; the two item-model-definition JSON files below were
+reviewed and are unchanged (no model/geometry change was needed for either fix - see 19.4's
+alpha-silhouette note for why the sword didn't need one).
+
+- `assets/baum2/textures/entity/drevathis.png` (64x64, placeholder - flat/gradient box-UV fills
+  plus crack/eye-glow/jagged-cape-hem accent pixels per the v2 face-by-face treatment in Section
+  19.2; regenerated against the new UV footprints in `DrevathisEntityModel` v2; placed under
+  `src/client/resources/...`, see the Section 6 note on why)
+- `assets/baum2/textures/item/drevathis_cursed_blade.png` (16x16, placeholder - jagged/asymmetric
+  blade silhouette with a curling hook-guard accent, per Section 19.4 v2)
+- `assets/baum2/models/item/drevathis_cursed_blade.json` (unchanged - reviewed, still the correct
+  `minecraft:item/handheld` parent pattern as every other weapon in this document; its built-in
+  alpha-based flat-item extrusion is what makes the jagged v2 silhouette work with no model edit)
+- `assets/baum2/items/drevathis_cursed_blade.json` (unchanged - the 1.21.11 item-model-definition
+  entry point, required alongside the file above per the gotcha Section 14.3 already verified
+  against the decompiled vanilla client jar)
+
+**Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
+document): real hand-drawn surface detail (cape fabric weave, horn texture/ridges, robe folds,
+blade edge highlights beyond the flat/gradient fills used here) - this pass substantially raises
+the "reads as a cursed demon sovereign, not a reskinned player" bar per direct playtest feedback,
+but a human artist pass would still meaningfully raise the ceiling here given this boss's
+"current top-tier" status.
+
+### 19.6 Why this v2 pass exists: playtest feedback
+
+The user actually played against this boss (not just build-checked it) and gave two blunt, distinct
+complaints, both addressed above:
+
+1. **"the demon boss has no weapon and looks like a hobbit"** - the "no weapon" half was a separate
+   real code bug (a missing `initEquipment()` call meant the sword was never actually equipped),
+   not a visual-design issue, and isn't this agent's concern. The **"looks like a hobbit"** half is
+   the visual complaint this pass addresses: the boss read as a small, plain, generic humanoid, not
+   an imposing cursed demon lord. Fixed by (a) the model geometry broadening/lengthening described
+   in `DrevathisEntityModel`'s own v2 doc-comment, and (b) this document's Section 19.2 texture
+   rework - stronger shadow-shading, glowing rune-cracks, a jagged cape hem, a brighter glowing-eye
+   treatment, and a new crown-band cue - so the silhouette and surface detail both stopped reading
+   as "reskinned player."
+2. **"the weapon does not look like it comes from a demon cursed blade"** - addressed entirely in
+   Section 19.4: the palette wasn't the problem (kept exactly as-is), the straight/generic
+   silhouette was, so v2 makes the blade's own edges asymmetric/jagged, adds a curling hook-guard
+   accent, and adds a second glow color (crimson vein-branches alongside the cyan fuller) so the
+   weapon can no longer be mistaken for a plain iron sword reskin.
+
+Same "Abyssal Sovereign" palette identity throughout (Section 19.3) - per the task brief, the
+palette itself was never the problem and needed no changes; only the concrete texture-level
+execution built from it did.
+
+---
+
+## 20. World-event landmark visual identity: "Rissobelisk" (`baum2:rissobelisk`)
 
 The mod's **first custom `Block`** (everything visual before this section was either an
 `Entity`/`EntityModel` — Sections 13/15/17/18 — or a flat 2D item icon — Sections 14/16/18.4).
@@ -1731,7 +2106,7 @@ Risssplitter, a rare crafting material sharing the "Riss"/crack root with the ob
 name (the fiction: the obelisk cracks apart into splinters when destroyed). It cannot move or
 attack back — a stationary target, not a mobile boss like Sections 17/18.
 
-### 19.1 Palette-bucket decision: treated as boss-tier, not common-mob-tier (2026-07-05)
+### 20.1 Palette-bucket decision: treated as boss-tier, not common-mob-tier (2026-07-05)
 
 Section 1.2 (hostile mobs/bosses and their item drops) ratified a rule with two buckets:
 boss-tier mobs always get their own new, cross-checked bespoke palette; future *common*/
@@ -1744,7 +2119,7 @@ a common/trash mob either — it's an explicitly rare, hand-placed, one-off "wor
 Sternsplitter/Runenkern, not a generic environment block that spawns anywhere).
 
 **Decision: treat it like a boss for palette purposes — bespoke original "Riftstone" palette
-(Section 19.3), cross-checked against every existing palette in this document, same discipline
+(Section 20.3), cross-checked against every existing palette in this document, same discipline
 as Sections 15.2/17.3/18.3.** Reasoning:
 
 - **The rule's own stated intent is about rarity/memorability, not mobility or combat
@@ -1772,7 +2147,7 @@ as Sections 15.2/17.3/18.3.** Reasoning:
   (as opposed to a rare hand-placed world event), that would be the point to revisit whether it
   should default to a shared/reused palette instead, the way common mobs do.
 
-### 19.2 Block model chain — verified against decompiled vanilla 1.21.11 assets, not guessed
+### 20.2 Block model chain — verified against decompiled vanilla 1.21.11 assets, not guessed
 
 This is the mod's first block-adjacent asset of this type (blockstate/block-model JSON), so the
 schema was verified directly against vanilla's own real, shipped 1.21.11 resources (extracted
@@ -1794,7 +2169,7 @@ potentially-stale training data or copied from an older Minecraft version's conv
   blocks). Distinct top vs. side/bottom textures were chosen (`minecraft:block/cube_bottom_top`,
   not `cube_all`) — verified against vanilla's own `sandstone.json` for the exact 3-texture-key
   schema (`top`/`bottom`/`side`) — because a bespoke landmark reads better with a distinct
-  "business end" glowing rune-sigil visible from above (Section 19.4) than a uniform 6-face
+  "business end" glowing rune-sigil visible from above (Section 20.4) than a uniform 6-face
   cube would; `bottom` intentionally reuses the same texture file as `side` (rarely seen,
   no need for a third unique file):
   ```json
@@ -1831,7 +2206,7 @@ potentially-stale training data or copied from an older Minecraft version's conv
   block item, confirmed structurally (not just by inference) against three independent vanilla
   examples.
 
-### 19.3 Color palette: "Riftstone" (original, distinct from every other palette in this document)
+### 20.3 Color palette: "Riftstone" (original, distinct from every other palette in this document)
 
 | Role | Name | Hex | Notes |
 |---|---|---|---|
@@ -1875,7 +2250,7 @@ against every other bespoke palette already in this document:
   more specific check at that point, the same caveat this document already carries for
   Runenwirker's teal (Section 3.3).
 
-### 19.4 Placeholder textures (produced this pass)
+### 20.4 Placeholder textures (produced this pass)
 
 **Explicitly temporary placeholders**, per `MASTERPROMPT.md`'s asset rule ("Kennzeichne
 Platzhalter klar als eigene temporäre Platzhalter") — flat-fill pixel art, no anti-aliasing,
@@ -1902,7 +2277,7 @@ original hand-authored coordinate data.
   canvas corner (same near/far Edge-then-Dim halo falloff as the side texture) — reads as a
   glowing rune carved into the stone, visible from above, distinct from the side faces so the
   block doesn't look like a uniform reskinned building-block.
-- Generation script (not checked into the repo, reproducible from Section 19.3's hex table plus
+- Generation script (not checked into the repo, reproducible from Section 20.3's hex table plus
   this description if regeneration is ever needed): defines the palette, the deterministic
   speckle formula, and explicit hand-placed crack/ray coordinate lists, then paints each crack
   pixel `Fissure Void` and its unclaimed orthogonal neighbors a glow tone based on distance from
@@ -1914,14 +2289,14 @@ original hand-authored coordinate data.
   blockstate chain resolves correctly and gives the block something thematically appropriate to
   look at in-game, not final art.
 
-### 19.5 Files produced this pass
+### 20.5 Files produced this pass
 
 - `src/main/resources/assets/baum2/textures/block/rissobelisk.png` (16x16, placeholder)
 - `src/main/resources/assets/baum2/textures/block/rissobelisk_top.png` (16x16, placeholder)
 - `src/main/resources/assets/baum2/blockstates/rissobelisk.json` (real, verified schema)
 - `src/main/resources/assets/baum2/models/block/rissobelisk.json` (real, verified schema)
 - `src/main/resources/assets/baum2/items/rissobelisk.json` (real, verified schema — points
-  directly at the block model, no separate `models/item/` file; see Section 19.2)
+  directly at the block model, no separate `models/item/` file; see Section 20.2)
 - `src/main/resources/assets/baum2/lang/en_us.json` — added `"block.baum2.rissobelisk":
   "Rissobelisk"` (an asset/translation file, not gameplay code; `BlockItem`'s translation key
   resolves to the block's own key by default, so this single entry covers both the in-world
@@ -1930,14 +2305,14 @@ original hand-authored coordinate data.
 No Java/gameplay code was changed. `./gradlew build` confirmed passing after these changes
 (no Java was touched, so this only re-confirms nothing in the resource pipeline broke).
 
-### 19.6 Follow-up fix: Risssplitter drop icon (2026-07-05)
+### 20.6 Follow-up fix: Risssplitter drop icon (2026-07-05)
 
 `Risssplitter` (`baum2:risssplitter`, `ModItems.java`) — the rare crafting material this block
 drops — was registered as a plain `Item` in Java but shipped with **no visual assets at all**
 (no texture, no item model, no item-model-definition wrapper), so it rendered with a missing/
-blank texture in-game. This is a bugfix follow-up to Section 19, not a new content unit — it
+blank texture in-game. This is a bugfix follow-up to Section 20, not a new content unit — it
 gets a subsection here rather than its own top-level numbered section, and it **reuses the
-Riftstone palette (19.3) unchanged, introducing zero new colors**, per this fiction's own
+Riftstone palette (20.3) unchanged, introducing zero new colors**, per this fiction's own
 framing (`HANDOFF.md`): the obelisk cracks apart into splinters when destroyed, so the drop is
 literally a fragment of the obelisk's own stone/crack material, not a separate design.
 
@@ -1949,7 +2324,7 @@ literally a fragment of the obelisk's own stone/crack material, not a separate d
   running most of the shard's length, with a `Rift Glow Edge` halo and one `Rift Glow Pale` hot
   pixel concentrated only around the crack's midpoint (rows 4–6) — **deliberately no halo on the
   rest of the crack's length**, a restrained departure from the block texture's fuller near/far
-  Edge-then-Dim halo treatment (Section 19.4), because this icon's shard body is only 2–8px wide
+  Edge-then-Dim halo treatment (Section 20.4), because this icon's shard body is only 2–8px wide
   at any row; an early draft that copied the block texture's wider two-ring halo directly
   swallowed the entire stone body in magenta and had to be redrawn narrower to keep the glow a
   genuine "thin crack/edge accent" (this task's own brief) rather than the dominant color. The
@@ -1961,7 +2336,7 @@ literally a fragment of the obelisk's own stone/crack material, not a separate d
   Pillow). No traced, extracted, or downloaded source material was used. Follows the exact
   two-file `minecraft:item/generated` + `layer0` pattern established for this mod's other plain
   flat-icon items (Gold Sword, Section 14; Poison Dagger, Section 16) — **not** Rissobelisk's
-  own divergent block-item pattern (Section 19.2), since Risssplitter is a plain `Item`, not a
+  own divergent block-item pattern (Section 20.2), since Risssplitter is a plain `Item`, not a
   `BlockItem`.
 - **Files produced this pass**:
   - `src/main/resources/assets/baum2/textures/item/risssplitter.png` (16x16, placeholder)
@@ -1978,7 +2353,7 @@ literally a fragment of the obelisk's own stone/crack material, not a separate d
 
 ## Changelog
 
-- **2026-07-05** — Added Section 19.6 (bugfix follow-up): "Risssplitter" (`baum2:risssplitter`,
+- **2026-07-05** — Added Section 20.6 (bugfix follow-up): "Risssplitter" (`baum2:risssplitter`,
   the crafting material the Rissobelisk world-event block drops) had been registered as a plain
   `Item` in Java with **zero visual assets** — no texture, no item model, no item-model-
   definition wrapper — and rendered with a missing/blank texture in-game. Produced a 16x16
@@ -1986,43 +2361,47 @@ literally a fragment of the obelisk's own stone/crack material, not a separate d
   stone fill, single `Fissure Void` crack with a restrained `Rift Glow Edge`/`Rift Glow Pale`
   halo concentrated only at the crack's midpoint — a narrower halo treatment than the block
   texture's, deliberately kept thin so it reads as an accent rather than swallowing the shard's
-  stone body) reusing Section 19.3's "Riftstone" palette unchanged (zero new colors), plus the
+  stone body) reusing Section 20.3's "Riftstone" palette unchanged (zero new colors), plus the
   standard `minecraft:item/generated` + `layer0` two-file model pattern (Gold Sword/Poison
   Dagger's pattern, not Rissobelisk's own divergent block-item pattern). Also added the missing
   `item.baum2.risssplitter` lang entry (the item had none, so it would have shown its raw
   translation key as its inventory name even with the texture fixed). No Java/gameplay code
   changed; `./gradlew build` confirmed passing. Updated Section 6's folder listing.
-- **2026-07-05** — Added Section 19 (world-event landmark visual identity: "Rissobelisk",
+- **2026-07-05** — Added Section 20 (world-event landmark visual identity: "Rissobelisk",
   `baum2:rissobelisk` — the mod's **first custom `Block`**, as opposed to every prior visual
-  asset which was either an `Entity`/`EntityModel` or a flat item icon). Produced the mod's
-  first-ever blockstate JSON, block model JSON, and block-item-model JSON, all verified against
-  vanilla's own real 1.21.11 assets extracted from the decompiled client jar rather than
-  guessed: the blockstate uses the simplest property-less single-variant form (confirmed
-  identical to vanilla's `iron_block.json`); the block model uses `minecraft:block/
-  cube_bottom_top` (confirmed 3-texture-key schema against vanilla's `sandstone.json`) for a
-  distinct top-face rune-sigil vs. side/bottom crack texture; the item model **deliberately
-  omits** the `models/item/rissobelisk.json` file every prior item in this document has, after
-  verifying vanilla's own `stone.json`/`iron_block.json`/`furnace.json` all point their item-
-  model-definition entry point straight at the block model with no intervening file — see
-  Section 19.2 for the full reasoning (this is a *divergence* from the item-model pattern
-  Section 14.3 established, not an inconsistency with it: that pattern was for plain `Item`s
-  with a flat-icon parent, a different case). Made and documented an explicit palette-bucket
-  judgment call (Section 19.1): Rissobelisk doesn't cleanly fit either bucket Section 1.2's
-  boss-vs-common-mob rule was written for (can't fight back, but is a rare hand-placed
-  landmark, not a common mob) — decided to treat it like a boss for palette purposes (bespoke,
-  cross-checked "Riftstone" palette) since Section 1.2's actual rationale was about spawn
-  frequency/memorability, not mobility or combat capability, and precedent (item drops already
-  getting bespoke palettes) already shows "is this rare/memorable set-piece content" was the
-  real operative test. Established a new "Riftstone" palette — a cool blue-gray stone family
-  (distinct from every existing warm/olive stone palette in this document) with a vivid
-  magenta-pink "Rift Glow" crack/rune-energy accent (a new, previously-unused hue slice on the
-  mod's color wheel, checked distinct from both existing violet families and every existing
-  green/red glow). Produced two 16x16 placeholder textures (side/bottom + top) via Python +
-  Pillow (available in this environment, unlike prior passes in this document which fell back
-  to PowerShell + `System.Drawing`) — deterministic speckled stone base plus hand-placed
-  branching-fissure/radiating-rune-sigil crack coordinates with a near/far glow-halo falloff.
-  Added the `block.baum2.rissobelisk` lang entry (asset file, not code). Updated Section 6's
-  folder listing. No Java/gameplay code touched; `./gradlew build` confirmed passing.
+  asset which was either an `Entity`/`EntityModel` or a flat item icon). Renumbered from an
+  initial Section 19 to 20 during the merge with `fischey_workbranch`, which independently
+  claimed Section 19 for Drevathis the same day — see this file's own merge note if this section
+  number ever looks surprising relative to git history. Produced the mod's first-ever blockstate
+  JSON, block model JSON, and block-item-model JSON, all verified against vanilla's own real
+  1.21.11 assets extracted from the decompiled client jar rather than guessed: the blockstate
+  uses the simplest property-less single-variant form (confirmed identical to vanilla's
+  `iron_block.json`); the block model uses `minecraft:block/cube_bottom_top` (confirmed
+  3-texture-key schema against vanilla's `sandstone.json`) for a distinct top-face rune-sigil
+  vs. side/bottom crack texture; the item model **deliberately omits** the
+  `models/item/rissobelisk.json` file every prior item in this document has, after verifying
+  vanilla's own `stone.json`/`iron_block.json`/`furnace.json` all point their item-model-
+  definition entry point straight at the block model with no intervening file — see Section
+  20.2 for the full reasoning (this is a *divergence* from the item-model pattern Section 14.3
+  established, not an inconsistency with it: that pattern was for plain `Item`s with a flat-icon
+  parent, a different case). Made and documented an explicit palette-bucket judgment call
+  (Section 20.1): Rissobelisk doesn't cleanly fit either bucket Section 1.2's boss-vs-common-mob
+  rule was written for (can't fight back, but is a rare hand-placed landmark, not a common mob)
+  — decided to treat it like a boss for palette purposes (bespoke, cross-checked "Riftstone"
+  palette) since Section 1.2's actual rationale was about spawn frequency/memorability, not
+  mobility or combat capability, and precedent (item drops already getting bespoke palettes)
+  already shows "is this rare/memorable set-piece content" was the real operative test.
+  Established a new "Riftstone" palette — a cool blue-gray stone family (distinct from every
+  existing warm/olive stone palette in this document) with a vivid magenta-pink "Rift Glow"
+  crack/rune-energy accent (a new, previously-unused hue slice on the mod's color wheel, checked
+  distinct from both existing violet families and every existing green/red glow, including
+  Drevathis's own new "Grave Frost" - see Section 19 below). Produced two 16x16 placeholder
+  textures (side/bottom + top) via Python + Pillow (available in this environment, unlike prior
+  passes in this document which fell back to PowerShell + `System.Drawing`) — deterministic
+  speckled stone base plus hand-placed branching-fissure/radiating-rune-sigil crack coordinates
+  with a near/far glow-halo falloff. Added the `block.baum2.rissobelisk` lang entry (asset file,
+  not code). Updated Section 6's folder listing. No Java/gameplay code touched; `./gradlew
+  build` confirmed passing.
 - **2026-07-05** — Added Section 9.1 (8 placeholder sub-spec icons for the Character Stats
   Screen's Class-tab `SubspecCardWidget` cards, which shipped with no icon art at all — see
   `HANDOFF.md`'s "Class Overhaul v2 follow-up"). Each icon is its parent class's exact existing
@@ -2040,6 +2419,67 @@ literally a fragment of the obelisk's own stone/crack material, not a separate d
   when reusing another boss's model; drops decide per-item; future *common* mobs should default
   to reusing palettes instead) — closes the "keeps deferring" item `HANDOFF.md`'s "Custom UI v1"
   section flagged and adds Section 10 item 5.
+- **2026-07-05** — Drevathis playtest fixes (v2), reworked Section 19.2/19.4/19.5, added Section
+  19.6: user actually fought the boss and reported "the demon boss... looks like a hobbit" (visual
+  half of a two-part complaint; the other half - the sword never being equipped - was a real code
+  bug, not a visual issue, fixed separately) and "the weapon does not look like it comes from a
+  demon cursed blade." Kept the "Abyssal Sovereign" palette exactly as-is (Section 19.3 unchanged,
+  not the problem per the user's own framing) and instead pushed the *execution*: regenerated
+  `drevathis.png` (64x64) from scratch against `DrevathisEntityModel`'s new v2 UV layout (broader
+  chest/arms, longer horns, bigger cape, new claw parts) with substantially more surface detail -
+  glowing Grave Frost rune-cracks across skin and robe, an asymmetric/jagged (alpha-cut, not
+  rectangular) cape hem, 3-band shadow-shading on every major face, a larger glowing-core eye
+  treatment, and a new Sovereign-Blood circlet band on the previously-blank hat layer. Regenerated
+  `drevathis_cursed_blade.png` (16x16) with a deliberately asymmetric jagged blade edge (oscillating
+  width vs. a smooth opposite edge), a curling one-sided hook-guard accent, and Sovereign Blood
+  crimson vein-branches breaking off the existing Grave Frost fuller groove - same six hexes as v1,
+  new silhouette. No model/parent JSON changes were needed for the sword: verified
+  `minecraft:item/handheld`'s built-in flat-item alpha extrusion already turns a jagged alpha
+  silhouette into a jagged in-hand/GUI/ground shape. `./gradlew build` not re-run by this agent
+  (asset/doc-only change, no Java touched); not yet re-verified in an actual game session.
+- **2026-07-05** — Added Section 19 (boss visual identity: "Drevathis, the Cursed Sovereign",
+  `baum2:drevathis` — the mod's current top-tier boss, level 40, above Zombie Colossus's 25 — and
+  its guaranteed drop "Drevathis's Cursed Blade," `baum2:drevathis_cursed_blade`). Unlike Spider
+  Queen/Zombie Colossus (both reused/rescaled a shared vanilla model), `DrevathisEntityModel` is a
+  wholly bespoke `BipedEntityModel` (tall biped, two backward-curving horns, a trailing cape), so
+  this pass covers a new model's UV/texture from scratch rather than a re-theme. Established a new
+  "Abyssal Sovereign" palette (cool slate-gray "cursed flesh," near-black wine-plum "shroud" robes,
+  a deep wine-crimson "Sovereign Blood" trim, and a pale icy-cyan "Grave Frost" curse-glow signature
+  color) — deliberately not another green (unlike most of the mod's other hostile mobs) and
+  deliberately not another saturated violet (unlike Royal Carapace) or warm ashen-brown (unlike
+  Ashen Brute), to give this dark/regal/ancient-evil-register boss its own distinct identity;
+  checked hex-by-hex against every existing palette in this document with no collisions. The
+  Grave Frost curse-glow is also a deliberate departure from every prior mob's yellow-green/amber
+  eye-glow family (Larval Glow, Toxic Eye, Brute Glare), matching this boss's Darkness-effect lore
+  instead of the mod's existing "toxic monster" visual language. The guaranteed-drop sword shares
+  its palette with the boss's own texture by design (Sovereign Blood hilt, Grave Frost fuller-glow)
+  so the item reads as the same object at both its ~1.8x oversized on-boss render scale and normal
+  handheld/inventory scale, per Section 14/16/18.4's established item-model-definition JSON
+  pattern. Produced a placeholder 64x64 entity texture (Python + Pillow, installed into this
+  environment for this pass) under `src/client/resources/...` (this boss's Java render classes are
+  themselves client-only) and a placeholder 16x16 item icon, plus the real, verified 1.21.11
+  model/item-definition JSON pair for the sword. Updated Section 6's folder listing. No Java/
+  game-logic code was touched — visual assets and this document only.
+- **2026-07-05** — Zombie Colossus playtest fixes (v2), added Section 18.6/18.7: user actually
+  fought the boss and reported the attack/jump animation looked missing ("moving very static")
+  and the model "has no muscles." Diagnosed the animation complaint against the decompiled
+  1.21.11 client jar rather than guessing: the base walk-cycle and attack-swing plumbing was
+  already correctly wired in v1 (confirmed `LivingEntityRenderer.updateRenderState` and
+  `BipedEntityRenderer.updateBipedRenderState`'s real bodies both already populate the fields
+  needed); the one real gap was `state.attacking` never reading `true` (this boss's custom attack
+  `Goal`s never call vanilla's `setAttacking`), fixed client-side by also treating a live hand-
+  swing as "attacking." The bigger real contributor was the leap/rage wind-ups being completely
+  frozen — fixed with real telegraph poses (crouch-and-coil for the leap, overhead club-raise for
+  rage), same pattern as Spider Queen's leap crouch, via a new `ColossusRenderState` carrying the
+  two wind-up counters `ZombieColossusEntity` already exposes. Separately, replaced v1's unmodified
+  reuse of `BipedEntityModel.getModelData()` with bespoke bulkier geometry (broader chest/
+  shoulders, thicker arms/legs) that keeps the same standard part names so the animation logic
+  above still targets the right parts — the actual fix for "no muscles," since a texture alone
+  can't sell strength on a uniformly-thin vanilla skeleton. Regenerated the entity texture against
+  the new UV footprints with added muscle-definition shading (sternum groove, pec/ab striations,
+  bicep highlight, elbow crease). `./gradlew build` confirmed passing. Not yet re-verified in an
+  actual game session (no GUI-automation tool in this environment) — flagged in 18.6 for the next
+  playtest.
 - **2026-07-05** — Added Section 18 (boss visual identity: "Zombie Colossus",
   `baum2:zombie_colossus` — the mod's **second** true mobile boss, joining Spider Queen — and its
   "Colossal Warclub" drop, `baum2:colossal_warclub`, renamed from the originally-drafted "Colossus

@@ -718,6 +718,183 @@ a ground AoE, and a 3-hit burst combo.
   other work depended on the old name.
 - Visual identity: `docs/visual-style-guide.md` Section 18 — new "Ashen Brute" palette.
 - Verified: build passes clean. **Not yet verified in an actual game session.**
+- **Playtest fix round (on `fischey_workbranch`, after the user actually fought this boss)**:
+  reported the leap/fire-wave combo "is perfect" (no fix needed - first part of this boss's kit
+  independently confirmed live); attack/jump animations looked missing and the model "moving
+  very static"; the model "has no muscles"; and the attack range was too short. Root causes,
+  verified against the real decompiled 1.21.11 client jar: vanilla's `MobEntity.isAttacking()`
+  is only ever set by vanilla's own attack-goal machinery, which this boss's fully custom attack
+  `Goal`s never call, so swings always used the calmer non-attacking pose - fixed client-side
+  (`state.attacking = entity.isAttacking() || state.handSwingProgress > 0.0F`). Neither the leap
+  nor the rage combo had a telegraph *pose* at all - added a new `ColossusRenderState` (two
+  synced wind-up counters off new `getLeapWindupTicks()`/`getRageWindupTicks()` `TrackedData`
+  fields) driving a crouch-and-coil pose and an overhead club-raise pose in
+  `ZombieColossusEntityModel`. Replaced the reused, unmodified `BipedEntityModel.getModelData()`
+  geometry with bespoke bulkier cuboids (thicker arms/legs/torso) plus a reshaded texture for
+  the "no muscles" complaint. Widened the base/rage attack range and the leap's minimum trigger
+  range from 2.0 → 4.5 in lockstep (`Entity.distanceTo()` is center-to-center, not edge-to-edge,
+  so 2.0 against a 1.8-block-wide giant with a long club looked disconnected). Verified:
+  `./gradlew build` passes clean. **Still not independently re-verified in a live client** - see
+  "Last change (on `fischey_workbranch`)" below for the exact next-playtest checklist. Not
+  re-run: `ip-naming-compliance-checker`/`balance-reviewer` - no new names, and the range
+  widening is a proportional fix matching the model's real size, not a fresh balance concern.
+
+### Drevathis, the Cursed Sovereign — fifth boss, current top tier, first boss with no normal attack
+
+Level 40, 1200 HP (continuing the existing 20→23.3→20→30 HP/level drift as the new top boss),
+`baum2:drevathis` (`entity/DrevathisEntity.java`). Unlike every prior boss, it has **no normal
+melee attack at all** — its entire kit is four skills, each its own `Goal`, plus a passive aura.
+
+- **Naming**: went through four rounds of `ip-naming-compliance-checker` before landing here.
+  The user's own first three picks were each rejected: "Demon King" (verbatim match to a real
+  Metin2 boss, plus "Demon Sword" echoing Metin2's "Demon Blade" and its drop pattern), "Ahriman"
+  (a recurring FFXI monster name and a named Warhammer 40k character), "Malzeroth" (shares WoW's
+  distinctive "-zeroth" tail from "Azeroth" and closely mirrors "Malgrazoth", an actual WoW demon
+  NPC). **"Drevathis, the Cursed Sovereign"** (drop: **"Drevathis's Cursed Blade"**) cleared,
+  including a final ensemble pass over all five names together. The four skill names ("Dash of
+  Death", "Chain of Death", "Wave of Darkness", "Thunder of Darkness") cleared on the first pass.
+- **Passive darkening aura**: reuses vanilla's own `StatusEffects.DARKNESS` (the real
+  Warden/Sculk-Shrieker effect), refreshed every tick on any player within 12 blocks (an
+  assumption — "near" wasn't numerically specified). Works regardless of light level/time of
+  day with zero custom rendering code, satisfying "even if it is day" for free.
+- **Dash of Death**: teleports 3 blocks behind the target, 0.5s wind-up, then 50 magic damage +
+  launches the target ~10 blocks up. The vertical launch velocity is an approximation derived
+  from this game's real per-tick gravity/drag (same technique documented for Spider Queen's leap
+  arc) — flagged as likely needing one empirical tweak after a real playtest. Cooldown 20s. The
+  only skill with unlimited range (see kiting note below).
+- **Chain of Death**: instant vanilla Slowness V — confirmed via vanilla's own amplifier formula
+  (`1 - 0.15×(amplifier+1)`) this is *exactly* -75% speed, not an approximation — for 5s, no
+  damage, held with a sustained "gripping a taut chain" pose and a particle link between boss
+  and target for the whole duration. Cooldown 10s.
+- **Wave of Darkness**: 0.5s cast-time telegraph (dodgeable via lateral movement, no re-aim at
+  impact), then an instant 20×8-block rectangular hit for 65 damage via a new shared
+  `combat/DarkWaveEffect.java` helper (rotated-rectangle hit test: AABB broad-phase +
+  along/across dot-product filter). Cooldown 2s — deliberately the kit's spammy filler; the
+  balance-reviewer's own encounter simulation found it fires ~3x as often as Thunder and ~5x as
+  often as Dash over a sustained fight.
+- **Thunder of Darkness**: over 3s, 6 strikes (one every 0.5s — an assumption; the original
+  design brief gave duration and per-strike damage but not frequency) land within 5 blocks of
+  the target's *current* position (re-sampled each strike — this is what "follows the player"
+  means, unlike Wave which aims once), each hitting a 1-block radius for 70 damage. Cooldown 10s.
+  **Balance-reviewer note**: the naive "6×70=420" ceiling is a near-impossible outcome, not the
+  realistic damage — radius is sampled uniformly (not area-uniformly), so a stationary target has
+  only a ~20%-per-strike hit chance; simulated expected damage is closer to ~84 per full cast.
+  Reads as a dodgeable area-denial effect in practice, not a guaranteed burst — left as-is rather
+  than "fixed" since it's unclear this wasn't already the intended feel.
+- **Drevathis's Cursed Blade** (`registry/ModItems.java`): 0 total Attack Damage / 0.5 attacks
+  per second (`ToolMaterial.WOOD, -1.0F, -3.5F` — cancels the innate 1.0 unarmed base and trims
+  the 4.0 base attack speed down to exactly 0.5). Its entire purpose is an on-hit proc
+  (`combat/DrevathisCursedBladeHandler.java`): 10% of the wielder's live Attack Damage attribute,
+  fired as a Wave of Darkness aimed at whatever was actually hit, no cast-time telegraph.
+  **Balance-reviewer caught a real bug before this shipped**: the first version aimed along the
+  wielder's look vector (not at the hit target) and `DarkWaveEffect` only queried `PlayerEntity`
+  targets — meaning the proc could never damage the mob you actually hit and would only ever hit
+  *other nearby players* instead. Fixed by aiming at the hit entity and widening
+  `DarkWaveEffect`'s target filter to any `LivingEntity` except the caster (matching
+  `skills/SpellEffects.java`'s own AoE convention). **Logged, not fixed**: this proc scales off
+  the wielder's *live* Attack Damage attribute, so it automatically inherits whatever the
+  existing "Combat System v1 DPS ceiling" (see that section above) ends up being — the first proc
+  in the mod that multiplies directly off that same escalating number, worth folding into that
+  same eventual balance decision rather than treating as a separate issue.
+- **Balance-reviewer also caught a real mechanical gap (kiting dead-zone), fixed in the same
+  pass**: Chain/Wave/Thunder and the Darkness aura all require the target within 20/20/20/12
+  blocks respectively, Dash of Death has no range limit at all, and nothing in `initGoals()` ever
+  moved the boss toward its target — a player who simply stays past 20 blocks was fully exempt
+  from 3 of 4 skills and the aura, taking only Dash's flat 50 damage every 20s. Fixed by adding a
+  new `ApproachGoal` (lowest priority of the five combat goals, so any skill still preempts it)
+  that closes distance whenever the target exceeds the shared 20-block engagement range — same
+  "mechanical gap, not numeric tuning, gets fixed in the same pass" precedent Spider Queen's own
+  leap-escape bug already established.
+- **Visuals** (`graphics-designer`, new "Abyssal Sovereign" palette, `docs/visual-style-guide.md`
+  Section 19): a bespoke `BipedEntityModel`-based model (not a zombie/spider reskin) — horns,
+  trailing cape, scaled 1.8x. Cool slate-gray flesh (deliberately the cool inverse of Zombie
+  Colossus's warm "Ashen Brute"), near-black wine-plum robes, deep wine-crimson trim, and a
+  signature pale icy-cyan "Grave Frost" glow distinct from every other mob's yellow-green/amber
+  glow family in this mod. Placeholder textures only (flat programmatic fills), same as every
+  prior boss.
+- **Animation**: all four skills are telegraphed via synced `DataTracker` counters (extending
+  `ZombieColossusEntityModel`'s two-counter precedent to four) — Dash's reach-upward, Chain's
+  throw-into-sustained-hold, Wave's energy-gather, Thunder's sustained overhead channel. The boss
+  also visibly wields its own drop, oversized (~1.8x extra scale) and centered as a two-handed
+  grip — this needed a bespoke `DrevathisHeldWeaponFeatureRenderer` rather than vanilla's stock
+  `HeldItemFeatureRenderer` (which only renders one-handed, per-hand-offset items). This is
+  genuinely new territory for this codebase: the actual rendering pipeline in 1.21.11 has no
+  `VertexConsumerProvider`/`ItemRenderer.renderItem(...)` at the point of use anymore (both
+  replaced by `OrderedRenderCommandQueue` + a pre-baked `ItemRenderState.render(...)`) — verified
+  by decompiling this project's own `genSources` output and written up as a new
+  `docs/fabric-modding.md` section ("Custom two-handed held-item rendering") before writing the
+  actual renderer, since no prior code in this repo had touched this API surface.
+- **Not yet done**: the exact reach/scale/rotation numbers on the held-weapon renderer and the
+  Dash launch velocity are both flagged as needing an empirical tuning pass after a real
+  playtest, same as this project's established pattern for every prior boss's leap/launch
+  numbers. No natural spawn path (`/summon baum2:drevathis`-only, same as all four other bosses).
+- **First real playtest round found three more issues, all fixed in a follow-up pass** (the user
+  actually summoned and fought/inspected the boss): "the demon boss has no weapon and looks like
+  a hobbit", "the weapon does not look like it comes from a demon cursed blade", and "the skill
+  itself is not visible... also not from the boss". Root causes, in order of how much they
+  mattered:
+  1. **A real, structural bug — the sword was never actually equipped.** Confirmed by decompile:
+     `MobEntity.initialize(...)` does **not** call `initEquipment(...)` in this version at all;
+     only specific vanilla subclasses (`ZombieEntity`, `PiglinEntity`,
+     `AbstractSkeletonEntity`, etc.) call it themselves from their own overridden
+     `initialize()`. `ZombieColossusEntity` got this for free by extending `ZombieEntity`;
+     `DrevathisEntity` extends `HostileEntity` directly, which has no such override — so the
+     mainhand slot was genuinely empty, not a rendering problem. Fixed by adding an
+     `initialize(...)` override that calls `this.initEquipment(...)` explicitly, the same pattern
+     the vanilla subclasses use internally.
+  2. **Skill effects were real but nearly imperceptible.** None of the four skills played any
+     sound at all, and `DarkWaveEffect`'s particle burst was a sparse 3-line outline fired for a
+     single tick (an instant, one-frame effect with ~60 total particles across a 20-block
+     rectangle). Fixed by adding a distinct sound cue to every skill (teleport/impact sounds for
+     Dash, a chain-hit sound for Chain, evoker-cast/wither-shoot sounds for Wave, warden-roar/
+     lightning-impact sounds for Thunder) and substantially densifying the particle effects
+     (Wave's rectangle is now filled edge-to-edge rather than outlined; Thunder's strikes are now
+     a tall vertical column, not a single ground-level puff, so they're visible from a distance).
+  3. **The model geometry itself read as "a reskinned player."** v1's body/arm/leg cuboids were
+     essentially unmodified vanilla biped proportions plus two small 2x6x2 horns — the same class
+     of complaint Zombie Colossus got fixed for ("no muscles") by moving away from vanilla-default
+     sizes. Fixed with a v2 pass: broadened chest (8x12x4 → 9x13x5) and arms (4x12x4 → 5x13x5),
+     much longer/more dramatically swept horns (2x6x2 → 2x9x2), a substantially bigger cape
+     (9x16x1 → 10x18x1), and new small clawed fingertips on both hands — a silhouette that no
+     longer reads as human-proportioned even before the texture is considered.
+  - `graphics-designer` then regenerated both the entity texture (to match the new UV layout
+    from the geometry pass) and the sword's item texture, pushing much harder on "cursed/
+    demonic" execution within the same already-cleared "Abyssal Sovereign" palette (no hex
+    changes): glowing eye sockets, asymmetric rune-cracks, a jagged/tattered cape hem instead of
+    a plain rectangle, a Sovereign-Blood circlet band on the hat layer, and — for the sword — an
+    asymmetric serrated blade edge, a curling hook-guard, and both signature glow colors (Grave
+    Frost cyan + Sovereign Blood crimson) visible on the blade at once, so it can no longer be
+    mistaken for a reskinned iron sword. Both textures remain explicit placeholders (programmatic
+    flat/gradient fills), same as every other boss — a human-artist pass is still the
+    recommended next step given this boss's top-tier status.
+  - Verified: `./gradlew build` passes clean after all three fixes. **Still not independently
+    re-verified in a live client** — the fixes were driven directly by the user's own real
+    playtest report; the next playtest should specifically confirm the weapon now renders, the
+    boss reads as clearly non-human/imposing, and each skill's new sound/particle cue is
+    actually noticeable in a real fight.
+- **Second playtest round found the held-weapon fix from the round above actually looked worse,
+  not just unpolished**: the user reported the model "looks like it has a penis" and asked for
+  the sword to actually fit the hand. Root cause, found by re-reading
+  `DrevathisHeldWeaponFeatureRenderer` rather than guessing: v1 of that renderer anchored the
+  weapon only at `getRootPart()` and translated it to one fixed point directly in front of the
+  torso's center at roughly hip height, with **no arm-following rotation at all** — a static rod
+  projecting straight out from the middle of the body regardless of any arm pose, which is
+  exactly the silhouette that reads badly. (Checked the entity texture pixel-by-pixel first to
+  rule out a texture bug — the UV layout and colors documented in `docs/visual-style-guide.md`
+  19.2 are correct and match the model; the horn region's olive-brown "Cursed Bone" tone was a
+  red herring, not the cause.) Fixed by anchoring at the right arm's own current transform via
+  `setArmAngle(...)` — the exact mechanism vanilla's own `HeldItemFeatureRenderer` uses — so the
+  weapon now inherits the arm's existing "grip inward" bend and moves with every skill's
+  telegraph pose, then offsetting down the arm's own length toward the actual hand instead of the
+  torso, adding a -35° tilt so the blade presents at an angle instead of dead-straight-forward,
+  and trimming the extra scale 1.8x → 1.6x. Verified: `./gradlew build` passes clean. **Still not
+  re-verified in a live client** — exact numeric offsets here are reasoned from the arm's cuboid
+  dimensions and vanilla's own reference offsets, not visually tuned (no live-render tooling
+  available in this environment), so this is the best-effort mechanism fix; a further numeric
+  tweak pass may still be needed after the next real playtest.
+- Verified: `./gradlew build` passes clean after every step, including after the two
+  balance-reviewer fixes above. **Not yet verified in an actual game session** — same caveat
+  every other boss in this project carries (see "No GUI-automation tool" note below).
 
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `jonas_workbranch` has merged `origin/master` twice this session and is now
@@ -822,11 +999,12 @@ content was an `Entity` or `Item`).
   blockstate/block-model/item-model JSON chain in this project (verified against real vanilla
   1.21.11 data via decompiled `stone.json`/`iron_block.json`/`sandstone.json`, not guessed) plus
   a placeholder texture. New "Riftstone" palette (cool blue-gray stone + magenta "Rift Glow"
-  crack accent) — `docs/visual-style-guide.md` Section 19. **Palette-bucket judgment call**:
-  Section 1.2's just-ratified boss-vs-common palette rule wasn't written with a non-fighting
-  `Block` in mind; treated Rissobelisk as boss-tier anyway (rare, unique, one-off — the same
-  properties Section 1.2's rule actually cares about, not literally "can it fight back"),
-  reasoning recorded in Section 19.1.
+  crack accent) — `docs/visual-style-guide.md` Section 20 (renumbered from an initial Section 19
+  during the merge with `fischey_workbranch`, which independently claimed 19 for Drevathis the
+  same day). **Palette-bucket judgment call**: Section 1.2's just-ratified boss-vs-common
+  palette rule wasn't written with a non-fighting `Block` in mind; treated Rissobelisk as
+  boss-tier anyway (rare, unique, one-off — the same properties Section 1.2's rule actually
+  cares about, not literally "can it fight back"), reasoning recorded in Section 20.1.
 - **Two real bugs found by the user's own in-game test, both fixed**: (1) `Risssplitter` had
   **zero visual assets** — registered in Java but nobody had produced its icon (an oversight in
   scoping the first `graphics-designer` dispatch, which only covered the block itself) — fixed
@@ -844,8 +1022,103 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `jonas_workbranch`, fast-forwarded into `master`)
 
-**Rissobelisk**: the mod's first custom `Block` and first World-Event, closing
-`MASTERPROMPT.md`'s last remaining Priority 1 item — full detail in "Current state" above under
+**Merged `origin/master` into `jonas_workbranch`** (Fischey's Drevathis, the Cursed Sovereign
+boss + a Zombie Colossus playtest-fix round — see the folded-in entries below for full detail on
+each) at the user's request ("pull all and merge to jonas_workbranch"). Used
+`merge-integration-reviewer` proactively per `CLAUDE.md`, including a real trial merge in a
+disposable worktree before touching the actual repo. 4 files had real textual conflicts, all
+resolved by keeping both sides' content (never "pick one"): `registry/ModItems.java` (both
+branches inserted a new item block — `RISSSPLITTER`, `DREVATHIS_CURSED_BLADE` — at the same
+anchor point), `docs/fabric-modding.md` and `HANDOFF.md` (both appended a new section/entry at
+the same point), and `docs/visual-style-guide.md` (asset-listing table rows + Changelog
+entries). One **design conflict with zero textual markers**, caught only by the reviewer's own
+read-through: both branches independently claimed `## 19.` as their new top-level section in
+`docs/visual-style-guide.md` (Drevathis vs. Rissobelisk), with colliding `19.1`-`19.6`
+sub-numbering and ~20+ internal cross-references each — resolved by renumbering Rissobelisk's
+whole block to `## 20.` (it had more self-references to fix than Drevathis, but none of them
+were already "locked in" from outside the file the way one of Drevathis's `HANDOFF.md`
+references was). Ran a final `ip-naming-compliance-checker` ensemble pass over the combined
+name set (Drevathis, Drevathis's Cursed Blade, Rissobelisk, Risssplitter — plus "Wave of
+Darkness," Drevathis's on-hit proc name, checked specifically since it's a skill name not a
+proper noun) per the reviewer's own recommendation, since each was only checked individually
+before. **All 5 clear individually and in combination** — no new resemblance emerges from the
+two unrelated systems appearing together. The only thing re-surfaced was the same
+already-logged, non-blocking mechanic-level observation (see the "Rissobelisk" section above and
+"Next recommended step" item 13) — Rissobelisk is now the third/fourth reuse of the
+wave-spawn-on-HP-threshold pattern, and the "deliberate human decision" on whether to keep
+reusing it still hasn't been made. The reviewer suggested a concrete alternative for *next*
+time this pattern would otherwise get reused: decouple wave-spawns from "percent of HP lost" and
+drive them off something structurally different instead (a fixed/random timer independent of
+damage, a shrinking-safe-radius effect, or interrupting a periodic self-heal pulse). **Bug found
+during review, not
+fixed here (belongs to the other side)**: `en_us.json` has zero lang entries for
+`entity.baum2.drevathis`/`item.baum2.drevathis_cursed_blade` — the exact same bug class this
+session's own Rissobelisk work found and fixed for `Risssplitter` earlier today (raw
+untranslated key shown in-game) — flagged here for Fischey rather than fixed unilaterally, since
+it's entirely his branch's content and not part of this merge's own conflict set.
+
+Earlier, on `fischey_workbranch` (now merged): **second Drevathis fix round** (same session,
+immediately after the round below): the user reported the held weapon "looks like it has a
+penis" and asked for it to actually fit the hand. Root cause was the held-weapon renderer
+anchoring at the model root only and translating to one fixed point in front of the torso with
+no arm-following rotation, producing a static rod projecting from the body's center regardless
+of pose. Fixed by anchoring at the right arm's own live transform (the same mechanism vanilla's
+`HeldItemFeatureRenderer` uses) so the weapon now follows the arm's grip pose and every skill's
+animation, offset toward the actual hand, tilted off dead-straight-forward, and scaled down
+slightly. Ruled out a texture bug first by inspecting the entity texture directly pixel-by-pixel
+before concluding the actual cause was the render code, not the art.
+
+Earlier, on `fischey_workbranch` (now merged): **playtest fix round on Drevathis** (immediately
+after the commit below, same session): the user summoned and inspected the boss and reported
+three things — "the demon boss has no weapon and looks like a hobbit", "the weapon does not look
+like it comes from a demon cursed blade", and "the skill itself is not visible... also not from
+the boss." In short: (1) a real structural bug, not a render issue — `MobEntity.initialize(...)`
+never calls `initEquipment(...)` in this version except from specific vanilla subclasses' own
+overrides, and `DrevathisEntity` (extending `HostileEntity` directly, unlike every zombie/
+spider-based prior boss) had no such override, so the sword's mainhand slot was genuinely empty;
+(2) none of the four skills played any sound and `DarkWaveEffect`'s particle burst was a sparse
+single-tick outline, both fixed with real audio cues and denser/taller particle effects; (3) the
+model geometry itself was unmodified vanilla biped proportions plus two small horns, fixed with
+a broader chest/arms, much longer horns, a bigger cape, and clawed fingertips, followed by
+`graphics-designer` regenerating both textures to match and read as far more clearly demonic/
+cursed within the same already-cleared palette.
+
+Earlier, on `fischey_workbranch` (now merged): **added Drevathis, the Cursed Sovereign** — this
+project's fifth boss and current top tier (level 40, above Zombie Colossus's 25), and its first
+boss with no normal melee attack at all. See "Current state" above under "Drevathis, the Cursed
+Sovereign" for the complete skill kit, the naming journey (three of the user's own name picks
+rejected by `ip-naming-compliance-checker` before "Drevathis" cleared), and two real bugs
+`balance-reviewer` caught and got fixed before this shipped: the sword's on-hit proc originally
+aimed at the wielder's look direction and only ever hit other players (never the mob you actually
+hit) due to a `PlayerEntity`-only target filter; and a kiting dead-zone where 3 of the 4 skills
+plus the passive aura were all range-limited to 20/12 blocks with nothing ever moving the boss
+toward a distant target, fixed with a new lowest-priority `ApproachGoal`. Also researched and
+documented a genuinely new API surface for this codebase — 1.21.11's held-item rendering
+pipeline (`docs/fabric-modding.md`'s "Custom two-handed held-item rendering" section) — needed
+so the boss could visibly wield an oversized, two-handed version of its own drop.
+`graphics-designer` produced a new "Abyssal Sovereign" palette (cool slate-gray flesh, wine-plum
+robes, icy-cyan "Grave Frost" glow) plus placeholder entity/item textures, checked hex-by-hex
+against every existing palette for collisions.
+
+Earlier, on `fischey_workbranch` (now merged): **playtest fix round on Zombie Colossus.** The
+user actually summoned and fought the boss and reported four things: the leap/fire-wave combo
+"is perfect"; attack/jump animations were missing and the model looked static; the model "has no
+muscles"; and the attack range was too short. Root causes, verified against the real decompiled
+1.21.11 client jar rather than guessed: the walk-cycle/attack-swing plumbing was already correct
+in v1, but vanilla's `MobEntity.isAttacking()` is only ever set by vanilla's own attack-goal
+machinery, which this boss's fully custom attack `Goal`s never call — fixed client-side only.
+Neither the leap nor the rage combo had a telegraph pose at all — added a new
+`ColossusRenderState` (two synced wind-up counters) driving real crouch-coil/overhead-raise
+poses. The "no muscles" complaint was fixed by replacing the reused, unmodified
+`BipedEntityModel.getModelData()` geometry with bespoke bulkier cuboids plus a reshaded texture.
+The short-range complaint was a real gameplay-logic issue (`Entity.distanceTo()` is
+center-to-center, not edge-to-edge, so 2.0 against a 1.8-block-wide giant with a long club looked
+disconnected) — widened to 4.5 across base attack, rage attack, and the leap's minimum trigger
+range, kept in lockstep to preserve balance-reviewer's earlier dead-zone fix.
+
+Earlier, still on `jonas_workbranch`: **Rissobelisk**: the mod's first custom `Block` and first
+World-Event, closing `MASTERPROMPT.md`'s last remaining Priority 1 item — full detail in
+"Current state" above under
 "Rissobelisk". Planned via Plan Mode after checking the project's own roadmap priorities;
 `fabric-docs-researcher` dispatched first since no `Block`/`BlockEntity` pattern existed in this
 codebase (findings in `docs/fabric-modding.md`); implementation built clean on the first
@@ -1118,13 +1391,21 @@ can't destroy it, XP is granted on destruction.
    attack speed can contribute at high Dexterity investment, or accept this as the mod's
    intended "gear matters a lot" power curve. The Colossal Warclub (low speed) is a useful
    counter-example that this isn't unavoidable — see "Zombie Colossus" above.
-2. **In-game verification of all four new mini-bosses** (none have been played, only built) —
-   see each mob's own section above for its exact playtest checklist:
-   `/summon baum2:stone_of_spiders`, `baum2:stone_of_zombies`, `baum2:spider_queen`,
-   `baum2:zombie_colossus`. Also **confirm combat actually feels right** on any mob — attack
-   something and check damage/attack-speed/crits are happening, not just that nothing crashes
-   — and confirm the new "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds
-   still work correctly alongside all the new mob-rendering registrations.
+2. **In-game verification of all five bosses** (none have been played, only built) — see each
+   mob's own section above for its exact playtest checklist: `/summon baum2:stone_of_spiders`,
+   `baum2:stone_of_zombies`, `baum2:spider_queen`, `baum2:zombie_colossus`, `baum2:drevathis`.
+   Also **confirm combat actually feels right** on any mob — attack something and check
+   damage/attack-speed/crits are happening, not just that nothing crashes — and confirm the new
+   "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds still work correctly
+   alongside all the new mob-rendering registrations. **For Drevathis specifically**: confirm
+   all four skills fire and look distinct (Dash's teleport+launch, Chain's slow + sustained
+   chain-hold pose, Wave's telegraph + rectangular hit, Thunder's 3-second multi-strike), the
+   Darkness aura toggles on proximity, the boss visibly wields an oversized two-handed sword
+   (the riskiest untested piece — `DrevathisHeldWeaponFeatureRenderer`'s exact scale/position was
+   written against decompiled API research, not tuned against a live render), the Dash launch
+   height is roughly the intended ~10 blocks (a flagged approximation), and the Cursed Blade's
+   on-hit proc now actually damages the *mob* you hit (the bug `balance-reviewer` found and this
+   session fixed).
 3. **Design questions logged, not yet decided**: (a) does the Poison Dagger's on-hit-poison
    handler need a melee-only guard so it doesn't also trigger on spell damage; (b) should spell
    damage eventually get crits too, now that it scales with attributes; (c) Mana currently only
@@ -1173,9 +1454,15 @@ can't destroy it, XP is granted on destruction.
     build: `docs/fabric-modding.md`'s new "Custom Blocks and BlockEntitys" section has every API
     answer already researched, and `RissobeliskBlockEntity`'s wave-spawn/HP-threshold logic is
     generic enough to likely be reusable rather than re-ported from `StoneOfSpidersEntity` again.
-13. The `ip-naming-compliance-checker`'s secondary observation on Rissobelisk (see "Rissobelisk"
-    above) — the wave-spawning-stone mechanic itself now underlies 3-4 mini-bosses/blocks and
-    reads as conceptually close to Metin2's core "Metin Stone" mechanic, even though each
-    individual case has been cleared as "genre archetype, not a specific match." Worth a
-    deliberate human decision on whether that pattern should keep being reused a 5th time, now
-    that it's this project's single most-repeated mechanic shape.
+13. The `ip-naming-compliance-checker`'s secondary observation on Rissobelisk, re-surfaced again
+    in the post-merge ensemble pass (see "Rissobelisk" above) — the wave-spawning-stone
+    mechanic itself now underlies 3-4 mini-bosses/blocks and reads as conceptually close to
+    Metin2's core "Metin Stone" mechanic, even though each individual case has been cleared as
+    "genre archetype, not a specific match." Worth a deliberate human decision on whether that
+    pattern should keep being reused a 5th time, now that it's this project's single
+    most-repeated mechanic shape. **Concrete alternative direction if the answer is "don't reuse
+    it again unchanged"** (from the ensemble reviewer, not yet implemented): decouple the next
+    such content's wave-spawns from "percent of max-HP lost so far" and drive them off something
+    structurally different instead — a fixed/random timer independent of damage taken, a
+    shrinking-safe-radius/corruption-spread effect, or requiring players to interrupt a periodic
+    self-heal pulse rather than "chip HP down through tiers, each tier releases monsters."

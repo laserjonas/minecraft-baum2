@@ -2457,4 +2457,350 @@ seconds) as a HUD fallback, driven by an actual attack event instead of re-sampl
   but cheap and self-documenting against ever accidentally registering this in a
   non-client-only file later.
 
+## Custom `Block`s and `BlockEntity`s — researched 2026-07-05
+
+Researched ahead of this project's first custom `Block` (a stationary "world event" mini-boss
+block, working name "Rissobelisk": high-HP, damaged by the player left-clicking/attacking it
+directly rather than through vanilla mining, spawns mob waves at HP thresholds — that part is a
+port of existing entity logic, not researched here — and is destroyed/looted by our own code
+once HP hits 0). **No `Block` or `BlockEntity` existed anywhere in this codebase before this** —
+every prior piece of custom content was an `Entity` or `Item`. Verified against a freshly-run
+`gradlew.bat genSources` (no decompiled sources existed in this checkout beforehand; generated
+`minecraft-common-6dd721cd7d-...-sources.jar` and `minecraft-clientOnly-6dd721cd7d-...-sources.jar`
+for Yarn `1.21.11+build.6`), plus the exact Fabric API submodule versions **confirmed bundled
+inside this project's pinned `fabric-api-0.141.4+1.21.11.jar`** by listing its own
+`META-INF/jars/` directory directly (the reliable way to know which submodule build a pinned
+Fabric API version actually uses, rather than assuming Maven's latest): `fabric-events-
+interaction-v0-4.1.1+3b89ecf63e.jar`, `fabric-object-builder-api-v1-21.1.40+4fc5413f3e.jar` —
+cross-checked against this project's own per-checkout Yarn-remapped copies of those same jars
+under `.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/...` (hash prefix
+`16c8840d`, this checkout's specific Minecraft/Yarn combination).
+
+### Q1 — `AttackBlockCallback`: exact shape, and does it really pre-empt vanilla mining
+
+**Confirmed to exist, exact package/shape** —
+`net.fabricmc.fabric.api.event.player.AttackBlockCallback` (`fabric-events-interaction-v0`, the
+same submodule/package that already hosts this doc's existing `AttackEntityCallback` entry
+above):
+```java
+public interface AttackBlockCallback {
+    Event<AttackBlockCallback> EVENT = ...;
+    ActionResult interact(PlayerEntity player, World world, Hand hand, BlockPos pos, Direction direction);
+}
+```
+- Per its own javadoc, confirmed: *"Is hooked in before the spectator check, so make sure to
+  check for the player's game mode as well!"* On the client, `SUCCESS`/`CONSUME`/`FAIL`/`PASS`
+  have distinct hand-swing/packet-send nuances (see the interface's full javadoc); **on the
+  server, any return value other than `PASS` cancels further processing** — i.e. `PASS` falls
+  through to vanilla, anything else means vanilla mining never starts at all.
+- **Confirmed exactly where/how it pre-empts vanilla mining**, by reading the actual mixins that
+  fire it (`net.fabricmc.fabric.mixin.event.interaction.ServerPlayerGameModeMixin`, targeting
+  `ServerPlayerInteractionManager`; client counterpart `...interaction.client
+  .MultiPlayerGameModeMixin`, targeting `ClientPlayerInteractionManager`):
+  - **Server side**: `@Inject(at = @At("HEAD"), method = "handleBlockBreakAction", cancellable =
+    true)` fires `AttackBlockCallback.EVENT` only for `PlayerActionC2SPacket.Action
+    .START_DESTROY_BLOCK`, and if the result isn't `PASS`, calls `info.cancel()` —
+    **aborting the entire handler method before any of its own logic runs**, including the
+    creative-mode instant-destroy branch (see Q2).
+  - **Client side**: injected immediately before the very first `getAbilities()` call inside the
+    method that starts a left-click-on-block (i.e. before either the creative-mode branch or
+    survival mining-start runs), and again, creative-mode-only, inside the per-tick "continue
+    breaking" method.
+  - **Real, verified method-name drift, worth flagging generally for this Fabric API
+    version**: the actual Yarn `1.21.11+build.6` names (confirmed via the fresh `genSources`
+    output) are **`ServerPlayerInteractionManager.processBlockBreakingAction(...)`** and
+    **`ClientPlayerInteractionManager.attackBlock(...)`** / `.updateBlockBreakingProgress(...)`
+    — not `handleBlockBreakAction`/`startDestroyBlock`/`continueDestroyBlock`, which is what
+    Fabric API's own compiled mixin (and its bundled sources jar) still calls them. This is a
+    benign Yarn-rename-vs-Mixin-target mismatch — Mixin resolves `@Inject(method = "...")`
+    targets via an intermediary-based refmap recorded at Fabric API's own build time, so it
+    still binds correctly at runtime regardless of the later Yarn rename; **not a bug**, but it
+    means grepping the decompiled Minecraft source for the literal name a Fabric API mixin file
+    uses will not find it — grep for the behavior instead (the `START_DESTROY_BLOCK` handling /
+    the method that calls `getAbilities().creativeMode` first).
+- **Fires exactly once per discrete left-click, not once per tick held down** — confirmed by
+  tracing the full client call chain: `MinecraftClient`'s main loop drives `doAttack()` (which
+  calls `interactionManager.attackBlock(...)`, our hook) from `while (this.options.attackKey
+  .wasPressed())` — the same edge-triggered, once-per-queued-press loop this doc already
+  documents for keybind polling (`KeyBinding.wasPressed()`) — and **entity melee attacks go
+  through the identical loop** (`case ENTITY: ... interactionManager.attackEntity(...)` sits
+  right next to the `case BLOCK` branch that calls `attackBlock`, both inside the same
+  `wasPressed()` loop). Continuously holding the mouse button down does **not** repeatedly
+  re-fire `AttackBlockCallback` for a block whose break we've cancelled — the separate per-tick
+  `updateBlockBreakingProgress` path only continues progress on a block that already has
+  `breakingBlock = true` internally, which our cancellation prevents from ever being set. This
+  confirms the "attack the block like a mob" analogy is structurally accurate (same input loop,
+  same one-hit-per-click semantics as melee), not just a superficial similarity.
+- **Recommended listener shape** for the boss-block use case (health decrement server-side,
+  still lets the client swing its hand for feedback):
+  ```java
+  AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
+      if (!(world.getBlockState(pos).getBlock() instanceof RissobeliskBlock)) return ActionResult.PASS;
+      if (world instanceof ServerWorld serverWorld) {
+          // health/threshold logic here, e.g. via (RissobeliskBlockEntity) serverWorld.getBlockEntity(pos)
+      }
+      return ActionResult.SUCCESS; // unconditionally non-PASS once it's confirmed to be our block —
+                                    // this is also what fully blocks vanilla mining/creative insta-break, see Q2
+  });
+  ```
+
+### Q2 — Making a placed block unbreakable by vanilla means, but destroyable by our own code
+
+- **The builder class is `AbstractBlock.Settings`, not `Block.Settings`.** Confirmed by reading
+  `Block.java` directly: there is no nested `Block.Settings` class in 1.21.11 at all; `Block`'s
+  own constructor is `public Block(AbstractBlock.Settings settings)`, and the settings builder
+  lives on the shared superclass — exactly parallel to `Item.Settings` for items (this project's
+  own prior finding). Don't assume a `Block.Settings` alias exists just because `Item.Settings`
+  does.
+- **Exact hardness/resistance builder methods, confirmed** (`AbstractBlock.Settings`, all
+  fluent):
+  ```java
+  public AbstractBlock.Settings hardness(float hardness);
+  public AbstractBlock.Settings resistance(float resistance);       // clamped to Math.max(0.0F, resistance)
+  public AbstractBlock.Settings strength(float hardness, float resistance); // = hardness(h).resistance(r)
+  public AbstractBlock.Settings strength(float strength);            // both set to the same value
+  public AbstractBlock.Settings breakInstantly();                    // = strength(0.0F)
+  public AbstractBlock.Settings dropsNothing();                      // suppresses the default loot-table drop
+  public AbstractBlock.Settings registryKey(RegistryKey<Block> key); // MUST be set before construction, same rule as Item.Settings
+  ```
+  Vanilla's own bedrock definition (`Blocks.java`), confirmed exact:
+  ```java
+  Blocks.BEDROCK = register("bedrock", AbstractBlock.Settings.create()
+      .mapColor(MapColor.STONE_GRAY).instrument(NoteBlockInstrument.BASEDRUM)
+      .strength(-1.0F, 3600000.0F).dropsNothing().allowsSpawning(Blocks::never));
+  ```
+- **`hardness == -1.0F` fully blocks *survival* mining — confirmed at the exact mechanism**,
+  `AbstractBlock.calcBlockBreakingDelta(...)`:
+  ```java
+  protected float calcBlockBreakingDelta(BlockState state, PlayerEntity player, BlockView world, BlockPos pos) {
+      float f = state.getHardness(world, pos);
+      if (f == -1.0F) return 0.0F;
+      ...
+  }
+  ```
+  Mining progress is driven entirely by this delta (the server accumulates
+  `calcBlockBreakingDelta(...) * ticksHeld` and only actually breaks the block once that reaches
+  a threshold) — hardcoding `0.0F` means **survival mining progress can never advance, for any
+  tool, ever.**
+- **`resistance` is the independent axis for explosion survival** (`AbstractBlock.resistance`,
+  read via `Block.getBlastResistance()`), confirmed unrelated to the hardness/mining-delta check
+  above — `3_600_000.0F` (bedrock's own constant) is high enough that no vanilla explosion (even
+  the Wither or an end crystal) has any realistic chance of destroying it.
+- **Fire isn't a separate thing to defend against**: a block only burns/is destroyed by fire if
+  its `Settings` opts in via `.burnable()`. Simply never calling `.burnable()` already makes the
+  block fireproof by default — no negative flag needed.
+- **Important, directly-confirmed caveat — `hardness = -1.0F` alone does NOT block
+  creative-mode instant-break.** Reading `ServerPlayerInteractionManager
+  .processBlockBreakingAction(...)` directly:
+  ```java
+  if (action == PlayerActionC2SPacket.Action.START_DESTROY_BLOCK) {
+      ...
+      if (this.player.getAbilities().creativeMode) {
+          this.finishMining(pos, sequence, "creative destroy");   // unconditional, no hardness check at all
+          return;
+      }
+      ... // only survival reaches calcBlockBreakingDelta() / the -1.0F check above
+  }
+  ```
+  `finishMining` → `tryBreakBlock(pos)` never reads hardness either (only `ItemStack.canMine`,
+  an `OperatorBlock` check, and `isBlockBreakingRestricted`). **This is exactly how vanilla
+  bedrock itself actually behaves** — a creative-mode player really can mine bedrock by
+  left-clicking it (well-known, intentional vanilla behavior) — so `-1.0F` hardness is a
+  *survival-mining-only* guarantee, not a universal one.
+  - **The fix is the same `AttackBlockCallback` hook from Q1, and it fully closes this gap.**
+    Since the server-side event fires at the very `HEAD` of `processBlockBreakingAction` —
+    *before* the `creativeMode` branch is even reached — a listener returning non-`PASS` for our
+    block cancels the entire method, meaning **the creative-instant-break branch never runs
+    either.** One hook (already needed for the melee-style damage mechanic in Q1) therefore also
+    fully solves "unbreakable by any player, in any game mode, with any tool" — no separate
+    Mixin is needed just for that.
+  - **Net recommended recipe**: `.strength(-1.0F, 3_600_000.0F).dropsNothing()` (belt — survival
+    mining and explosion immunity, holds even if the listener below were ever missing/
+    misregistered) **plus** the `AttackBlockCallback` listener from Q1 always returning
+    non-`PASS` for this block (suspenders — closes the creative-mode gap, and is the same hook
+    the health-damage feature needs anyway).
+- **Our own code destroying it is completely unaffected by any of the above** — confirmed:
+  `World.removeBlock(BlockPos pos, boolean move)` and `World.breakBlock(BlockPos pos, boolean
+  drop, @Nullable Entity breakingEntity, int maxUpdateDepth)` (`net.minecraft.world.World`)
+  operate directly on world/chunk state and never consult `calcBlockBreakingDelta`/hardness/
+  `AttackBlockCallback` at all — those only exist in the *player-interaction* code paths
+  (`ServerPlayerInteractionManager`/`ClientPlayerInteractionManager`), not in `World` itself.
+  Calling `world.removeBlock(pos, false)` from our own server-side code (e.g. once tracked HP
+  hits 0) works regardless of how unbreakable the block is made against players.
+
+### Q3 — Do we need a `BlockEntity`, and is the Data Attachment API the right tool for it
+
+- **Yes, a `BlockEntity` is needed.** A plain `Block` has no per-instance/per-position mutable
+  state at all — it's a single shared object per registered block *type*; per-position data
+  either lives in `BlockState` properties (small, enumerable, essentially-immutable-per-
+  placement values — not a fit for a changing `int` health counter) or in a `BlockEntity`. An
+  `int` health, a wave counter, and a set of spawned-mob UUIDs all need the latter.
+- **`BlockEntity implements AttachmentTarget` is now directly visible in this project's own
+  decompiled/compiled Minecraft classes, not just documented as a general Fabric fact.** The
+  fresh `genSources` output for `net/minecraft/block/entity/BlockEntity.java` literally shows:
+  ```java
+  /**
+   * ...
+   * <p>Interface {@link net.fabricmc.fabric.api.attachment.v1.AttachmentTarget} injected by mod fabric-data-attachment-api-v1</p>
+   */
+  public abstract class BlockEntity implements DebugTrackable, RenderDataBlockEntity, AttachmentTarget {
+  ```
+  This is Fabric Loom's compile-time **interface injection** (declared via Fabric API's own
+  `fabric.mod.json`), not just a runtime-only Mixin trick — `BlockEntity` genuinely implements
+  the interface at the source level for any code compiled against this project's mapped jars, no
+  cast needed.
+  - **Correction to this project's own previously-recorded phrasing** (see the "Player data /
+    attributes" section above, which said "`Entity`, `BlockEntity`, `ServerLevel`,
+    `ChunkAccess`"): `AttachmentTarget`'s own class javadoc (`fabric-data-attachment-api-v1`
+    `1.8.48+eed0806f3e`, bundled in `fabric-api-0.141.4+1.21.11`) actually says *"Fabric
+    implements this on `Entity`, `BlockEntity`, `ServerWorld` and `Chunk` via mixin"* — those
+    last two are **Yarn** names (`ServerWorld`, `Chunk`), not the Mojang-mapped names
+    (`ServerLevel`, `ChunkAccess`) the earlier entry used. Same targets, just the Yarn spelling
+    to actually grep for in this codebase's own mapped sources.
+- **Whether to actually *use* the Attachment API for a `BlockEntity` we're authoring ourselves
+  (vs. plain fields + an NBT-read/write override) is a judgment call — plain fields are simpler
+  here, and are the recommendation for Rissobelisk.** The Attachment API's main value is
+  retrofitting persistence onto a type this project doesn't own the source of (e.g.
+  `ServerPlayerEntity`, as the Progression/Class systems already do). For a **brand-new custom
+  `BlockEntity` subclass being written from scratch anyway**, plain fields
+  (`private int health;`, `private final Set<UUID> spawnedMobs = new HashSet<>();`) plus the
+  block entity's own NBT override points (below) need no `AttachmentType` registration step, and
+  have no persistence-safety disadvantage: the Attachment API's documented gotcha that
+  **mutating attached data in place requires manually calling `markDirty()`** (`setAttached(...)`
+  does this for you; direct field mutation does not) means a plain field also just needs a
+  `markDirty()` call after mutation — identical ceremony either way. Reach for the Attachment
+  API on a `BlockEntity` instead only if the data needs to be read by unrelated mod code that
+  doesn't hold a reference to the concrete `BlockEntity` subclass, or needs independent
+  `.syncWith(...)`-style client sync — neither applies to Rissobelisk's self-contained state.
+- **Confirmed exact 1.21.11 NBT-equivalent override points on `BlockEntity` — a real,
+  version-specific rename worth flagging**: it is **`protected void readData(ReadView view)`**
+  / **`protected void writeData(WriteView view)`**, not `readNbt(NbtCompound, RegistryWrapper
+  .WrapperLookup)`/`writeNbt(...)` like older-version tutorials show (the class's own javadoc
+  prose still *refers* to them by the old `readNbt`/`writeNbt` names, but the actual overridable
+  signatures use the newer `ReadView`/`WriteView` types). Minimal usage:
+  ```java
+  @Override protected void readData(ReadView view) {
+      this.health = view.getInt("health", this.maxHealth);
+  }
+  @Override protected void writeData(WriteView view) {
+      view.putInt("health", this.health);
+  }
+  ```
+  (`ReadView.getInt(String key, int fallback)` / `WriteView.putInt(String key, int value)`
+  confirmed exact, `net.minecraft.storage.{ReadView,WriteView}`.)
+- **`BlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state)`** is the confirmed
+  constructor — matches `BlockEntityProvider.createBlockEntity(BlockPos pos, BlockState state)`'s
+  own two params (the type isn't passed by the factory interface; the subclass supplies it itself
+  via `super(MY_BE_TYPE, pos, state)`).
+- **Simplest way to get the `BlockEntity` hook at all: implement `BlockEntityProvider` directly
+  on the plain `Block` subclass — don't extend `BlockWithEntity`.** Confirmed via
+  `BlockEntityProvider`'s own javadoc: *"blocks with block entity only have to implement
+  `BlockEntityProvider` and do not have to subclass [`BlockWithEntity`]... it is generally
+  easier to just implement `BlockEntityProvider`."* Concretely: `BlockWithEntity` re-declares
+  `getCodec()` as **abstract**, forcing every subclass to hand-author a `MapCodec`, whereas a
+  plain `Block` subclass already gets a working default `getCodec()` (returns `Block.CODEC`,
+  built from `Block::new`) for free:
+  ```java
+  public class RissobeliskBlock extends Block implements BlockEntityProvider {
+      public RissobeliskBlock(AbstractBlock.Settings settings) { super(settings); }
+      @Override public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
+          return new RissobeliskBlockEntity(pos, state);
+      }
+  }
+  ```
+- **`FabricBlockEntityTypeBuilder` — confirmed exact and current (not deprecated, unlike
+  `FabricEntityTypeBuilder` — see the Registries section above)**
+  (`net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder`,
+  `fabric-object-builder-api-v1` `21.1.40+4fc5413f3e`):
+  ```java
+  public static <T extends BlockEntity> FabricBlockEntityTypeBuilder<T> create(Factory<? extends T> factory, Block... blocks);
+  // FabricBlockEntityTypeBuilder.Factory<T>: T create(BlockPos blockPos, BlockState blockState);
+  public FabricBlockEntityTypeBuilder<T> addBlock(Block block);   // additional supported blocks, chainable
+  public BlockEntityType<T> build();                              // no registry key needed, unlike EntityType.Builder
+  ```
+  `BlockEntityType` registration is simpler than `EntityType`'s (no `.build(registryKey)` dance)
+  — confirmed via vanilla's own private registration helper in `BlockEntityType.java`:
+  `Registry.register(Registries.BLOCK_ENTITY_TYPE, id, new BlockEntityType<>(...))`, i.e. a
+  plain `Identifier`/`String`-keyed `Registry.register(...)` overload is enough.
+- **Full minimal registration shape**, combining all of the above:
+  ```java
+  // registry/ModBlocks.java
+  public final class ModBlocks {
+      public static final RegistryKey<Block> RISSOBELISK_KEY =
+          RegistryKey.of(RegistryKeys.BLOCK, Identifier.of("baum2", "rissobelisk"));
+      public static final Block RISSOBELISK = Registry.register(Registries.BLOCK, RISSOBELISK_KEY,
+          new RissobeliskBlock(AbstractBlock.Settings.create()
+              .registryKey(RISSOBELISK_KEY)
+              .strength(-1.0F, 3_600_000.0F)
+              .dropsNothing()));
+  }
+
+  // registry/ModBlockEntities.java
+  public final class ModBlockEntities {
+      public static final BlockEntityType<RissobeliskBlockEntity> RISSOBELISK_BE = Registry.register(
+          Registries.BLOCK_ENTITY_TYPE, Identifier.of("baum2", "rissobelisk"),
+          FabricBlockEntityTypeBuilder.create(RissobeliskBlockEntity::new, ModBlocks.RISSOBELISK).build());
+  }
+  ```
+
+### Q4 — Pairing a `BlockItem` for survival/creative-tab placement
+
+- **`BlockItem` is still the correct, unchanged class**: `net.minecraft.item.BlockItem extends
+  Item`, constructor confirmed exact: `public BlockItem(Block block, Item.Settings settings)`.
+- **Yes, `Item.Settings.registryKey(...)` is required, the same way this project's existing
+  items already need it** — confirmed by reading vanilla's own block-to-item registration helper
+  (`Items.java`):
+  ```java
+  public static Item register(Block block, BiFunction<Block, Item.Settings, Item> factory, Item.Settings settings) {
+      return register(keyOf(block.getRegistryEntry().registryKey()), // item key = same path as the block's own key
+          itemSettings -> factory.apply(block, itemSettings),
+          settings.useBlockPrefixedTranslationKey());
+  }
+  // ... register(RegistryKey<Item> key, ...) internally does:
+  Item item = factory.apply(settings.registryKey(key));   // registryKey() set BEFORE construction — same rule as Item
+  if (item instanceof BlockItem blockItem) blockItem.appendBlocks(Item.BLOCK_ITEMS, item); // wires up Block.asItem()
+  ```
+  Practical registration, mirroring this project's own established "`.registryKey(key)` before
+  constructing" rule:
+  ```java
+  RegistryKey<Item> RISSOBELISK_ITEM_KEY = RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "rissobelisk"));
+  public static final Item RISSOBELISK_ITEM = Registry.register(Registries.ITEM, RISSOBELISK_ITEM_KEY,
+      new BlockItem(ModBlocks.RISSOBELISK, new Item.Settings().registryKey(RISSOBELISK_ITEM_KEY)));
+  ```
+  Skipping the `BlockItem` registration entirely is also legitimate for a boss-only "world
+  event" block never meant to be manually placed by a player (spawned via command/structure/
+  worldgen instead) — nothing in the Block/BlockEntity registration above depends on a paired
+  `BlockItem` existing.
+
+### Q5 — Dropping a custom `ItemStack` on our own forced destruction
+
+- **`Block.dropStack(World world, BlockPos pos, ItemStack stack)` confirmed exact, public
+  static**, in `net.minecraft.block.Block` (mirrors the entity-side `Entity.dropStack
+  (ServerWorld, ItemStack)` this project's `StoneOfSpidersEntity.dropLoot` already uses, with
+  two small differences: it takes `World`, not `ServerWorld`, and returns `void`, not
+  `@Nullable ItemEntity`):
+  ```java
+  public static void dropStack(World world, BlockPos pos, ItemStack stack) {
+      // spawns an ItemEntity centered on pos (± small random offset), gated internally by
+      // the DO_TILE_DROPS game rule and stack.isEmpty()
+  }
+  ```
+  A `dropStack(World, BlockPos, Direction, ItemStack)` overload also exists (offsets the drop
+  toward a face) — not needed for a plain "drop at the block's own position" case.
+- **Recommended forced-destruction shape**, combining Q2's `World.removeBlock` finding with
+  this:
+  ```java
+  // once tracked health <= 0, server-side:
+  world.removeBlock(pos, false);                              // silent removal — no vanilla drop/particle/loot-table logic
+  Block.dropStack(world, pos, new ItemStack(ModItems.RISSOBELISK_DROP));
+  // grant XP / play custom death effects here too, same pattern as StoneOfSpidersEntity.onDeath
+  ```
+  `World.removeBlock(pos, false)` intentionally does none of vanilla's own break-effects, unlike
+  `World.breakBlock(pos, drop, entity, maxUpdateDepth)` — that method plays the vanilla
+  block-break sound/particle (`syncWorldEvent(WorldEvents.BLOCK_BROKEN, ...)`) and, if
+  `drop=true`, drops items via the vanilla **loot-table** system, not a guaranteed custom stack.
+  For a guaranteed single-item drop, prefer `removeBlock` + an explicit `dropStack` call over
+  `breakBlock(..., true, ...)`, mirroring the "skip the loot-table system for a fixed drop"
+  recommendation this doc already gives for mob loot (see "Loot / Guaranteed Item Drops" above).
+
 ## Open questions

@@ -387,7 +387,10 @@ assets/baum2/
       gold_sword.png           (16x16, item icon - see Section 14)
       poison_dagger.png        (16x16, item icon - see Section 16)
       colossal_warclub.png     (16x16, item icon - see Section 18.3)
-    block/       (future: block textures)
+      risssplitter.png         (16x16, item icon - see Section 19.6)
+    block/
+      rissobelisk.png          (16x16, side/bottom face - see Section 19)
+      rissobelisk_top.png      (16x16, top face - see Section 19)
     entity/
       stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
       stone_of_zombies.png     (176x176 box-UV sheet, same layout as above - see Section 15)
@@ -405,16 +408,27 @@ assets/baum2/
       queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
       queen_spider_boots.json  (see Section 17.4)
       colossal_warclub.json    (see Section 18.3)
-    block/       (future)
+      risssplitter.json        (see Section 19.6)
+    block/
+      rissobelisk.json         (see Section 19.2 - vanilla `cube_bottom_top` parent, no
+                                custom geometry in this first pass)
   items/
     gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
     poison_dagger.json         (1.21.11 item-model-definition entry point - see Section 16)
     queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
     queen_spider_boots.json    (1.21.11 item-model-definition entry points - see Section 17.4)
     colossal_warclub.json      (1.21.11 item-model-definition entry point - see Section 18.3)
+    rissobelisk.json           (1.21.11 item-model-definition entry point - see Section 19.2;
+                                points directly at `models/block/rissobelisk.json`, no
+                                intervening `models/item/rissobelisk.json` - see that section
+                                for why this differs from every other item's two-file pattern)
+    risssplitter.json          (1.21.11 item-model-definition entry point - see Section 19.6;
+                                plain `Item`, so it follows the normal two-file pattern above,
+                                not Rissobelisk's own divergent block-item pattern)
   equipment/
     queen_spider.json          (1.21.11 equipment-texture definition - see Section 17.4)
-  blockstates/   (future)
+  blockstates/
+    rissobelisk.json           (simplest single-variant form - see Section 19.2)
 ```
 
 Conventions:
@@ -1704,8 +1718,311 @@ raise the ceiling here.
 
 ---
 
+## 19. World-event landmark visual identity: "Rissobelisk" (`baum2:rissobelisk`)
+
+The mod's **first custom `Block`** (everything visual before this section was either an
+`Entity`/`EntityModel` — Sections 13/15/17/18 — or a flat 2D item icon — Sections 14/16/18.4).
+A rare, ordinarily-unbreakable stone landmark placed as a "world event" (`RissobeliskBlock.java`
++ `RissobeliskBlockEntity.java`, `strength(-1.0F, 3_600_000.0F)` — unbreakable by mining/
+explosions/creative instant-break, per `MASTERPROMPT.md`'s "Welt-Events" spec). Players whittle
+down a tracked 200 HP pool by left-clicking it; every 10% lost spawns a wave of 3 Silverfish
+("cracks in the stone spew forth vermin"); destroying it fully grants XP and drops
+Risssplitter, a rare crafting material sharing the "Riss"/crack root with the obelisk's own
+name (the fiction: the obelisk cracks apart into splinters when destroyed). It cannot move or
+attack back — a stationary target, not a mobile boss like Sections 17/18.
+
+### 19.1 Palette-bucket decision: treated as boss-tier, not common-mob-tier (2026-07-05)
+
+Section 1.2 (hostile mobs/bosses and their item drops) ratified a rule with two buckets:
+boss-tier mobs always get their own new, cross-checked bespoke palette; future *common*/
+frequently-spawned mobs should default to reusing a small number of shared palettes instead, so
+bespoke palettes stay special. Rissobelisk fits neither bucket cleanly as written: it can't
+fight back (not "boss-tier" in the mobile-mini-boss sense the rule's examples all share — Stone
+of Spiders/Zombies, Spider Queen, Zombie Colossus all deal damage), but it is also obviously not
+a common/trash mob either — it's an explicitly rare, hand-placed, one-off "world event" landmark
+(`MASTERPROMPT.md` names it as one of a short list of *example* world events, alongside
+Sternsplitter/Runenkern, not a generic environment block that spawns anywhere).
+
+**Decision: treat it like a boss for palette purposes — bespoke original "Riftstone" palette
+(Section 19.3), cross-checked against every existing palette in this document, same discipline
+as Sections 15.2/17.3/18.3.** Reasoning:
+
+- **The rule's own stated intent is about rarity/memorability, not mobility or combat
+  capability.** Section 1.2's justification for the common-mob exception was scale ("giving
+  each one its own bespoke palette... would not scale and would dilute what makes boss palettes
+  feel special") — a concern about spawn *frequency*, which doesn't apply here at all.
+  Rissobelisk is a low-frequency, hand-placed, designed set-piece encounter, the exact opposite
+  of a frequently-spawned common mob.
+- **Precedent already treats "is this a boss-adjacent set-piece" as the real boundary, not
+  "is this specifically a mobile, damage-dealing `Entity`."** Section 1.2's own drops sub-rule
+  already extends bespoke-palette treatment to non-mob content (Gold Sword, Poison Dagger,
+  Colossal Warclub, the Queen Spider Set — none of these fight back either, they're items) —
+  so "must be able to attack" was never the actual operative test in practice, even though every
+  bespoke-palette example built so far happened to be either a boss or a boss's own drop.
+- **The counter-consideration (it truly cannot move or fight back) is real but goes to combat/
+  balance classification, not to the visual-identity question this document owns.** A player
+  encountering a landmark clearly designed to look "ominous... a strange, dangerous
+  destination worth traveling to" (this task's own brief) benefits from the same "instantly
+  recognizable, doesn't look like a reused/common asset" treatment a mobile boss gets, regardless
+  of whether it happens to swing back.
+- This is a documented, deliberate reading of Section 1.2's *intent* extended to a content type
+  (`Block`, not `Entity`) that section wasn't written with in mind — flagged explicitly here per
+  this agent's own standing instruction to record judgment calls rather than resolve them
+  silently. If a future common, frequently-placed decorative/landmark block type is ever added
+  (as opposed to a rare hand-placed world event), that would be the point to revisit whether it
+  should default to a shared/reused palette instead, the way common mobs do.
+
+### 19.2 Block model chain — verified against decompiled vanilla 1.21.11 assets, not guessed
+
+This is the mod's first block-adjacent asset of this type (blockstate/block-model JSON), so the
+schema was verified directly against vanilla's own real, shipped 1.21.11 resources (extracted
+from the deobfuscated client jar under `.gradle/loom-cache/minecraftMaven/...`, the same
+ground-truth method Section 14.3 established for item models) rather than assumed from
+potentially-stale training data or copied from an older Minecraft version's conventions.
+
+- **Blockstate** (`assets/baum2/blockstates/rissobelisk.json`) — Rissobelisk has no
+  `BlockState` properties (no facing/waterlogged/etc.), so this uses the simplest possible
+  single-variant form, confirmed identical to vanilla's own `iron_block.json` (a property-less
+  full block):
+  ```json
+  { "variants": { "": { "model": "baum2:block/rissobelisk" } } }
+  ```
+- **Block model** (`assets/baum2/models/block/rissobelisk.json`) — uses a standard vanilla
+  parent rather than authoring custom multi-element geometry, per this pass's explicit scope
+  (a custom tall-obelisk shape extending outside the 0-16 cube is a reasonable future upgrade,
+  not attempted here — no custom geometry has been proven to work in this project yet for
+  blocks). Distinct top vs. side/bottom textures were chosen (`minecraft:block/cube_bottom_top`,
+  not `cube_all`) — verified against vanilla's own `sandstone.json` for the exact 3-texture-key
+  schema (`top`/`bottom`/`side`) — because a bespoke landmark reads better with a distinct
+  "business end" glowing rune-sigil visible from above (Section 19.4) than a uniform 6-face
+  cube would; `bottom` intentionally reuses the same texture file as `side` (rarely seen,
+  no need for a third unique file):
+  ```json
+  {
+    "parent": "minecraft:block/cube_bottom_top",
+    "textures": {
+      "top": "baum2:block/rissobelisk_top",
+      "bottom": "baum2:block/rissobelisk",
+      "side": "baum2:block/rissobelisk"
+    }
+  }
+  ```
+- **Item model — deliberately no separate `models/item/rissobelisk.json`, diverging from
+  every prior item's two-file pattern (Section 14.3 etc.) after verifying vanilla's own actual
+  convention for plain block items.** Extracted and read `assets/minecraft/items/stone.json`,
+  `.../iron_block.json`, and `.../furnace.json` directly from the decompiled client jar: all
+  three point their `assets/minecraft/items/<name>.json` entry point **straight at the block
+  model** (`"model": "minecraft:block/stone"` etc.) with **no intervening
+  `models/item/<name>.json` file at all** — vanilla doesn't create one for ordinary full-block
+  items, because the item-model-definition's `"model"` field can reference any model identifier
+  directly, and a `cube`-derived block model already inherits full `display` transforms
+  (gui/ground/fixed/thirdperson/firstperson + `"gui_light": "side"`, confirmed by reading
+  `assets/minecraft/models/block/block.json`) needed to render correctly as a 3D isometric icon
+  in inventory/hand — unlike a flat `item/generated` icon, which is what every prior item in
+  this document actually needed the extra file for. Rissobelisk's item follows this exact
+  verified vanilla pattern rather than adding a redundant pass-through file purely for
+  superficial consistency with this mod's *other* items (which are all plain `Item`s with a
+  `minecraft:item/handheld`/generated-style parent, a genuinely different case):
+  ```json
+  { "model": { "type": "minecraft:model", "model": "baum2:block/rissobelisk" } }
+  ```
+  Net effect: the block renders as a real 3D cube icon (with the top-face rune-sigil visible)
+  in the inventory and in-hand, not a flat 2D sprite — the correct, verified behavior for a
+  block item, confirmed structurally (not just by inference) against three independent vanilla
+  examples.
+
+### 19.3 Color palette: "Riftstone" (original, distinct from every other palette in this document)
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Stone shadow | Riftstone Shadow | `#14161C` | Deterministic darker speckle pixels across the stone base |
+| Stone mid-tone | Riftstone | `#2B2F3A` | Dominant fill — a cool, dark blue-gray slate |
+| Stone highlight | Riftstone Pale | `#4A4F5E` | Lighter speckle pixels, simulates weathered stone grain |
+| Crack channel | Fissure Void | `#0A0610` | The physical crack line itself — near-black with a cool violet undertone, not pure black |
+| Glow, far/dim | Rift Glow Dim | `#4A1440` | Halo pixels further from a crack's energetic center — energy reads as dissipating with distance |
+| Glow, near/edge | Rift Glow Edge | `#7A1F66` | Halo pixels closer to a crack's center or branch point |
+| Glow, core | Rift Glow Core | `#F23DBE` | The crack's brightest sustained glow — vivid magenta-pink |
+| Glow, hottest point | Rift Glow Pale | `#FCE0F5` | Sparse single/small-cluster highlight only (the top texture's rune core, a couple of kink-point pixels on the side texture) — same "one hot highlight, used sparingly" convention as Gold Sword's blade tip (Section 14.2) or Colossal Warclub's studs |
+
+*Compliance note:* "ancient cracked stone monument with glowing rift/rune energy that spawns
+vermin when damaged" is a broad, unclaimed fantasy trope (corrupted monuments, rift stones, and
+glowing-crack set-pieces appear across countless unrelated games and other fantasy media) — a
+genre convention, not IP tied to any specific existing game. The palette itself was cross-checked
+against every other bespoke palette already in this document:
+
+- **The base stone tone is a new, cooler hue family than every existing stone palette.**
+  Riftstone (`#2B2F3A`) is a genuinely cool blue-gray slate (hue ≈ 224°); Section 13.3's Fused
+  Stone (`#5C574A`, warm tan-brown, hue ≈ 35°), Section 15.2's Blight Stone (`#435930`, olive
+  green, hue ≈ 95°), and Section 18.3's Ashen Hide (`#5C5142`, warm brown-gray, hue ≈ 35°) are
+  all warm or olive. No existing "stone" family in this mod sits in the cool blue-gray range
+  before now.
+- **The glow color is a new hue slice for the mod, not a reuse of either existing violet or red
+  family.** Rift Glow Core (`#F23DBE`) sits at hue ≈ 317° (vivid magenta-pink) — clearly
+  separated from both of this mod's existing violet families (Royal Carapace `#4B2170`/Regal
+  gold armor, hue ≈ 275°; Schattenläufer/Intelligence violet `#7C5CA0`/`#9B5FE0`, hue ≈ 268°,
+  a cooler blue-violet) and its red/ember families (Life `#E2574B`, Rust Ember `#D9776C`, hue ≈
+  5°, orange-red). 317° sits in the previously-unused gap between those two families on the
+  color wheel — not adjacent enough to either to read as a recolor of an existing identity.
+  It's also unrelated to every green glow already in the document (Larval Glow, Plague Glow,
+  Toxic Eye, Bile Blotch, Brute Glare all sit in a yellow-green/chartreuse family; this is a
+  magenta-pink, the opposite side of the wheel).
+- **Lower-confidence flag, per this agent's own standing instruction to say so rather than
+  guess:** a glowing-magenta "corrupted rift/crack" cue is not, as far as could be verified, a
+  specific existing MMORPG's signature exact branding (unlike, say, a very particular
+  saturated teal or a very particular green that some specific franchises are closely
+  associated with) — but if a future pass builds this motif out further (e.g. a whole "Rift"
+  enemy faction or a matching weapon set reusing this exact magenta), it's worth a second,
+  more specific check at that point, the same caveat this document already carries for
+  Runenwirker's teal (Section 3.3).
+
+### 19.4 Placeholder textures (produced this pass)
+
+**Explicitly temporary placeholders**, per `MASTERPROMPT.md`'s asset rule ("Kennzeichne
+Platzhalter klar als eigene temporäre Platzhalter") — flat-fill pixel art, no anti-aliasing,
+generated programmatically (Python + Pillow, available in this environment unlike prior passes
+in this document that fell back to PowerShell + `System.Drawing`), not hand-drawn final art. No
+traced, extracted, or downloaded source material was used — every crack/glow pixel placement is
+original hand-authored coordinate data.
+
+- `assets/baum2/textures/block/rissobelisk.png` — 16x16 RGBA, **fully opaque** (alpha 255
+  throughout; unlike item icons, a block face texture should never have transparency). Used for
+  the side and bottom faces (`cube_bottom_top`'s `side`/`bottom` texture slots). A deterministic
+  speckled stone base (a fixed `(x*7 + y*13) % 11` formula selects shadow/pale speckle pixels,
+  not a saved random seed — reproducible without external state) with a branching network of 3
+  jagged fissures (one main diagonal crack, one branch off it, one small isolated secondary
+  crack) rendered as a `Fissure Void` line with a `Rift Glow Edge`/`Rift Glow Dim` halo bleeding
+  onto adjacent pixels (nearer segments get the brighter Edge tone, farther segments the dimmer
+  Dim tone, so the glow reads as radiating from a couple of energetic points rather than being
+  uniform along the whole crack), plus two sparse `Rift Glow Pale` hot-point pixels at kink
+  joints.
+- `assets/baum2/textures/block/rissobelisk_top.png` — 16x16 RGBA, fully opaque. Used for the
+  top face only. Same speckled stone base, with a radiating rune-sigil motif instead of parallel
+  diagonal cracks: a small central diamond-shaped `Fissure Void` cavity around a 2x2 `Rift Glow
+  Pale` core, with 4 diagonal fissure rays extending from the diamond's corners toward each
+  canvas corner (same near/far Edge-then-Dim halo falloff as the side texture) — reads as a
+  glowing rune carved into the stone, visible from above, distinct from the side faces so the
+  block doesn't look like a uniform reskinned building-block.
+- Generation script (not checked into the repo, reproducible from Section 19.3's hex table plus
+  this description if regeneration is ever needed): defines the palette, the deterministic
+  speckle formula, and explicit hand-placed crack/ray coordinate lists, then paints each crack
+  pixel `Fissure Void` and its unclaimed orthogonal neighbors a glow tone based on distance from
+  the crack/ray's start.
+- **Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in
+  this document): real hand-drawn surface detail (finer stone grain, a more deliberate carved
+  rune glyph rather than a generic radiating-crack shape, actual emissive/glow rendering via a
+  resource-pack overlay or shader if the project ever adds one) — this pass proves the model/
+  blockstate chain resolves correctly and gives the block something thematically appropriate to
+  look at in-game, not final art.
+
+### 19.5 Files produced this pass
+
+- `src/main/resources/assets/baum2/textures/block/rissobelisk.png` (16x16, placeholder)
+- `src/main/resources/assets/baum2/textures/block/rissobelisk_top.png` (16x16, placeholder)
+- `src/main/resources/assets/baum2/blockstates/rissobelisk.json` (real, verified schema)
+- `src/main/resources/assets/baum2/models/block/rissobelisk.json` (real, verified schema)
+- `src/main/resources/assets/baum2/items/rissobelisk.json` (real, verified schema — points
+  directly at the block model, no separate `models/item/` file; see Section 19.2)
+- `src/main/resources/assets/baum2/lang/en_us.json` — added `"block.baum2.rissobelisk":
+  "Rissobelisk"` (an asset/translation file, not gameplay code; `BlockItem`'s translation key
+  resolves to the block's own key by default, so this single entry covers both the in-world
+  block's tooltip/highlight name and the dropped item's inventory name)
+
+No Java/gameplay code was changed. `./gradlew build` confirmed passing after these changes
+(no Java was touched, so this only re-confirms nothing in the resource pipeline broke).
+
+### 19.6 Follow-up fix: Risssplitter drop icon (2026-07-05)
+
+`Risssplitter` (`baum2:risssplitter`, `ModItems.java`) — the rare crafting material this block
+drops — was registered as a plain `Item` in Java but shipped with **no visual assets at all**
+(no texture, no item model, no item-model-definition wrapper), so it rendered with a missing/
+blank texture in-game. This is a bugfix follow-up to Section 19, not a new content unit — it
+gets a subsection here rather than its own top-level numbered section, and it **reuses the
+Riftstone palette (19.3) unchanged, introducing zero new colors**, per this fiction's own
+framing (`HANDOFF.md`): the obelisk cracks apart into splinters when destroyed, so the drop is
+literally a fragment of the obelisk's own stone/crack material, not a separate design.
+
+- **Design**: a jagged, angular shard/fragment silhouette (not a clean gem-cut) — hand-authored
+  per-row pixel mask, tapering to a point near the top and bottom with an irregular width
+  (2–8px) down its length, reading as a broken chunk rather than a polished crystal. Filled with
+  the same deterministic speckled-stone formula as the block face textures (`(x*7 + y*13) % 11`
+  selecting Riftstone Shadow/Mid/Pale), split by a single hand-placed `Fissure Void` crack line
+  running most of the shard's length, with a `Rift Glow Edge` halo and one `Rift Glow Pale` hot
+  pixel concentrated only around the crack's midpoint (rows 4–6) — **deliberately no halo on the
+  rest of the crack's length**, a restrained departure from the block texture's fuller near/far
+  Edge-then-Dim halo treatment (Section 19.4), because this icon's shard body is only 2–8px wide
+  at any row; an early draft that copied the block texture's wider two-ring halo directly
+  swallowed the entire stone body in magenta and had to be redrawn narrower to keep the glow a
+  genuine "thin crack/edge accent" (this task's own brief) rather than the dominant color. The
+  shard's outline reuses `Fissure Void` doing double duty as both crack-channel color and the
+  1px silhouette outline stroke, matching the "shape + darker outline" convention already
+  established for the class/subspec icons (Section 3.3/9.1).
+- **Technical**: 16x16 RGBA, transparent background, flat-fill, no anti-aliasing — same
+  placeholder tier as every other icon in this document, generated programmatically (Python +
+  Pillow). No traced, extracted, or downloaded source material was used. Follows the exact
+  two-file `minecraft:item/generated` + `layer0` pattern established for this mod's other plain
+  flat-icon items (Gold Sword, Section 14; Poison Dagger, Section 16) — **not** Rissobelisk's
+  own divergent block-item pattern (Section 19.2), since Risssplitter is a plain `Item`, not a
+  `BlockItem`.
+- **Files produced this pass**:
+  - `src/main/resources/assets/baum2/textures/item/risssplitter.png` (16x16, placeholder)
+  - `src/main/resources/assets/baum2/items/risssplitter.json` (item-model-definition wrapper,
+    `minecraft:model` → `baum2:item/risssplitter`)
+  - `src/main/resources/assets/baum2/models/item/risssplitter.json` (`minecraft:item/generated`
+    parent, `layer0` → `baum2:item/risssplitter`)
+  - `src/main/resources/assets/baum2/lang/en_us.json` — added `"item.baum2.risssplitter":
+    "Risssplitter"` (was also missing; without it the item would show its raw translation key
+    as its inventory name even once the texture was fixed)
+- No Java/gameplay code was changed. `./gradlew build` confirmed passing after these changes.
+
+---
+
 ## Changelog
 
+- **2026-07-05** — Added Section 19.6 (bugfix follow-up): "Risssplitter" (`baum2:risssplitter`,
+  the crafting material the Rissobelisk world-event block drops) had been registered as a plain
+  `Item` in Java with **zero visual assets** — no texture, no item model, no item-model-
+  definition wrapper — and rendered with a missing/blank texture in-game. Produced a 16x16
+  placeholder icon (jagged obelisk-fragment shard silhouette, deterministic speckled Riftstone
+  stone fill, single `Fissure Void` crack with a restrained `Rift Glow Edge`/`Rift Glow Pale`
+  halo concentrated only at the crack's midpoint — a narrower halo treatment than the block
+  texture's, deliberately kept thin so it reads as an accent rather than swallowing the shard's
+  stone body) reusing Section 19.3's "Riftstone" palette unchanged (zero new colors), plus the
+  standard `minecraft:item/generated` + `layer0` two-file model pattern (Gold Sword/Poison
+  Dagger's pattern, not Rissobelisk's own divergent block-item pattern). Also added the missing
+  `item.baum2.risssplitter` lang entry (the item had none, so it would have shown its raw
+  translation key as its inventory name even with the texture fixed). No Java/gameplay code
+  changed; `./gradlew build` confirmed passing. Updated Section 6's folder listing.
+- **2026-07-05** — Added Section 19 (world-event landmark visual identity: "Rissobelisk",
+  `baum2:rissobelisk` — the mod's **first custom `Block`**, as opposed to every prior visual
+  asset which was either an `Entity`/`EntityModel` or a flat item icon). Produced the mod's
+  first-ever blockstate JSON, block model JSON, and block-item-model JSON, all verified against
+  vanilla's own real 1.21.11 assets extracted from the decompiled client jar rather than
+  guessed: the blockstate uses the simplest property-less single-variant form (confirmed
+  identical to vanilla's `iron_block.json`); the block model uses `minecraft:block/
+  cube_bottom_top` (confirmed 3-texture-key schema against vanilla's `sandstone.json`) for a
+  distinct top-face rune-sigil vs. side/bottom crack texture; the item model **deliberately
+  omits** the `models/item/rissobelisk.json` file every prior item in this document has, after
+  verifying vanilla's own `stone.json`/`iron_block.json`/`furnace.json` all point their item-
+  model-definition entry point straight at the block model with no intervening file — see
+  Section 19.2 for the full reasoning (this is a *divergence* from the item-model pattern
+  Section 14.3 established, not an inconsistency with it: that pattern was for plain `Item`s
+  with a flat-icon parent, a different case). Made and documented an explicit palette-bucket
+  judgment call (Section 19.1): Rissobelisk doesn't cleanly fit either bucket Section 1.2's
+  boss-vs-common-mob rule was written for (can't fight back, but is a rare hand-placed
+  landmark, not a common mob) — decided to treat it like a boss for palette purposes (bespoke,
+  cross-checked "Riftstone" palette) since Section 1.2's actual rationale was about spawn
+  frequency/memorability, not mobility or combat capability, and precedent (item drops already
+  getting bespoke palettes) already shows "is this rare/memorable set-piece content" was the
+  real operative test. Established a new "Riftstone" palette — a cool blue-gray stone family
+  (distinct from every existing warm/olive stone palette in this document) with a vivid
+  magenta-pink "Rift Glow" crack/rune-energy accent (a new, previously-unused hue slice on the
+  mod's color wheel, checked distinct from both existing violet families and every existing
+  green/red glow). Produced two 16x16 placeholder textures (side/bottom + top) via Python +
+  Pillow (available in this environment, unlike prior passes in this document which fell back
+  to PowerShell + `System.Drawing`) — deterministic speckled stone base plus hand-placed
+  branching-fissure/radiating-rune-sigil crack coordinates with a near/far glow-halo falloff.
+  Added the `block.baum2.rissobelisk` lang entry (asset file, not code). Updated Section 6's
+  folder listing. No Java/gameplay code touched; `./gradlew build` confirmed passing.
 - **2026-07-05** — Added Section 9.1 (8 placeholder sub-spec icons for the Character Stats
   Screen's Class-tab `SubspecCardWidget` cards, which shipped with no icon art at all — see
   `HANDOFF.md`'s "Class Overhaul v2 follow-up"). Each icon is its parent class's exact existing

@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "top": "baum2:block/rissobelisk_top",
+    "bottom": "baum2:block/rissobelisk",
+    "side": "baum2:block/rissobelisk"
+  }
+}

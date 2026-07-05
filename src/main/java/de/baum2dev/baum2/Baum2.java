@@ -12,8 +12,11 @@ import de.baum2dev.baum2.events.MobDeathHandler;
 import de.baum2dev.baum2.events.ProgressionTickHandler;
 import de.baum2dev.baum2.events.VitalsTickHandler;
 import de.baum2dev.baum2.networking.Baum2Networking;
+import de.baum2dev.baum2.block.RissobeliskBlock;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.VitalsManager;
+import de.baum2dev.baum2.registry.ModBlockEntities;
+import de.baum2dev.baum2.registry.ModBlocks;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.registry.ModItems;
 import de.baum2dev.baum2.skills.DelayedSpellEffectScheduler;
@@ -37,6 +40,9 @@ public class Baum2 implements ModInitializer {
         ModEntities.registerAttributes();
         ModItems.bootstrap();
         ModItems.registerItemGroups();
+        ModBlocks.bootstrap();
+        ModBlocks.registerItemGroups();
+        ModBlockEntities.bootstrap();
 
         Baum2Commands.registerCommands();
         Baum2Networking.registerServerPayloads();
@@ -49,6 +55,7 @@ public class Baum2 implements ModInitializer {
         PoisonDaggerHandler.registerEvents();
         BurnDamageManager.registerEvents();
         DelayedSpellEffectScheduler.registerEvents();
+        RissobeliskBlock.registerEvents();
 
         LOGGER.info("Baum2 progression system loaded");
     }

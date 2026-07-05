@@ -107,6 +107,21 @@ public class ModItems {
             new Item(new Item.Settings().registryKey(QUEEN_SPIDER_BOOTS_KEY).armor(QUEEN_SPIDER_ARMOR_MATERIAL, EquipmentType.BOOTS))
     );
 
+    /**
+     * "Risssplitter" - the rare material dropped by the Rissobelisk world-event block
+     * (`block/RissobeliskBlock.java`). Plain crafting-material item, no recipes/equipment
+     * behavior yet - the full Upgrade-Materialien system (MASTERPROMPT.md Priority 2) is a
+     * separate, larger task this doesn't attempt.
+     */
+    public static final RegistryKey<Item> RISSSPLITTER_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "risssplitter"));
+
+    public static final Item RISSSPLITTER = Registry.register(
+            Registries.ITEM,
+            RISSSPLITTER_KEY,
+            new Item(new Item.Settings().registryKey(RISSSPLITTER_KEY))
+    );
+
     public static void registerItemGroups() {
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
             entries.add(GOLD_SWORD);
@@ -117,6 +132,7 @@ public class ModItems {
             entries.add(QUEEN_SPIDER_LEGGINGS);
             entries.add(QUEEN_SPIDER_BOOTS);
         });
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.INGREDIENTS).register(entries -> entries.add(RISSSPLITTER));
     }
 
     /** No-op - calling this forces this class (and its static Item registrations) to load. */

@@ -7,24 +7,30 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 ## Current state
 
 This reflects `jonas_workbranch` (fast-forwarded into `master` too, both branches at the same
-commit) after merging `origin/master` twice this session (Fischey's Vitals/Attribute/
-Character-Stats work, then his Combat System v1 + four mini-boss mobs), adding a Skill System +
-Class Sub-specializations on top, then a "Class Overhaul v2" pass (spell scaling, Mana costs,
-sub-spec spell forks, respec cooldowns), a same-session GUI follow-up (sub-specs and spells
-added to the Class tab), and a Visual/Art Pass (8 sub-spec icons, two long-open palette
-decisions resolved) — see "Last change" below for detail on the merges and each feature pass.
+commit as of the last push) after merging `origin/master` twice this session (Fischey's
+Vitals/Attribute/Character-Stats work, then his Combat System v1 + four mini-boss mobs), adding
+a Skill System + Class Sub-specializations on top, then a "Class Overhaul v2" pass (spell
+scaling, Mana costs, sub-spec spell forks, respec cooldowns), a same-session GUI follow-up
+(sub-specs and spells added to the Class tab), a Visual/Art Pass (8 sub-spec icons, two
+long-open palette decisions resolved), and the mod's **first custom `Block`** — "Rissobelisk,"
+the first World-Event block (`MASTERPROMPT.md`'s last remaining Priority 1 item) — see "Last
+change" below for detail on the merges and each feature pass.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
-  (verified clean boot 4 times this session, no Mixin/payload/HUD-registration
+  (verified clean boot 6 times this session, no Mixin/payload/HUD-registration
   errors/exceptions in the log). **Both the Class Overhaul v2 feature set (spell scaling, Mana
   costs, sub-spec forks, respec cooldowns) and its GUI follow-up (Class tab sub-spec/spell
   cards) are user-confirmed working in-game** ("worked fine" / "works"). Not itemized back
   against every line of the original playtest checklist (see "Next recommended step" item 0,
   kept as a reference in case any specific sub-item still needs a closer look), so treat this
   as "no reported breakage from real play," not an exhaustive per-mechanic sign-off. **The
-  Visual/Art Pass's 8 sub-spec icons are now also user-confirmed rendering correctly in-game**,
-  including the subtlest pair (Schattenpirscher vs. Sturmklinge).
+  Visual/Art Pass's 8 sub-spec icons are also user-confirmed rendering correctly in-game**,
+  including the subtlest pair (Schattenpirscher vs. Sturmklinge). **Rissobelisk's core mechanic
+  (place, attack, wave-spawn, destroy) is user-confirmed working** — the user's own playtest
+  caught 2 real bugs (missing Risssplitter icon; the block's own `BlockItem` showing its raw
+  untranslated name instead of "Rissobelisk"), both fixed and build-verified, but **the fixes
+  themselves have not yet been re-confirmed in a live session** — see "Next recommended step".
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 
@@ -746,9 +752,114 @@ a ground AoE, and a 3-hit burst combo.
   boot are necessary but not sufficient checks. All four new mini-bosses in this update are
   explicitly **not yet verified in an actual game session** for exactly this reason.
 
+### Rissobelisk — first custom `Block`, first World-Event (`baum2:rissobelisk`)
+
+User asked to "plan the next features" (not another fix/art pass). Checked
+`MASTERPROMPT.md`'s "Entwicklungsprioritäten" against this file's own state: every Priority 1
+item was done except the last one, **"Erster Event-Block."** Section 4 ("Welt-Events") already
+specifies the brief in full (rare destructible world object, attacking spawns waves, destroying
+grants XP/loot/rare materials, "**first version may be a manually placeable Block**") — this
+implements it as a literal `Block`, the mod's first one ever (every prior piece of custom
+content was an `Entity` or `Item`).
+
+- **New research needed first**: no `Block`/`BlockEntity` pattern existed anywhere in this
+  codebase. Dispatched `fabric-docs-researcher` to confirm, via fresh `gradlew genSources` +
+  decompiling the exact bundled Fabric API submodule jars (not guessed from training data):
+  `net.fabricmc.fabric.api.event.player.AttackBlockCallback` exists and fires at the `HEAD` of
+  the server's block-break handling — before *both* survival mining and the creative-mode
+  instant-break branch — so a listener returning non-`PASS` for a specific block cancels all
+  vanilla destruction paths in one hook; `AbstractBlock.Settings.strength(-1.0F, 3_600_000.0F)`
+  (bedrock's own values) blocks survival mining/explosions but **not** creative instant-break on
+  its own (a real, verified vanilla behavior — the `AttackBlockCallback` hook closes that gap);
+  a `BlockEntity` is needed for the mutable HP/wave-state (plain fields, not the Attachment API
+  — no persistence-safety win for a from-scratch type this project already owns the source of);
+  `BlockEntity`'s NBT-equivalent override points are `readData(ReadView)`/`writeData(WriteView)`
+  in this version, not the older `readNbt`/`writeNbt` shape. Findings persisted to
+  `docs/fabric-modding.md`'s new "Custom `Block`s and `BlockEntity`s" section — reusable for any
+  future block work (e.g. the next `MASTERPROMPT.md` world-event example: Chaosmonolith,
+  Sternsplitter, etc.).
+- **Mechanics** (`block/RissobeliskBlock.java`, `block/RissobeliskBlockEntity.java`): 200 HP
+  pool (matches `StoneOfSpidersEntity`'s own "first of its kind" precedent exactly), damaged by
+  a player left-clicking it directly — damage-per-hit is the attacker's live
+  `EntityAttributes.ATTACK_DAMAGE` value (so Strength/weapon investment matters here too, same
+  as real melee). Every full 10%-of-max-health lost spawns a wave of 3 vanilla Silverfish
+  nearby, cumulative and one-shot per threshold — a **direct structural port of
+  `StoneOfSpidersEntity`'s own wave-spawn/UUID-tracking/death-cascade logic**, ported from
+  entity-health to block-health. On reaching 0 HP: force-destroys itself
+  (`world.removeBlock`), kills any still-alive spawned Silverfish, grants 110 XP (reuses
+  `MobDeathHandler`'s own `10 + maxHealth/2` formula verbatim), and drops 1 `Risssplitter`.
+- **Naming**: "Rissobelisk" (block) and "Risssplitter" (the material it drops) are both
+  `MASTERPROMPT.md`'s own pre-listed examples (Section 4, Section 7 respectively), picked
+  together because they share the "Riss" (crack/rift) root — the obelisk cracks apart into
+  splinters when destroyed. `ip-naming-compliance-checker` cleared both explicitly (checked
+  against Metin2 by name per `CLAUDE.md`'s callout, and generally) — **but flagged a secondary,
+  non-blocking observation worth a human decision**: the underlying mechanic itself (stationary
+  object, spawns escalating waves as it's damaged, drops loot on destruction) is conceptually
+  close to Metin2's signature "Metin Stone" mechanic. This was already reviewed and cleared once
+  for `StoneOfSpidersEntity`/`StoneOfZombiesEntity` as "a widely-used genre archetype, not a
+  specific-game match" — Rissobelisk just reapplies that already-cleared pattern a third/fourth
+  time, now to a `Block` instead of an `Entity`. Not re-flagged as a blocker, but worth a
+  deliberate revisit given how many mini-bosses now share this one mechanic shape.
+- **`balance-reviewer` findings, logged, not fixed (design/judgment calls, no bugs found)**:
+  (a) time-to-destroy collapses to **2 hits at max Strength/weapon investment** regardless of
+  weapon choice (Strength's flat +99 bonus dwarfs any weapon's own flat damage) — reads as the
+  trivial end for a "mini-boss," a direct symptom of the already-tracked Combat System v1 DPS
+  ceiling (see "Next recommended step" below), not a new problem; (b) because block-damage never
+  routes through `PlayerEntity.attack()`, **Dexterity (Attack Speed + Crit Chance) has zero
+  effect on Rissobelisk** — every other combat encounter in this mod has all three stats
+  compounding, so a Dexterity-invested player gets nothing extra here; (c) at max investment a
+  single hit can cross 5-6 of the 10 wave-thresholds at once, spawning up to 18 Silverfish in
+  one synchronous call — today's numbers don't allow an actual one-hit 200→0 kill (max single-hit
+  ~120-125 damage `<` 200), so this doesn't currently produce a spawn-then-instantly-kill wash,
+  but the margin (~75-80 damage) is closer than it looks given the ceiling has climbed twice
+  already (Gold Sword, Poison Dagger); (d) the block is currently creative/`/give`-only, so the
+  "rare, one-off" framing behind the 110 XP + guaranteed-drop reward is only true because it
+  isn't survival-obtainable yet — if a future recipe/drop ever makes `RISSOBELISK_ITEM`
+  obtainable, the 2-hit max-investment kill turns this into a repeatable farm with only mild
+  Silverfish friction, worth a placement limiter (cooldown/charges) before that happens, not
+  after.
+- **Visual identity**: dispatched `graphics-designer` for the block's first-ever
+  blockstate/block-model/item-model JSON chain in this project (verified against real vanilla
+  1.21.11 data via decompiled `stone.json`/`iron_block.json`/`sandstone.json`, not guessed) plus
+  a placeholder texture. New "Riftstone" palette (cool blue-gray stone + magenta "Rift Glow"
+  crack accent) — `docs/visual-style-guide.md` Section 19. **Palette-bucket judgment call**:
+  Section 1.2's just-ratified boss-vs-common palette rule wasn't written with a non-fighting
+  `Block` in mind; treated Rissobelisk as boss-tier anyway (rare, unique, one-off — the same
+  properties Section 1.2's rule actually cares about, not literally "can it fight back"),
+  reasoning recorded in Section 19.1.
+- **Two real bugs found by the user's own in-game test, both fixed**: (1) `Risssplitter` had
+  **zero visual assets** — registered in Java but nobody had produced its icon (an oversight in
+  scoping the first `graphics-designer` dispatch, which only covered the block itself) — fixed
+  with a second `graphics-designer` dispatch, reusing the block's own "Riftstone" palette so the
+  material reads as a literal fragment of the obelisk. (2) The `RissobeliskBlock` `BlockItem`
+  displayed its raw untranslated key (`item.baum2.rissobelisk`) instead of "Rissobelisk" —
+  caused by omitting `Item.Settings.useBlockPrefixedTranslationKey()`, which vanilla's own
+  `Items.register(Block, ...)` helper always calls so a `BlockItem` reads its parent block's
+  `block.<namespace>.<path>` lang key instead of needing its own separate one (this exact
+  vanilla behavior had already been confirmed in the `fabric-docs-researcher` findings above —
+  the bug was in not applying it, not a documentation gap). Fixed in `registry/ModBlocks.java`.
+- **Build passes; the fixes above are build-verified but not yet re-confirmed in a live
+  session** (the client run after fixing them closed at the main menu without a world being
+  joined) — see "Next recommended step".
+
 ## Last change (on `jonas_workbranch`, fast-forwarded into `master`)
 
-**Visual/Art Pass**: fast-forwarded `master` to match `jonas_workbranch` (pure fast-forward,
+**Rissobelisk**: the mod's first custom `Block` and first World-Event, closing
+`MASTERPROMPT.md`'s last remaining Priority 1 item — full detail in "Current state" above under
+"Rissobelisk". Planned via Plan Mode after checking the project's own roadmap priorities;
+`fabric-docs-researcher` dispatched first since no `Block`/`BlockEntity` pattern existed in this
+codebase (findings in `docs/fabric-modding.md`); implementation built clean on the first
+attempt. Dispatched `graphics-designer` (visuals), `ip-naming-compliance-checker` (names, both
+cleared, one non-blocking observation logged), and `balance-reviewer` (numbers, no bugs, several
+design tensions logged) in parallel. **User's own in-game test caught 2 real bugs the review
+agents didn't** — a completely missing item icon (a scoping miss: the first `graphics-designer`
+dispatch only covered the block, not its drop) and a missing
+`useBlockPrefixedTranslationKey()` call (vanilla's own established pattern, already documented
+in this session's own research findings, just not applied) — both fixed and build-verified, not
+yet re-confirmed live.
+
+Earlier, still on `jonas_workbranch`: **Visual/Art Pass**: fast-forwarded `master` to match
+`jonas_workbranch` (pure fast-forward,
 zero conflicts — `master` had no commits `jonas_workbranch` didn't already have from this
 session's earlier merges), then did a visual/art pass per the user's "plan the next steps"
 request. Dispatched `graphics-designer` for 8 new sub-spec icons (`assets/baum2/textures/gui/
@@ -977,6 +1088,14 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
+**Highest priority, build-verified only, not yet re-confirmed live**: `/give @s
+baum2:rissobelisk`, confirm the item's name shows as "Rissobelisk" (not the raw
+`item.baum2.rissobelisk` key), place it, attack it to destroy, and confirm the dropped
+`Risssplitter` shows its new icon (not a missing-texture placeholder) — these are the exact 2
+bugs the user's own last playtest caught and this session just fixed. Also worth a full
+mechanic re-check while there: waves spawn at each 10% threshold, normal mining/explosions
+can't destroy it, XP is granted on destruction.
+
 0. **Done**: the 8 sub-spec icons (including the subtle Schattenpirscher/Sturmklinge pair) are
    user-confirmed rendering correctly, alongside Class Overhaul v2 + its GUI follow-up. Kept
    the itemized checklist below only as a reference in case a specific sub-item needs closer
@@ -1042,7 +1161,21 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
     section above. Confirmed this session: this needs an actual human artist or an external
     image-generation tool — `graphics-designer` cannot produce it itself (text-based agent, no
     image-generation capability).
-11. Remaining Priority 1 items per `CLAUDE.md`: first world-event block (item, weapon, and
-    first active skill are now all done — see Stone of Spiders/Skill System v1 above). Consult
-    `fabric-docs-researcher` / `docs/fabric-modding.md` before implementing if the relevant
-    Fabric API is unclear. Use `graphics-designer` for the texture/model/icon it will need.
+11. **Done**: every Priority 1 item per `MASTERPROMPT.md` is now complete (first world-event
+    block was the last one — see "Rissobelisk" above). Priority 2 is also mostly done
+    (Klassen-System, Skill-Auswahl, bessere Persistenz); remaining Priority 2 items:
+    Gegner-Spawns (natural spawn paths — see item 9 above), Loot-System (generalized, beyond
+    each boss's own hardcoded single-item drop), Upgrade-Materialien (a real system to spend
+    `Risssplitter`/future materials on — none exists yet). Priority 3
+    (Dungeons/Fraktionen/Quests/Bossmechaniken/Balancing/Konfiguration) is next after that.
+12. A second `MASTERPROMPT.md` world-event block (Chaosmonolith, Sternsplitter, Verderbter
+    Altar, Echosäule, or Sturmsiegel — the other 5 pre-listed examples) would now be fast to
+    build: `docs/fabric-modding.md`'s new "Custom Blocks and BlockEntitys" section has every API
+    answer already researched, and `RissobeliskBlockEntity`'s wave-spawn/HP-threshold logic is
+    generic enough to likely be reusable rather than re-ported from `StoneOfSpidersEntity` again.
+13. The `ip-naming-compliance-checker`'s secondary observation on Rissobelisk (see "Rissobelisk"
+    above) — the wave-spawning-stone mechanic itself now underlies 3-4 mini-bosses/blocks and
+    reads as conceptually close to Metin2's core "Metin Stone" mechanic, even though each
+    individual case has been cleared as "genre archetype, not a specific match." Worth a
+    deliberate human decision on whether that pattern should keep being reused a 5th time, now
+    that it's this project's single most-repeated mechanic shape.

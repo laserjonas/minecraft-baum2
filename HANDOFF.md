@@ -7,14 +7,19 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 ## Current state
 
 This reflects `jonas_workbranch` after merging `origin/master` twice this session (Fischey's
-Vitals/Attribute/Character-Stats work, then his Combat System v1 + four mini-boss mobs) and
-adding a Skill System + Class Sub-specializations on top — see "Last change" below for detail
-on both merges and the skill/subspec work.
+Vitals/Attribute/Character-Stats work, then his Combat System v1 + four mini-boss mobs), adding
+a Skill System + Class Sub-specializations on top, and then a "Class Overhaul v2" pass (spell
+scaling, Mana costs, sub-spec spell forks, respec cooldowns) — see "Last change" below for
+detail on the merges and each feature pass.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
-  (verified clean boot, no Mixin/payload/HUD-registration errors; user-confirmed working
-  in-game for spell casting via keybind and command).
+  (verified clean boot twice this session, no Mixin/payload/HUD-registration errors/exceptions
+  in the log). **The Class Overhaul v2 feature set below (spell scaling, Mana costs, sub-spec
+  forks, respec cooldowns) has NOT yet been manually playtested** — both `runClient` sessions
+  this pass were short (join + a few seconds, or an earlier unrelated session that leveled up
+  and summoned a mini-boss) and didn't exercise spell-casting/class commands. Build+clean-boot
+  is confirmed; feature-level behavior is not. See "Next recommended step".
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 
@@ -211,9 +216,9 @@ name/level/health bar of a targeted living entity.
   "Next recommended step") — a quick manual check confirmed class selection/switching *works*
   end-to-end via both the command and the GUI, but the exact numeric modifier values
   (`/attribute @s ... modifier value get baum2:class_bonus/...`) haven't been checked.
-- **Known, logged, not fixed (design/judgment calls)**: free, instant, zero-cooldown class
-  reselection lets a player capture all four bonuses' benefit contextually; Runenwirker's luck
-  has no loot system yet to act on.
+- **Class reselection is no longer free/instant** — see "Class Overhaul v2" below (30-minute
+  respec cooldown). **Still logged, not fixed**: Runenwirker's luck has no loot system yet to
+  act on.
 
 ### Skill System v1 — 8 active spells, keybind + command casting
 
@@ -238,10 +243,9 @@ name/level/health bar of a targeted living entity.
   classes and their sub-specs" — that was rejected as direct IP copying (Metin2 named
   specifically), and resolved with the user in favor of building original spells/sub-specs
   from this project's *own* already-established class identities instead.
-- **Damage is flat/hardcoded, not yet scaled by any attribute** (see "Attribute System"
-  above) — a real combat/skill unification (e.g. spell damage scaling off Intelligence via
-  `VitalsCurve.getBaseMagicAttack`, allowing spell crits) is a deliberate future decision, not
-  done yet — see "Next recommended step".
+- **Damage/duration/distance now scale off the caster's attributes, and spells cost Mana** —
+  see "Class Overhaul v2" below. (No spell crits yet — that remains a deliberate future
+  decision, not done.)
 - **New design-adjacency risk, found by `merge-integration-reviewer` while merging in master's
   combat/mob work, not yet resolved**: `combat/PoisonDaggerHandler.java` (master) listens on
   `ServerLivingEntityEvents.AFTER_DAMAGE` and applies Poison to *any* damage a player holding
@@ -286,13 +290,102 @@ name/level/health bar of a targeted living entity.
 - **`balance-reviewer` also found Lebensband (the "heal" spell) was non-functional**: a flat
   6 HP heal against Life's new post-Vitals-rework scale (500-2480) is outpaced by passive Life
   Regen after just ~3 Endurance points. Fixed to heal 12% of max life instead of a flat amount.
-- **Logged, not fixed (design/judgment calls)**: no spell costs Mana despite a Mana system
-  existing specifically to be spent; sub-spec reselection is free/instant/uncapped, same known
-  gap as base-class reselection; none of the 4 AoE/damage spells do a line-of-sight/raycast
-  check, so they can hit through walls; `Nebelschritt`'s dash has no collision check; AoE
-  effects don't filter out other players, so they hit friend and foe alike; `Arkaner Kreis`'s
-  25s cooldown / 15s duration lets 2 coordinated players keep its Luck buff at 100% uptime
-  (currently low-impact only because Luck has no loot-system consumer yet).
+- **Mana costs and respec cooldowns are no longer missing** — see "Class Overhaul v2" below.
+  **Still logged, not fixed**: none of the 4 AoE/damage spells do a line-of-sight/raycast check,
+  so they can hit through walls; `Nebelschritt`'s dash has no collision check; AoE effects don't
+  filter out other players, so they hit friend and foe alike; `Arkaner Kreis`'s 25s cooldown /
+  15s duration lets 2 coordinated players keep its Luck buff at 100% uptime (currently
+  low-impact only because Luck has no loot-system consumer yet).
+
+### Class Overhaul v2 — spell scaling, Mana costs, sub-spec spell forks, respec cooldowns
+
+Triggered by direct user feedback ("the classes are still lame") after Skill System v1/
+Sub-specializations v1 shipped: classes were one flat stat bonus each, spells never scaled
+with the character, Mana had zero consumers, sub-specs only differed by which stat they bumped,
+and class/sub-spec reselection was free/instant/unlimited. Planned and approved via Plan Mode
+before implementation (4 independently-buildable steps); see `git log -p HANDOFF.md` for the
+original plan narrative if needed.
+
+- **1. Spell scaling** (`skills/SpellEffects.java`): each class's damage/heal spell now scales
+  off its identity attribute via a new `scaledDamage(...)` helper reading pure
+  `VitalsCurve.getBaseAttack`/`getBaseMagicAttack` functions — Schildstoß/Klingenwirbel off
+  Strength, Runenfunke off Intelligence, Lebensband unchanged (already a %-of-max-life heal).
+  The 4 utility/buff spells' duration/distance now scale off their own flavor's attribute
+  (Standhafte Aura/Geisterwoge off Endurance, Nebelschritt off Dexterity, Arkaner Kreis off
+  Intelligence), each capped and reproducing today's old flat value at starting stats (5) — no
+  regression for a fresh character. **Deliberately reads only `VitalsCurve`'s pure stat
+  functions, never the player's live `EntityAttributeInstance`** (documented in a class-level
+  javadoc) — spell damage is dealt via `target.damage(world, source, amount)` directly, never
+  `PlayerEntity.attack()`, so it structurally bypasses the crit Mixin and the real
+  `ATTACK_SPEED` attribute; reading the live attribute here would let spells inherit the
+  already-flagged melee "DPS ceiling" (see "Combat System v1" above) on top of their own
+  scaling. `balance-reviewer` confirmed numerically: at max investment (104), spells top out at
+  ~4.7-16 DPS per target vs. melee's own ~260-280+ DPS ceiling (before the Poison Dagger
+  escalation) — spells stay an order of magnitude below melee, as intended.
+- **2. Mana costs** (`skills/Spell.java`, `SpellCaster.java`): first real consumer of Mana
+  anywhere in the project. Flat per-cast cost (Runenfunke 20, Schildstoß/Klingenwirbel 25,
+  Nebelschritt 15, Geisterwoge 20, Lebensband/Standhafte Aura 30, Arkaner Kreis 40), charged on
+  every attempt that passes class+cooldown+Mana checks (even a whiff) — matches the existing
+  precedent that cooldown is already spent unconditionally. New `SpellCaster.Result
+  .INSUFFICIENT_MANA`, surfaced by both the command and the V/B keybind path.
+- **3. Sub-spec spell forks** (`skills/SubspecSpellEffects.java`, `SpellVariantRegistry.java`,
+  new files): each class's 2 sub-specs now fork that class's damage/heal spell into genuinely
+  different behavior, not just a different stat — Bollwerk/Wurzelwall (defensive per class) add
+  a self-Resistance follow-up; the offensive sub-spec per class gets a distinct mechanic:
+  Stahlfaust trades Schildstoß's knockback for +damage, Sturmklinge makes Klingenwirbel hit
+  twice (5 ticks apart, new `skills/DelayedSpellEffectScheduler.java` — a generic one-shot
+  delayed-effect list, same tick-tracked shape as `combat/BurnDamageManager`), Schattenpirscher
+  adds Weakness to Klingenwirbel's targets, Splitterrune makes Runenfunke also strike a second
+  nearby enemy, Glücksrune gives Runenfunke a 20% chance to skip its own cooldown, Wesensfülle
+  extends Lebensband's heal to nearby allies. Resolution is one `flatMap` lookup inside
+  `SpellCaster.attemptCast` — a base-spell cast with no matching fork just falls through to the
+  spell's own default effect, so both existing entry points (command + keybind) can't drift
+  apart, and a 9th forked spell later needs no new branch, just a map entry.
+- **4. Respec cooldowns** (`classes/RespecCooldownManager.java`, new; `ClassManager.java`):
+  class reselection now gated by a 30-minute cooldown, sub-spec reselection by 5 minutes —
+  independent tracks, so a fresh class pick's immediately-following first sub-spec pick stays
+  free (the "first pick free" rule reuses the existing `Optional.empty()` check, no new state
+  needed). `ClassManager.selectClass`/`selectSubspec` changed from `void`/`boolean` to a
+  `SelectAttempt(SelectResult, remainingCooldownTicks)` record (mirrors `SpellCaster
+  .CastAttempt`'s shape); `Baum2Commands` and `Baum2Networking`'s `ClassSelectPayload` receiver
+  updated to report the cooldown. No currency/gold system exists in this project to build a
+  cost-based respec instead, and respec is the *only* way to ever try a different class, so the
+  duration was chosen to add real friction without blocking experimentation outright.
+- **`balance-reviewer` found and fixed two real bugs before this shipped**:
+  1. **Glücksrune's "skip cooldown" fork was dead code.** `SpellCaster.attemptCast` called
+     `SkillCooldownManager.recordCast(...)` *after* the resolved effect ran — so on Glücksrune's
+     20% roll, its own `clearCooldown(...)` call (inside the effect) got immediately overwritten
+     by that unconditional `recordCast`, meaning Runenfunke always ended up on the same cooldown
+     regardless of the roll. **Fixed** by reordering `recordCast` to run *before* the effect,
+     so a fork's own cooldown manipulation is the last write, not the first.
+  2. **Respec cooldowns were trivially bypassable via a singleplayer world restart.**
+     `RespecCooldownManager` originally mirrored `SkillCooldownManager`'s in-memory
+     `Map<UUID, Long>`/`server.getTicks()` shape — fine for spell cooldowns (6-25 seconds,
+     restarting the game isn't faster than waiting) but not for a 30-minute gate: quitting and
+     relaunching a singleplayer world restarts the integrated server's JVM, wiping the map,
+     while `SELECTED_CLASS`/`SELECTED_SUBSPEC` themselves survive via persistent Attachments —
+     letting a player bypass the entire feature in ~20-30 seconds, repeatably. **Fixed** by
+     switching `RespecCooldownManager` to two new persistent, wall-clock (`System
+     .currentTimeMillis()`, not `server.getTicks()` — tick count itself resets across a
+     restart) Attachments, same pattern as `ClassManager`'s own `SELECTED_CLASS`. Force-loaded
+     via a `bootstrap()` no-op called from `ClassManager.registerEvents()` (same package, same
+     "must eagerly touch the class before any player can join" gotcha documented below under
+     "Attachment API reference").
+- **`balance-reviewer` findings, logged, not fixed (design/judgment calls)**: (a) Mana only
+  creates real scarcity for the 3 "nuke" spells (Schildstoß/Klingenwirbel/Runenfunke), and even
+  those become fully regen-sustainable by level ~20-30 out of the 100-level curve — the other 5
+  spells are already sustainable solo from level 1, so Mana reads as "matters early, cosmetic
+  later" rather than a lasting resource; (b) Wesenswahrer specifically never experiences Mana
+  scarcity at all, even at level 1 (both its spells are regen-sustainable from the start) — the
+  other 3 classes each have one Mana-constrained spell, so this is a cross-class asymmetry if
+  equal Mana tension across classes was intended; (c) 3 of the 4 damage-spell forks are
+  uncapped-target-count AoE while melee is single-target, so "spells stay below melee's DPS
+  ceiling" is only guaranteed per-target, not for total output against a large enough group —
+  plausibly an intentional AoE-vs-single-target tradeoff, not verified as a deliberate one.
+- **Not yet manually playtested** — see "Current state" above and "Next recommended step"
+  below for the exact checklist. Build passes, client boots cleanly, but nobody has yet cast a
+  spell, watched Mana drop, selected a sub-spec fork, or tried to respec through this new code
+  in an actual play session.
 
 ### Custom UI v1 — Class tab merged into Character Stats Screen, top-left HUD removed
 
@@ -521,9 +614,10 @@ a ground AoE, and a 3-hit burst combo.
 
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `jonas_workbranch` has merged `origin/master` twice this session and is now
-  ahead of it by this merge plus the Skill System/Sub-specialization commits; `master` and
-  `fischey_workbranch` are kept at the same commit by convention (push jonas_workbranch, then
-  decide when to fast-forward `master` to match, per established practice).
+  ahead of it by this merge plus the Skill System/Sub-specialization commits and the Class
+  Overhaul v2 commit; `master` and `fischey_workbranch` are kept at the same commit by
+  convention (push jonas_workbranch, then decide when to fast-forward `master` to match, per
+  established practice).
 - `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets
   Java+Gradle recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
 - Five subagents under `.claude/agents/` (shared via git): `fabric-docs-researcher`,
@@ -553,7 +647,19 @@ a ground AoE, and a 3-hit burst combo.
 
 ## Last change (on `jonas_workbranch`)
 
-**Merged `origin/master` into `jonas_workbranch` a second time this session.** Master had
+**Implemented "Class Overhaul v2"** (spell scaling, Mana costs, sub-spec spell forks, respec
+cooldowns) in response to direct feedback that the classes felt "lame" — full detail in
+"Current state" above under "Class Overhaul v2". Planned via Plan Mode (4 independently
+buildable steps, approved before implementation), built and verified (`./gradlew build`) after
+each step. Ran `balance-reviewer` on the final numbers, which found and both fixes were applied
+before this commit: Glücksrune's cooldown-skip fork was dead code (a cooldown-record ordering
+bug in `SpellCaster.attemptCast` overwrote it every time), and respec cooldowns were trivially
+bypassable via a singleplayer world restart (switched from an in-memory tick-based tracker to
+persistent wall-clock Attachments). Client boots cleanly (verified twice), but **the actual
+feature behavior has not yet been manually playtested** — see "Next recommended step".
+
+Earlier, still on `jonas_workbranch`: **merged `origin/master` into `jonas_workbranch` a second
+time this session.** Master had
 moved again since the first merge — 8 new commits from Fischey adding this project's first
 `combat/` package (wiring the previously-display-only Physical Attack/Attack Speed/Crit Chance
 into real vanilla combat via persistent attribute modifiers + a crit-roll Mixin), a mob
@@ -748,6 +854,17 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
+0. **Manually playtest Class Overhaul v2** (highest priority — nobody has exercised this code
+   in an actual session yet, only build+clean-boot verified): cast each of the 8 spells and
+   confirm Mana drops by its listed cost and a rejection message appears at 0 Mana; invest
+   attribute points and confirm scaled spells hit harder / utility spells last longer; select
+   each of the 8 sub-specs in turn and confirm its specific forked behavior fires (this is
+   especially important for **Glücksrune**, whose cooldown-skip was just fixed - confirm
+   Runenfunke's cooldown actually skips roughly 1 in 5 casts now, not every time or never);
+   `/baum2 class select <class>` twice in a row and confirm the second is rejected with a
+   remaining-time message, then **fully quit and relaunch the client** and confirm the
+   cooldown message still shows correctly (this is the exact bypass that was just fixed - a
+   regression here means the fix didn't actually persist). Same for sub-spec respec.
 1. **Balance decision needed, now spanning three separate findings, not yet made**: Combat
    System v1's base ~46x baseline-DPS-at-max-investment issue has been escalated further by
    two consecutive boss-weapon drops — Gold Sword (+12.5%) and Poison Dagger (+145%, pushing
@@ -764,11 +881,15 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
    something and check damage/attack-speed/crits are happening, not just that nothing crashes
    — and confirm the new "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds
    still work correctly alongside all the new mob-rendering registrations.
-3. **The two new design questions from this merge** (see "Current state" → "Skill System v1"
-   and "Last change" above): does the Poison Dagger's on-hit-poison handler need a melee-only
-   guard so it doesn't also trigger on spell damage; should spell damage eventually route
-   through a shared calculation with real combat (Intelligence scaling, crits) rather than
-   staying a permanently separate flat-number system.
+3. **Design questions logged, not yet decided**: (a) does the Poison Dagger's on-hit-poison
+   handler need a melee-only guard so it doesn't also trigger on spell damage; (b) should spell
+   damage eventually get crits too, now that it scales with attributes; (c) Mana currently only
+   creates real scarcity for 3 of the 8 spells, and only up to roughly level 20-30 out of 100 -
+   is "matters early, cosmetic later" the intended pacing, or should `getMaxMana`'s slope/spell
+   costs be retuned; (d) Wesenswahrer's 2 spells are both Mana-sustainable from level 1, unlike
+   every other class's - intentional or an asymmetry worth closing; (e) 3 of the 4 damage-spell
+   sub-spec forks are uncapped-AoE while melee is single-target, so "spells stay below melee's
+   ceiling" only holds per-target, not for total output against a large group.
 4. **Fine-grained `/attribute` verification of the Class System** (older, still-pending item):
    `/baum2 class select eisenwaechter` → `/attribute @s minecraft:max_health modifier value
    get baum2:class_bonus/eisenwaechter_max_health` (expect `4.0`) → `/attribute @s

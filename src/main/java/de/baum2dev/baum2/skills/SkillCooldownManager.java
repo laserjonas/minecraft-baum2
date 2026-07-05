@@ -40,6 +40,14 @@ public final class SkillCooldownManager {
             .put(spell, (long) server.getTicks());
     }
 
+    /** Resets a spell to "never cast" (off cooldown) - backs Glücksrune's chance to skip a cast's cooldown. */
+    public static void clearCooldown(ServerPlayerEntity player, Spell spell) {
+        Map<Spell, Long> perSpell = LAST_CAST_TICK.get(player.getUuid());
+        if (perSpell != null) {
+            perSpell.put(spell, NEVER_CAST);
+        }
+    }
+
     private SkillCooldownManager() {
     }
 }

@@ -11,6 +11,9 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.TypeFilter;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
+import de.baum2dev.baum2.progression.PlayerLevelSystem;
+import de.baum2dev.baum2.progression.PlayerProgressData;
+import de.baum2dev.baum2.progression.VitalsCurve;
 
 /**
  * Gameplay effects for the 8 spells in {@link Spell}. All server-side only. See
@@ -18,6 +21,14 @@ import net.minecraft.util.math.Vec3d;
  * (notably: LivingEntity.damage needs a ServerWorld param, getEntitiesByClass doesn't exist
  * (use getEntitiesByType), and knockback on a player target needs a manual
  * EntityVelocityUpdateS2CPacket or the pushed player's own client never sees it).
+ *
+ * <p>Damage/duration/distance formulas below deliberately read only the caster's raw
+ * attribute values via {@link VitalsCurve}'s pure functions - <b>never</b> the player's live
+ * {@code EntityAttributeInstance} (which already bakes in gear + the melee Strength/Attack-
+ * Speed/Crit bonuses from {@code VitalsManager}/{@code PlayerAttackDamageMixin}). Reading the
+ * live attribute here would let spell damage inherit the already-flagged superlinear melee
+ * "DPS ceiling" (see HANDOFF.md "Combat System v1") on top of its own scaling - reading the
+ * pure stat keeps the two damage systems structurally independent.
  */
 final class SpellEffects {
 
@@ -26,33 +37,50 @@ final class SpellEffects {
         Vec3d look = player.getRotationVector();
         Vec3d center = player.getEntityPos().add(look.x * 2, 0, look.z * 2);
         DamageSource source = world.getDamageSources().indirectMagic(player, player);
+        float damage = scaledDamage(player, 4.0f, 0.35f, VitalsCurve::getBaseAttack, PlayerProgressData::getStrength);
 
         for (LivingEntity target : nearbyLivingEntities(world, center, 4, 3, 4, player)) {
-            target.damage(world, source, 4.0f);
+            target.damage(world, source, damage);
             pushAwayFrom(target, player.getX(), player.getZ(), 0.6);
         }
     }
 
     static void standhafteAura(ServerPlayerEntity player) {
-        player.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, 20 * 6, 0));
+        int endurance = progressOf(player).getEndurance();
+        int durationTicks = 120 + Math.min(100, Math.max(0, endurance - 5));
+        player.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, durationTicks, 0));
     }
 
     static void nebelschritt(ServerPlayerEntity player) {
+        int dexterity = progressOf(player).getDexterity();
+        double distance = 5.0 + Math.min(3.0, 0.03 * Math.max(0, dexterity - 5));
         Vec3d look = player.getRotationVector();
-        Vec3d offset = new Vec3d(look.x, 0, look.z).normalize().multiply(5.0);
+        Vec3d offset = new Vec3d(look.x, 0, look.z).normalize().multiply(distance);
         player.requestTeleportOffset(offset.x, offset.y, offset.z);
     }
 
     static void klingenwirbel(ServerPlayerEntity player) {
         ServerWorld world = player.getEntityWorld();
         DamageSource source = world.getDamageSources().indirectMagic(player, player);
+        float damage = scaledDamage(player, 3.0f, 0.35f, VitalsCurve::getBaseAttack, PlayerProgressData::getStrength);
 
         for (LivingEntity target : nearbyLivingEntities(world, player.getEntityPos(), 5, 4, 5, player)) {
-            target.damage(world, source, 3.0f);
+            target.damage(world, source, damage);
         }
     }
 
     static void runenfunke(ServerPlayerEntity player) {
+        LivingEntity target = findRunenfunkeTarget(player);
+        if (target != null) {
+            ServerWorld world = player.getEntityWorld();
+            DamageSource source = world.getDamageSources().indirectMagic(player, player);
+            float damage = scaledDamage(player, 5.0f, 0.6f, VitalsCurve::getBaseMagicAttack, PlayerProgressData::getIntelligence);
+            target.damage(world, source, damage);
+        }
+    }
+
+    /** Finds Runenfunke's target (closest living entity within a ~60-degree forward cone, 12 blocks). */
+    static LivingEntity findRunenfunkeTarget(ServerPlayerEntity player) {
         ServerWorld world = player.getEntityWorld();
         double range = 12.0;
         Vec3d look = player.getRotationVector().normalize();
@@ -73,22 +101,20 @@ final class SpellEffects {
                 closest = candidate;
             }
         }
-
-        if (closest != null) {
-            DamageSource source = world.getDamageSources().indirectMagic(player, player);
-            closest.damage(world, source, 5.0f);
-        }
+        return closest;
     }
 
     static void arkanerKreis(ServerPlayerEntity player) {
         ServerWorld world = player.getEntityWorld();
+        int intelligence = progressOf(player).getIntelligence();
+        int durationTicks = 300 + Math.min(100, Math.max(0, intelligence - 5));
         Box box = Box.of(player.getEntityPos(), 10, 6, 10);
         List<ServerPlayerEntity> allies = world.getEntitiesByType(
             TypeFilter.instanceOf(ServerPlayerEntity.class), box, ServerPlayerEntity::isAlive
         );
 
         for (ServerPlayerEntity ally : allies) {
-            ally.addStatusEffect(new StatusEffectInstance(StatusEffects.LUCK, 20 * 15, 0));
+            ally.addStatusEffect(new StatusEffectInstance(StatusEffects.LUCK, durationTicks, 0));
         }
     }
 
@@ -102,14 +128,38 @@ final class SpellEffects {
 
     static void geisterwoge(ServerPlayerEntity player) {
         ServerWorld world = player.getEntityWorld();
+        int endurance = progressOf(player).getEndurance();
+        int slowDurationTicks = 60 + Math.min(60, Math.max(0, endurance - 5));
 
         for (LivingEntity target : nearbyLivingEntities(world, player.getEntityPos(), 8, 4, 8, player)) {
             pushAwayFrom(target, player.getX(), player.getZ(), 0.8);
-            target.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, 20 * 3, 0));
+            target.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, slowDurationTicks, 0));
         }
     }
 
-    private static List<LivingEntity> nearbyLivingEntities(
+    /**
+     * {@code baseAmount} at the starting stat value (5, reproducing today's exact pre-scaling
+     * number), plus {@code coefficient} per point invested above that, read from the caster's
+     * raw {@code PlayerProgressData} stat via a pure {@link VitalsCurve} formula - see this
+     * class's own javadoc for why the *pure* stat function, not the live attribute, is used.
+     */
+    static float scaledDamage(
+        ServerPlayerEntity player,
+        float baseAmount,
+        float coefficient,
+        java.util.function.IntFunction<Float> curveFn,
+        java.util.function.ToIntFunction<PlayerProgressData> statGetter
+    ) {
+        int stat = statGetter.applyAsInt(progressOf(player));
+        float curveValue = curveFn.apply(stat);
+        return baseAmount + coefficient * (curveValue - 5);
+    }
+
+    private static PlayerProgressData progressOf(ServerPlayerEntity player) {
+        return PlayerLevelSystem.getPlayerProgress(player);
+    }
+
+    static List<LivingEntity> nearbyLivingEntities(
         ServerWorld world, Vec3d center, double xSize, double ySize, double zSize, ServerPlayerEntity exclude
     ) {
         Box box = Box.of(center, xSize, ySize, zSize);
@@ -119,7 +169,7 @@ final class SpellEffects {
     }
 
     /** Pushes {@code target} directly away from ({@code sourceX}, {@code sourceZ}). */
-    private static void pushAwayFrom(LivingEntity target, double sourceX, double sourceZ, double strength) {
+    static void pushAwayFrom(LivingEntity target, double sourceX, double sourceZ, double strength) {
         double dx = sourceX - target.getX();
         double dz = sourceZ - target.getZ();
         target.takeKnockback(strength, dx, dz);

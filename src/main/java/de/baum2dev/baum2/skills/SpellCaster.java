@@ -3,9 +3,12 @@ package de.baum2dev.baum2.skills;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import de.baum2dev.baum2.classes.ClassManager;
 import de.baum2dev.baum2.classes.PlayerClass;
+import de.baum2dev.baum2.progression.PlayerLevelSystem;
+import de.baum2dev.baum2.progression.PlayerProgressData;
 
 /**
  * Shared cast-attempt logic used by both the {@code /baum2 cast} command and the
@@ -19,7 +22,8 @@ public final class SpellCaster {
     public enum Result {
         SUCCESS,
         WRONG_CLASS,
-        ON_COOLDOWN
+        ON_COOLDOWN,
+        INSUFFICIENT_MANA
     }
 
     public record CastAttempt(Result result, Spell spell, long remainingCooldownTicks) {
@@ -36,8 +40,25 @@ public final class SpellCaster {
             return new CastAttempt(Result.ON_COOLDOWN, spell, SkillCooldownManager.remainingCooldownTicks(player, spell, server));
         }
 
-        spell.cast(player);
+        PlayerProgressData progress = PlayerLevelSystem.getPlayerProgress(player);
+        if (progress.getMana() < spell.manaCost()) {
+            return new CastAttempt(Result.INSUFFICIENT_MANA, spell, 0);
+        }
+
+        // Mana is spent on every attempt that passes all checks, even a whiff (e.g. Runenfunke
+        // finding no target) - matches the existing precedent that cooldown is already spent
+        // unconditionally below, so whiffing isn't a free action for one resource but not the other.
+        progress.setMana(progress.getMana() - spell.manaCost());
+        PlayerLevelSystem.savePlayerProgress(player, progress);
+
+        // Recorded *before* the effect runs, not after - Glücksrune's fork calls
+        // SkillCooldownManager.clearCooldown() as part of its own effect, and that call needs to
+        // be the last write to the cooldown map, not get immediately overwritten by this one.
         SkillCooldownManager.recordCast(player, spell, server);
+        Consumer<ServerPlayerEntity> effect = ClassManager.getSelectedSubspec(player)
+            .flatMap(s -> SpellVariantRegistry.variantFor(spell, s))
+            .orElse(spell::cast);
+        effect.accept(player);
         return new CastAttempt(Result.SUCCESS, spell, 0);
     }
 

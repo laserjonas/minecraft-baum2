@@ -26,6 +26,16 @@ import de.baum2dev.baum2.Baum2;
  * removes-then-adds rather than just adding, or a rejoin would throw / silently duplicate.
  */
 public final class ClassManager {
+
+    public enum SelectResult {
+        SUCCESS,
+        ON_COOLDOWN,
+        WRONG_CLASS
+    }
+
+    public record SelectAttempt(SelectResult result, long remainingCooldownTicks) {
+    }
+
     public static final AttachmentType<PlayerClass> SELECTED_CLASS = AttachmentRegistry.create(
         Identifier.of("baum2", "selected_class"),
         builder -> builder
@@ -43,6 +53,11 @@ public final class ClassManager {
     );
 
     public static void registerEvents() {
+        // Forces RespecCooldownManager's AttachmentType fields to class-init before any player
+        // can join - see that class's own bootstrap() doc and the Attachment API force-load
+        // gotcha in HANDOFF.md.
+        RespecCooldownManager.bootstrap();
+
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) ->
             resyncOnJoin(handler.getPlayer()));
     }
@@ -55,33 +70,58 @@ public final class ClassManager {
         return Optional.ofNullable(player.getAttached(SELECTED_SUBSPEC));
     }
 
-    public static void selectClass(ServerPlayerEntity player, PlayerClass newClass) {
-        getSelectedClass(player).ifPresent(oldClass -> removeClassBonus(player, oldClass));
+    /**
+     * Free on a player's first-ever class pick (mirrors the existing "no class selected yet"
+     * check via {@link Optional#isEmpty()}); a respec while a class is already selected is
+     * gated by {@link RespecCooldownManager} so players can't swap classes on a whim.
+     */
+    public static SelectAttempt selectClass(ServerPlayerEntity player, PlayerClass newClass) {
+        Optional<PlayerClass> currentClass = getSelectedClass(player);
+
+        if (currentClass.isPresent() && RespecCooldownManager.isClassOnCooldown(player)) {
+            return new SelectAttempt(SelectResult.ON_COOLDOWN, RespecCooldownManager.remainingClassCooldownTicks(player));
+        }
+
+        currentClass.ifPresent(oldClass -> removeClassBonus(player, oldClass));
         player.setAttached(SELECTED_CLASS, newClass);
         applyModifier(player, ClassRegistry.get(newClass));
+        RespecCooldownManager.recordClassSelect(player);
 
         // A sub-spec only makes sense for the class it belongs to - clear it (and its bonus)
         // whenever the base class changes, rather than leaving a stale, now-invalid selection.
+        // This also leaves the sub-spec respec track untouched-but-empty, so the very next
+        // sub-spec pick for the new class is free too (see selectSubspec's own doc).
         getSelectedSubspec(player).ifPresent(oldSubspec -> {
             removeSubspecBonus(player, oldSubspec);
             player.removeAttached(SELECTED_SUBSPEC);
         });
+
+        return new SelectAttempt(SelectResult.SUCCESS, 0);
     }
 
     /**
-     * Returns false (no change made) if {@code newSubspec} doesn't belong to the player's
-     * currently selected class - callers (the command handler) should report that as an error.
+     * Returns {@link SelectResult#WRONG_CLASS} if {@code newSubspec} doesn't belong to the
+     * player's currently selected class. Free on the first sub-spec pick for the current class
+     * (including right after a class change, since {@link #selectClass} already cleared the old
+     * sub-spec) - a respec while a sub-spec is already selected is gated by
+     * {@link RespecCooldownManager}.
      */
-    public static boolean selectSubspec(ServerPlayerEntity player, ClassSubspec newSubspec) {
+    public static SelectAttempt selectSubspec(ServerPlayerEntity player, ClassSubspec newSubspec) {
         Optional<PlayerClass> currentClass = getSelectedClass(player);
         if (currentClass.isEmpty() || newSubspec.parentClass() != currentClass.get()) {
-            return false;
+            return new SelectAttempt(SelectResult.WRONG_CLASS, 0);
         }
 
-        getSelectedSubspec(player).ifPresent(oldSubspec -> removeSubspecBonus(player, oldSubspec));
+        Optional<ClassSubspec> currentSubspec = getSelectedSubspec(player);
+        if (currentSubspec.isPresent() && RespecCooldownManager.isSubspecOnCooldown(player)) {
+            return new SelectAttempt(SelectResult.ON_COOLDOWN, RespecCooldownManager.remainingSubspecCooldownTicks(player));
+        }
+
+        currentSubspec.ifPresent(oldSubspec -> removeSubspecBonus(player, oldSubspec));
         player.setAttached(SELECTED_SUBSPEC, newSubspec);
         applyModifier(player, SubspecRegistry.get(newSubspec));
-        return true;
+        RespecCooldownManager.recordSubspecSelect(player);
+        return new SelectAttempt(SelectResult.SUCCESS, 0);
     }
 
     private static void resyncOnJoin(ServerPlayerEntity player) {

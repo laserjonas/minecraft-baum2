@@ -54,8 +54,15 @@ public class Baum2Networking {
      * (server-reachable) entrypoint.
      */
     public static void registerServerReceivers() {
-        ServerPlayNetworking.registerGlobalReceiver(ClassSelectPayload.TYPE, (payload, context) ->
-            ClassManager.selectClass(context.player(), payload.playerClass()));
+        ServerPlayNetworking.registerGlobalReceiver(ClassSelectPayload.TYPE, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            ClassManager.SelectAttempt attempt = ClassManager.selectClass(player, payload.playerClass());
+            if (attempt.result() == ClassManager.SelectResult.ON_COOLDOWN) {
+                player.sendMessage(Text.literal(String.format(
+                    "You can't change class yet (%.1f minutes remaining).", attempt.remainingCooldownTicks() / 20.0 / 60.0
+                )), true);
+            }
+        });
 
         ServerPlayNetworking.registerGlobalReceiver(
                 SpendAttributePointPayload.TYPE,
@@ -85,6 +92,9 @@ public class Baum2Networking {
                                 case ON_COOLDOWN -> player.sendMessage(Text.literal(String.format(
                                     "%s is on cooldown (%.1fs remaining).", spell.displayName(), attempt.remainingCooldownTicks() / 20.0
                                 )), true);
+                                case INSUFFICIENT_MANA -> player.sendMessage(Text.literal(
+                                    spell.displayName() + " requires " + spell.manaCost() + " Mana."
+                                ), true);
                                 case WRONG_CLASS -> { /* stale client-side spell for a class the player no longer has - ignore silently */ }
                             }
                         })

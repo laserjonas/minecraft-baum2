@@ -242,7 +242,14 @@ public class Baum2Commands {
             return 0;
         }
 
-        ClassManager.selectClass(player, playerClass);
+        ClassManager.SelectAttempt attempt = ClassManager.selectClass(player, playerClass);
+        if (attempt.result() == ClassManager.SelectResult.ON_COOLDOWN) {
+            source.sendError(Text.literal(String.format(
+                "You can't change class yet (%.1f minutes remaining).", attempt.remainingCooldownTicks() / 20.0 / 60.0
+            )));
+            return 0;
+        }
+
         ClassDefinition definition = ClassRegistry.get(playerClass);
         source.sendFeedback(() -> Text.literal(String.format("You are now a %s. Bonus: %s",
             definition.displayName(),
@@ -294,8 +301,15 @@ public class Baum2Commands {
             return 0;
         }
 
-        if (!ClassManager.selectSubspec(player, subspec)) {
+        ClassManager.SelectAttempt attempt = ClassManager.selectSubspec(player, subspec);
+        if (attempt.result() == ClassManager.SelectResult.WRONG_CLASS) {
             source.sendError(Text.literal(subspec.name() + " belongs to a different class. Select that class first with /baum2 class select <class>."));
+            return 0;
+        }
+        if (attempt.result() == ClassManager.SelectResult.ON_COOLDOWN) {
+            source.sendError(Text.literal(String.format(
+                "You can't change sub-specialization yet (%.1f minutes remaining).", attempt.remainingCooldownTicks() / 20.0 / 60.0
+            )));
             return 0;
         }
 
@@ -339,6 +353,10 @@ public class Baum2Commands {
             case ON_COOLDOWN -> {
                 double remainingSeconds = attempt.remainingCooldownTicks() / 20.0;
                 source.sendError(Text.literal(String.format("%s is on cooldown (%.1fs remaining).", spell.displayName(), remainingSeconds)));
+                return 0;
+            }
+            case INSUFFICIENT_MANA -> {
+                source.sendError(Text.literal(spell.displayName() + " requires " + spell.manaCost() + " Mana."));
                 return 0;
             }
             case SUCCESS -> {

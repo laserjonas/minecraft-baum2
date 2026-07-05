@@ -23,8 +23,8 @@ decisions resolved) — see "Last change" below for detail on the merges and eac
   against every line of the original playtest checklist (see "Next recommended step" item 0,
   kept as a reference in case any specific sub-item still needs a closer look), so treat this
   as "no reported breakage from real play," not an exhaustive per-mechanic sign-off. **The
-  Visual/Art Pass's sub-spec icons have not yet been manually confirmed rendering correctly
-  in-game** — build passes and boot is clean, but see "Next recommended step".
+  Visual/Art Pass's 8 sub-spec icons are now also user-confirmed rendering correctly in-game**,
+  including the subtlest pair (Schattenpirscher vs. Sturmklinge).
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 
@@ -977,16 +977,11 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-0. **Manually confirm the 8 new sub-spec icons render correctly** (highest priority — not yet
-   playtested): open the Class tab ('C' key), select each of the 4 classes in turn, and check
-   both of that class's sub-spec cards show a recognizable variant of the parent class's icon
-   (same shape/color) with a visibly distinguishing detail between the two siblings. Flagged in
-   code review: Schattenpirscher vs. Sturmklinge is the most subtle pair (4 of 256 pixels
-   differ) — worth a specific look to confirm it's actually readable at real GUI Scale, not
-   just non-identical in the file. **Class Overhaul v2 + its GUI follow-up are already
-   user-confirmed working** — kept here only as a reference checklist in case a specific
-   sub-item needs closer verification later, not as an open task: cast each of the 8 spells and
-   confirm Mana drops by its listed cost and a
+0. **Done**: the 8 sub-spec icons (including the subtle Schattenpirscher/Sturmklinge pair) are
+   user-confirmed rendering correctly, alongside Class Overhaul v2 + its GUI follow-up. Kept
+   the itemized checklist below only as a reference in case a specific sub-item needs closer
+   verification later, not as an open task: cast each of the 8 spells and confirm Mana drops by
+   its listed cost and a
    rejection message appears at 0 Mana; invest attribute points and confirm scaled spells hit
    harder / utility spells last longer; select each of the 8 sub-specs in turn (now doable via
    the Class tab GUI, not just the command) and confirm its specific forked behavior fires

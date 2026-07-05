@@ -107,6 +107,22 @@ public class ModItems {
             new Item(new Item.Settings().registryKey(QUEEN_SPIDER_BOOTS_KEY).armor(QUEEN_SPIDER_ARMOR_MATERIAL, EquipmentType.BOOTS))
     );
 
+    /**
+     * "Drevathis's Cursed Blade" - dropped by Drevathis, the Cursed Sovereign. 0 base stats by
+     * design (its entire purpose is the "Wave of Darkness" on-hit proc, see
+     * combat/DrevathisCursedBladeHandler): total ATTACK_DAMAGE = 1.0 (innate unarmed base) +
+     * 0.0 (Wood's own bonus) + (-1.0) = 0.0; total ATTACK_SPEED = 4.0 (base) + (-3.5) = 0.5,
+     * matching the design brief's "0 Base Stats" / "0.5 Attacks per second" exactly.
+     */
+    public static final RegistryKey<Item> DREVATHIS_CURSED_BLADE_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "drevathis_cursed_blade"));
+
+    public static final Item DREVATHIS_CURSED_BLADE = Registry.register(
+            Registries.ITEM,
+            DREVATHIS_CURSED_BLADE_KEY,
+            new Item(new Item.Settings().registryKey(DREVATHIS_CURSED_BLADE_KEY).sword(ToolMaterial.WOOD, -1.0F, -3.5F))
+    );
+
     public static void registerItemGroups() {
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
             entries.add(GOLD_SWORD);
@@ -116,6 +132,7 @@ public class ModItems {
             entries.add(QUEEN_SPIDER_CHESTPLATE);
             entries.add(QUEEN_SPIDER_LEGGINGS);
             entries.add(QUEEN_SPIDER_BOOTS);
+            entries.add(DREVATHIS_CURSED_BLADE);
         });
     }
 

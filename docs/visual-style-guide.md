@@ -298,12 +298,14 @@ assets/baum2/
       gold_sword.png           (16x16, item icon - see Section 14)
       poison_dagger.png        (16x16, item icon - see Section 16)
       colossal_warclub.png     (16x16, item icon - see Section 18.3)
+      drevathis_cursed_blade.png (16x16, item icon - see Section 19.4)
     block/       (future: block textures)
     entity/
       stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
       stone_of_zombies.png     (176x176 box-UV sheet, same layout as above - see Section 15)
       spider_queen.png         (64x32, vanilla spider UV layout - see Section 17)
       zombie_colossus.png      (64x64, vanilla biped/zombie UV layout - see Section 18.2)
+      drevathis.png            (64x64, bespoke biped UV layout, client-only resource - see Section 19.2)
       equipment/
         humanoid/
           queen_spider.png     (64x32, vanilla classic armor-layer UV - see Section 17.4)
@@ -316,6 +318,7 @@ assets/baum2/
       queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
       queen_spider_boots.json  (see Section 17.4)
       colossal_warclub.json    (see Section 18.3)
+      drevathis_cursed_blade.json (see Section 19.4)
     block/       (future)
   items/
     gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
@@ -323,10 +326,20 @@ assets/baum2/
     queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
     queen_spider_boots.json    (1.21.11 item-model-definition entry points - see Section 17.4)
     colossal_warclub.json      (1.21.11 item-model-definition entry point - see Section 18.3)
+    drevathis_cursed_blade.json (1.21.11 item-model-definition entry point - see Section 19.4)
   equipment/
     queen_spider.json          (1.21.11 equipment-texture definition - see Section 17.4)
   blockstates/   (future)
 ```
+
+Note: `drevathis.png` is the first entity texture placed under `src/client/resources/assets/baum2/`
+rather than `src/main/resources/assets/baum2/` (where every prior entity texture in this table
+lives) - intentional, since `DrevathisEntityModel`/`DrevathisEntityRenderer` are themselves
+client-only classes (`src/client/java/...`) with no server-side model/renderer counterpart;
+Loom merges `src/main/resources` and `src/client/resources` into the same `assets/baum2/`
+namespace at build time, so the resulting `Identifier` (`baum2:textures/entity/drevathis.png`)
+resolves identically either way - this is a source-set-placement choice, not a different asset
+convention.
 
 Conventions:
 
@@ -1649,8 +1662,208 @@ and adds the telegraph poses, but a human artist pass would meaningfully raise t
 
 ---
 
+## 19. Boss visual identity: "Drevathis, the Cursed Sovereign" (`baum2:drevathis`) and "Drevathis's Cursed Blade"
+
+The mod's **current top-tier boss** (level 40, above Zombie Colossus's 25) - an ancient cursed/
+demonic sovereign, not another oversized-common-enemy variant like Sections 17/18. Unlike Spider
+Queen and Zombie Colossus (both reused/rescaled a vanilla shared model), `DrevathisEntityModel` is
+a fully bespoke `BipedEntityModel` subclass built from scratch for this boss - tall biped body,
+two backward-curving horns, a trailing cape - so this section's job covers both a wholly new
+model's texture *and* the palette, not just a re-theme of borrowed geometry. Its passive
+(darkens nearby players' vision via vanilla's Darkness effect, even in daylight) and its skills
+("Dash of Death," "Chain of Death," "Wave of Darkness," "Thunder of Darkness") set a **dark,
+regal, ancient-evil register** - deliberately distinct from Zombie Colossus's brutish/feral
+"Ashen Brute" register (Section 18.3), even though both are "boss" tier.
+
+### 19.1 Why this palette direction
+
+Every hostile-mob/boss palette already in this document leans on one of: sickly/toxic green
+(Sections 13.3, 15.2, 17.3), deep violet-and-gold "regal insect" (Section 17.4), or ashen
+brown-and-exposed-red-muscle (Section 18.3). None of those fit "ancient cursed sovereign, cold
+and regal, associated with darkness" - so this section introduces **two new hue families not yet
+used as a dominant tone anywhere else in this document**: a cool slate-gray "cursed flesh" and a
+near-black wine-plum "shroud/robe," both accented by a pale icy cyan-white "curse glow" (used for
+eyes, rune markings, and the sword's fuller) and a deep wine-crimson "sovereign's blood" trim.
+The icy pale-cyan glow is the deliberate signature choice: every prior mob's eye-glow/bioluminescent
+accent in this document (Larval Glow `#C4E064`, Toxic Eye `#E8FF6B`, Brute Glare `#D9C24A`) sits in
+a yellow-green-to-amber family reading as "toxic/diseased." Drevathis's glow reads as "cold/
+spectral/cursed" instead - a different genre register entirely, matching the Darkness-effect
+lore rather than reusing the mod's existing "toxic monster" visual language.
+
+*Compliance note:* "dark regal undead/demon sovereign with cold spectral glow" is a broad,
+unclaimed genre convention (ancient cursed royalty/liches/demon lords with an eerie glow accent
+appear across countless unrelated games, books, and films), not IP tied to any one game. The
+exact palette below was checked hex-by-hex against every existing palette in this document
+(Sections 2, 3.3, 11, 12, 13.3, 15.2, 17.3, 17.4, 18.3) and shares no hex values with any of
+them; see the per-table compliance notes below for the closest neighbors and why they remain
+distinguishable.
+
+### 19.2 Entity model and texture: bespoke biped, 64x64
+
+- **File:** `assets/baum2/textures/entity/drevathis.png` (placed under
+  `src/client/resources/assets/baum2/...` - see the note in Section 6 on why this one entity
+  texture lives in the client source set rather than main).
+- **Canvas:** 64x64 px, matching `DrevathisEntityModel`'s `TexturedModelData.of(modelData, 64, 64)`
+  registration exactly.
+- **UV layout** (derived directly from the box-UV cuboid sizes/origins given in this boss's own
+  model class, using the standard Minecraft box-UV unwrap formula - not guessed):
+
+  | Part | Cuboid size (dx,dy,dz) | UV origin | Box footprint (x, y, w, h) | Notes |
+  |---|---|---|---|---|
+  | Head (inner) | 8x8x8 | (0, 0) | (0, 0, 32, 16) | Standard biped head layout |
+  | Hat (outer overlay) | 8x8x8 | (32, 0) | (32, 0, 32, 16) | **Left fully transparent**, same convention as Section 18.2 - no crown/hood detail painted on this layer in this pass |
+  | Body | 8x12x4 | (16, 16) | (16, 16, 24, 16) | Robed torso |
+  | Arms (shared/mirrored) | 4x12x4 | (40, 16) | (40, 16, 16, 16) | Sleeve + bare hand at the wrist |
+  | Legs (shared/mirrored) | 4x12x4 | (0, 16) | (0, 16, 16, 16) | Robe leg-wrap |
+  | Horn 1 | 2x6x2 | (0, 32) | (0, 32, 8, 8) | Backward-curving horn |
+  | Horn 2 | 2x6x2 | (8, 32) | (8, 32, 8, 8) | Second horn, mirrored position |
+  | Cape | 9x16x1 | (24, 32) | (24, 32, 20, 17) | Trailing cape behind the body |
+
+  All eight regions fit within the 64x64 canvas with no overlap (tallest region, the cape, ends at
+  y=49; the remaining strip below is unused/transparent, same "generous canvas, unused margin is
+  fine" convention as Section 18.2's zombie_colossus.png).
+
+- **Face-by-face treatment**, following this document's established "top=highlight, bottom=shadow,
+  front=detail, sides=mid-tone" convention (Sections 13.3, 18.2):
+  - **Head:** top/back = pale/shadow Cursed Hide tones; front face carries a dark hollow-socket
+    patch per eye with a single bright Grave Frost dot inside each (painted eye-glow, no vanilla
+    overlay involved - this model has no vanilla eye-feature-renderer to rely on, same situation
+    Section 17.3 already documented for Spider Queen) plus a thin Sovereign Blood jaw-line accent.
+  - **Body:** Shroud tones on all faces, with a vertical Sovereign Blood sash down the front and
+    two small Grave Frost rune-mark dots flanking it - the "regal sovereign" read.
+  - **Arms:** Shroud sleeve on the upper ~2/3 of the front face, Cursed Hide (bare skin) on the
+    lower ~1/3 (hand/wrist showing), separated by a thin Sovereign Blood cuff band.
+  - **Legs:** Shroud tones with a Sovereign Blood hem trim line near the bottom.
+  - **Horns:** Cursed Bone tones (not the flesh/shroud palette - horns are a separate bone-like
+    material), each with a small Grave Frost Dim glow accent near the tip.
+  - **Cape:** Shroud front face with Sovereign Blood edge trim on both side faces (a thin crimson
+    piping along the cape's edges), a hemmed Shroud Void border top and bottom, and a small
+    Sovereign Blood diamond emblem with a single Grave Frost accent dot near the top - a "crest/
+    brooch" read without needing a separate cuboid.
+
+### 19.3 Color palette: "Abyssal Sovereign"
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Flesh shadow | Cursed Hide Shadow | `#1E2028` | Head bottom/back faces |
+| Flesh mid-tone | Cursed Hide | `#3E4250` | Head side faces; bare hand/wrist on the arms |
+| Flesh highlight | Cursed Hide Pale | `#656B7D` | Head top face |
+| Robe shadow | Shroud Void | `#1B0C14` | Body/arm/leg bottom faces; cape back face and hem borders |
+| Robe mid-tone | Shroud | `#331A26` | Dominant robe/cape/sleeve fill |
+| Robe highlight | Shroud Pale | `#4F2B3D` | Body/arm/leg top faces; cape attachment sliver |
+| Regal trim / accent | Sovereign Blood | `#6B1330` | Sash, cuff band, hem trim, cape edge piping, jaw-line accent, cape emblem |
+| Curse glow (signature) | Grave Frost | `#AEE8F5` | Eye-glow dots, chest rune marks, cape emblem accent dot |
+| Curse glow, dim | Grave Frost Dim | `#4E7A8C` | Horn-tip glow accent (subtler than the eye/rune glow) |
+| Curse glow, pale (glint) | Grave Frost Pale | `#D9F5FA` | Reserved for sparse bright highlight pixels only (sword pommel/tip - Section 19.4) |
+| Eye-socket base | Hollow Socket | `#0A0710` | Dark base under each painted eye-glow dot |
+| Bone (horns) | Cursed Bone | `#5C5340` | Horn mid-tone |
+| Bone shadow (horns) | Cursed Bone Dusk | `#2B2620` | Horn bottom/back faces |
+
+*Compliance note:* checked hex-by-hex against every palette already in this document. Nearest
+neighbors and why they stay distinguishable: Shroud's near-black wine-plum family (`#1B0C14`/
+`#331A26`/`#4F2B3D`) is deliberately warmer/more red-shifted than both Royal Carapace's saturated
+blue-violet (`#4B2170`/`#7A46A6`, Section 17.4 - much lighter and more saturated, a genuinely
+different violet) and Astral rarity's indigo undertone (`#2E2A5C`, Section 2.4 - that one is
+blue-leaning, Shroud is red-leaning); Sovereign Blood (`#6B1330`) is a cooler, more magenta-shifted
+crimson than both the Life bar's warm coral-ember (`#E2574B`, Section 11) and Exposed Muscle's
+brick-brown-red (`#7A2E24`, Section 18.3); Grave Frost (`#AEE8F5`) is a paler, whiter, more
+blue-shifted cyan than Rune Cyan (`#7FD8E0`, Section 2.2 - noticeably more saturated/green) and a
+different hue family entirely from Astral's lavender-white (`#D9CFFF` on indigo, Section 2.4).
+Cursed Hide's cool blue-gray family is the inverse of Ashen Brute's warm brown-gray (Section
+18.3's `#332C22`/`#5C5142`/`#7D715C` all have R>G>B; Cursed Hide's `#1E2028`/`#3E4250`/`#656B7D`
+all have B>R>G) - same "ashen dead flesh" genre idea, opposite temperature, so the mod's two
+"long-dead skin" bosses don't read as recolors of each other.
+
+### 19.4 Weapon visual identity: "Drevathis's Cursed Blade" (`baum2:drevathis_cursed_blade`)
+
+Follows Section 14/16/18.4's exact item conventions (plain `Item`, `minecraft:item/handheld`
+parent, the same `assets/baum2/items/<name>.json` + `assets/baum2/models/item/<name>.json` entry-
+point pair). The item has 0 base combat stats (pure support - its value is the on-hit dark AoE
+wave proc, not stat lines), so the visual has to carry the "this is special" read entirely through
+silhouette/palette rather than any stat-comparison affordance.
+
+- **Silhouette:** same established bottom-left-pommel-to-top-right-tip diagonal convention as
+  Gold Sword/Poison Dagger/Colossal Warclub, but drawn as a long, narrow, elegant blade (not a
+  blunt club, not a short dagger) with a glowing rune-fuller groove running its full length -
+  the "elegant ancient cursed greatsword" read, distinct from every other weapon silhouette in
+  this document. Deliberately shares its palette with the boss's own texture (Sovereign Blood
+  crossguard/pommel, Grave Frost fuller) so the blade the boss wields (rendered ~1.8x oversized by
+  `DrevathisHeldWeaponFeatureRenderer`) and the same blade as a dropped/held item read as one
+  consistent object at both scales, rather than two independently-designed weapons that happen to
+  share a name.
+- **Parts, bottom-left to top-right:** a 2px Sovereign Blood pommel with a single Grave Frost Pale
+  glint pixel at the very corner, a short dark Shroud grip, a Sovereign Blood crossguard flare
+  (with two Ebon Steel Sheen accent pixels) breaking the diagonal, then a long tapering blade -
+  Ebon Steel Sheen edge with a continuous Grave Frost fuller line down its center, narrowing to a
+  single-pixel taper near the tip, ending in a Grave Frost Pale glint pixel at the very point.
+
+| Role | Hex | Notes |
+|---|---|---|
+| Pommel / crossguard / trim | `#6B1330` (Sovereign Blood) | Reused from the boss's own palette exactly, for cross-object cohesion |
+| Grip | `#331A26` (Shroud) | Reused from the boss's own palette |
+| Blade base / edge | `#14151C` (Ebon Steel) | New - near-black cold steel, distinct from Colossal Warclub's warm wood-brown (`#3E2A1A`/`#5A3D24`) and Gold Sword's warm bronze-gold |
+| Blade edge sheen | `#3A3D4A` (Ebon Steel Sheen) | New - a cool steel highlight, close in value but distinct hue role from Cursed Hide (kept as a separate named role since it's steel, not flesh) |
+| Fuller / curse-glow groove | `#AEE8F5` (Grave Frost) | Reused from the boss's own palette exactly |
+| Glint (pommel + tip) | `#D9F5FA` (Grave Frost Pale) | Reused from the boss's own palette exactly |
+
+*Compliance note:* this is an original 6-color diagonal-greatsword treatment sharing its palette
+family with Section 19.3's Abyssal Sovereign entity palette by design (not accidental overlap) -
+does not reproduce any existing game's specific sword icon, and shares no hex values with any of
+this mod's three other existing weapon palettes (Gold Sword's bronze/gold, Poison Dagger's
+green-tinged steel, Colossal Warclub's wood-and-stud brown).
+
+### 19.5 Files produced this pass (all explicitly temporary placeholders)
+
+Per `MASTERPROMPT.md`'s asset rule - flat-color pixel fills generated programmatically (Python +
+Pillow, installed into this environment for this pass since neither PowerShell/`System.Drawing`
+nor ImageMagick/prior Python+Pillow were readily available at the start of it), not hand-drawn
+final art. No traced, extracted, or downloaded source material was used.
+
+- `assets/baum2/textures/entity/drevathis.png` (64x64, placeholder - flat box-UV fills per the
+  face-by-face treatment in Section 19.2; placed under `src/client/resources/...`, see the Section
+  6 note on why)
+- `assets/baum2/textures/item/drevathis_cursed_blade.png` (16x16, placeholder - diagonal blade
+  silhouette per Section 19.4)
+- `assets/baum2/models/item/drevathis_cursed_blade.json` (real, verified schema - identical
+  `minecraft:item/handheld` parent pattern as every other weapon in this document)
+- `assets/baum2/items/drevathis_cursed_blade.json` (real, verified schema - the 1.21.11
+  item-model-definition entry point, required alongside the file above per the gotcha Section
+  14.3 already verified against the decompiled vanilla client jar)
+
+**Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
+document): real hand-drawn surface detail (cape fabric weave, horn texture/ridges, robe folds,
+blade edge highlights) - this pass proves the UV layout, establishes the "Abyssal Sovereign"
+palette, and gives the mod's current top-tier boss and its signature drop something considered to
+look at in-game, but a human artist pass would meaningfully raise the ceiling here given this
+boss's "current top-tier" status.
+
+---
+
 ## Changelog
 
+- **2026-07-05** — Added Section 19 (boss visual identity: "Drevathis, the Cursed Sovereign",
+  `baum2:drevathis` — the mod's current top-tier boss, level 40, above Zombie Colossus's 25 — and
+  its guaranteed drop "Drevathis's Cursed Blade," `baum2:drevathis_cursed_blade`). Unlike Spider
+  Queen/Zombie Colossus (both reused/rescaled a shared vanilla model), `DrevathisEntityModel` is a
+  wholly bespoke `BipedEntityModel` (tall biped, two backward-curving horns, a trailing cape), so
+  this pass covers a new model's UV/texture from scratch rather than a re-theme. Established a new
+  "Abyssal Sovereign" palette (cool slate-gray "cursed flesh," near-black wine-plum "shroud" robes,
+  a deep wine-crimson "Sovereign Blood" trim, and a pale icy-cyan "Grave Frost" curse-glow signature
+  color) — deliberately not another green (unlike most of the mod's other hostile mobs) and
+  deliberately not another saturated violet (unlike Royal Carapace) or warm ashen-brown (unlike
+  Ashen Brute), to give this dark/regal/ancient-evil-register boss its own distinct identity;
+  checked hex-by-hex against every existing palette in this document with no collisions. The
+  Grave Frost curse-glow is also a deliberate departure from every prior mob's yellow-green/amber
+  eye-glow family (Larval Glow, Toxic Eye, Brute Glare), matching this boss's Darkness-effect lore
+  instead of the mod's existing "toxic monster" visual language. The guaranteed-drop sword shares
+  its palette with the boss's own texture by design (Sovereign Blood hilt, Grave Frost fuller-glow)
+  so the item reads as the same object at both its ~1.8x oversized on-boss render scale and normal
+  handheld/inventory scale, per Section 14/16/18.4's established item-model-definition JSON
+  pattern. Produced a placeholder 64x64 entity texture (Python + Pillow, installed into this
+  environment for this pass) under `src/client/resources/...` (this boss's Java render classes are
+  themselves client-only) and a placeholder 16x16 item icon, plus the real, verified 1.21.11
+  model/item-definition JSON pair for the sword. Updated Section 6's folder listing. No Java/
+  game-logic code was touched — visual assets and this document only.
 - **2026-07-05** — Zombie Colossus playtest fixes (v2), added Section 18.6/18.7: user actually
   fought the boss and reported the attack/jump animation looked missing ("moving very static")
   and the model "has no muscles." Diagnosed the animation complaint against the decompiled

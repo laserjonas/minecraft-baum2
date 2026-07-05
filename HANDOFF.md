@@ -681,6 +681,99 @@ a ground AoE, and a 3-hit burst combo.
   re-run: `ip-naming-compliance-checker`/`balance-reviewer` - no new names, and the range
   widening is a proportional fix matching the model's real size, not a fresh balance concern.
 
+### Drevathis, the Cursed Sovereign — fifth boss, current top tier, first boss with no normal attack
+
+Level 40, 1200 HP (continuing the existing 20→23.3→20→30 HP/level drift as the new top boss),
+`baum2:drevathis` (`entity/DrevathisEntity.java`). Unlike every prior boss, it has **no normal
+melee attack at all** — its entire kit is four skills, each its own `Goal`, plus a passive aura.
+
+- **Naming**: went through four rounds of `ip-naming-compliance-checker` before landing here.
+  The user's own first three picks were each rejected: "Demon King" (verbatim match to a real
+  Metin2 boss, plus "Demon Sword" echoing Metin2's "Demon Blade" and its drop pattern), "Ahriman"
+  (a recurring FFXI monster name and a named Warhammer 40k character), "Malzeroth" (shares WoW's
+  distinctive "-zeroth" tail from "Azeroth" and closely mirrors "Malgrazoth", an actual WoW demon
+  NPC). **"Drevathis, the Cursed Sovereign"** (drop: **"Drevathis's Cursed Blade"**) cleared,
+  including a final ensemble pass over all five names together. The four skill names ("Dash of
+  Death", "Chain of Death", "Wave of Darkness", "Thunder of Darkness") cleared on the first pass.
+- **Passive darkening aura**: reuses vanilla's own `StatusEffects.DARKNESS` (the real
+  Warden/Sculk-Shrieker effect), refreshed every tick on any player within 12 blocks (an
+  assumption — "near" wasn't numerically specified). Works regardless of light level/time of
+  day with zero custom rendering code, satisfying "even if it is day" for free.
+- **Dash of Death**: teleports 3 blocks behind the target, 0.5s wind-up, then 50 magic damage +
+  launches the target ~10 blocks up. The vertical launch velocity is an approximation derived
+  from this game's real per-tick gravity/drag (same technique documented for Spider Queen's leap
+  arc) — flagged as likely needing one empirical tweak after a real playtest. Cooldown 20s. The
+  only skill with unlimited range (see kiting note below).
+- **Chain of Death**: instant vanilla Slowness V — confirmed via vanilla's own amplifier formula
+  (`1 - 0.15×(amplifier+1)`) this is *exactly* -75% speed, not an approximation — for 5s, no
+  damage, held with a sustained "gripping a taut chain" pose and a particle link between boss
+  and target for the whole duration. Cooldown 10s.
+- **Wave of Darkness**: 0.5s cast-time telegraph (dodgeable via lateral movement, no re-aim at
+  impact), then an instant 20×8-block rectangular hit for 65 damage via a new shared
+  `combat/DarkWaveEffect.java` helper (rotated-rectangle hit test: AABB broad-phase +
+  along/across dot-product filter). Cooldown 2s — deliberately the kit's spammy filler; the
+  balance-reviewer's own encounter simulation found it fires ~3x as often as Thunder and ~5x as
+  often as Dash over a sustained fight.
+- **Thunder of Darkness**: over 3s, 6 strikes (one every 0.5s — an assumption; the original
+  design brief gave duration and per-strike damage but not frequency) land within 5 blocks of
+  the target's *current* position (re-sampled each strike — this is what "follows the player"
+  means, unlike Wave which aims once), each hitting a 1-block radius for 70 damage. Cooldown 10s.
+  **Balance-reviewer note**: the naive "6×70=420" ceiling is a near-impossible outcome, not the
+  realistic damage — radius is sampled uniformly (not area-uniformly), so a stationary target has
+  only a ~20%-per-strike hit chance; simulated expected damage is closer to ~84 per full cast.
+  Reads as a dodgeable area-denial effect in practice, not a guaranteed burst — left as-is rather
+  than "fixed" since it's unclear this wasn't already the intended feel.
+- **Drevathis's Cursed Blade** (`registry/ModItems.java`): 0 total Attack Damage / 0.5 attacks
+  per second (`ToolMaterial.WOOD, -1.0F, -3.5F` — cancels the innate 1.0 unarmed base and trims
+  the 4.0 base attack speed down to exactly 0.5). Its entire purpose is an on-hit proc
+  (`combat/DrevathisCursedBladeHandler.java`): 10% of the wielder's live Attack Damage attribute,
+  fired as a Wave of Darkness aimed at whatever was actually hit, no cast-time telegraph.
+  **Balance-reviewer caught a real bug before this shipped**: the first version aimed along the
+  wielder's look vector (not at the hit target) and `DarkWaveEffect` only queried `PlayerEntity`
+  targets — meaning the proc could never damage the mob you actually hit and would only ever hit
+  *other nearby players* instead. Fixed by aiming at the hit entity and widening
+  `DarkWaveEffect`'s target filter to any `LivingEntity` except the caster (matching
+  `skills/SpellEffects.java`'s own AoE convention). **Logged, not fixed**: this proc scales off
+  the wielder's *live* Attack Damage attribute, so it automatically inherits whatever the
+  existing "Combat System v1 DPS ceiling" (see that section above) ends up being — the first proc
+  in the mod that multiplies directly off that same escalating number, worth folding into that
+  same eventual balance decision rather than treating as a separate issue.
+- **Balance-reviewer also caught a real mechanical gap (kiting dead-zone), fixed in the same
+  pass**: Chain/Wave/Thunder and the Darkness aura all require the target within 20/20/20/12
+  blocks respectively, Dash of Death has no range limit at all, and nothing in `initGoals()` ever
+  moved the boss toward its target — a player who simply stays past 20 blocks was fully exempt
+  from 3 of 4 skills and the aura, taking only Dash's flat 50 damage every 20s. Fixed by adding a
+  new `ApproachGoal` (lowest priority of the five combat goals, so any skill still preempts it)
+  that closes distance whenever the target exceeds the shared 20-block engagement range — same
+  "mechanical gap, not numeric tuning, gets fixed in the same pass" precedent Spider Queen's own
+  leap-escape bug already established.
+- **Visuals** (`graphics-designer`, new "Abyssal Sovereign" palette, `docs/visual-style-guide.md`
+  Section 19): a bespoke `BipedEntityModel`-based model (not a zombie/spider reskin) — horns,
+  trailing cape, scaled 1.8x. Cool slate-gray flesh (deliberately the cool inverse of Zombie
+  Colossus's warm "Ashen Brute"), near-black wine-plum robes, deep wine-crimson trim, and a
+  signature pale icy-cyan "Grave Frost" glow distinct from every other mob's yellow-green/amber
+  glow family in this mod. Placeholder textures only (flat programmatic fills), same as every
+  prior boss.
+- **Animation**: all four skills are telegraphed via synced `DataTracker` counters (extending
+  `ZombieColossusEntityModel`'s two-counter precedent to four) — Dash's reach-upward, Chain's
+  throw-into-sustained-hold, Wave's energy-gather, Thunder's sustained overhead channel. The boss
+  also visibly wields its own drop, oversized (~1.8x extra scale) and centered as a two-handed
+  grip — this needed a bespoke `DrevathisHeldWeaponFeatureRenderer` rather than vanilla's stock
+  `HeldItemFeatureRenderer` (which only renders one-handed, per-hand-offset items). This is
+  genuinely new territory for this codebase: the actual rendering pipeline in 1.21.11 has no
+  `VertexConsumerProvider`/`ItemRenderer.renderItem(...)` at the point of use anymore (both
+  replaced by `OrderedRenderCommandQueue` + a pre-baked `ItemRenderState.render(...)`) — verified
+  by decompiling this project's own `genSources` output and written up as a new
+  `docs/fabric-modding.md` section ("Custom two-handed held-item rendering") before writing the
+  actual renderer, since no prior code in this repo had touched this API surface.
+- **Not yet done**: the exact reach/scale/rotation numbers on the held-weapon renderer and the
+  Dash launch velocity are both flagged as needing an empirical tuning pass after a real
+  playtest, same as this project's established pattern for every prior boss's leap/launch
+  numbers. No natural spawn path (`/summon baum2:drevathis`-only, same as all four other bosses).
+- Verified: `./gradlew build` passes clean after every step, including after the two
+  balance-reviewer fixes above. **Not yet verified in an actual game session** — same caveat
+  every other boss in this project carries (see "No GUI-automation tool" note below).
+
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `jonas_workbranch` has merged `origin/master` twice this session and is now
   ahead of it by this merge plus the Skill System/Sub-specialization commits and the Class
@@ -716,7 +809,30 @@ a ground AoE, and a 3-hit burst combo.
 
 ## Last change (on `fischey_workbranch`)
 
-**Playtest fix round on Zombie Colossus** (added in the prior `fischey_workbranch` commit,
+**Added Drevathis, the Cursed Sovereign** — this project's fifth boss and current top tier (level
+40, above Zombie Colossus's 25), and its first boss with no normal melee attack at all. Full
+detail folded into "Current state" above under "Drevathis, the Cursed Sovereign" — see that
+section for the complete skill kit, the naming journey (three of the user's own name picks
+rejected by `ip-naming-compliance-checker` before "Drevathis" cleared), and two real bugs
+`balance-reviewer` caught and got fixed before this shipped: the sword's on-hit proc originally
+aimed at the wielder's look direction and only ever hit other players (never the mob you actually
+hit) due to a `PlayerEntity`-only target filter; and a kiting dead-zone where 3 of the 4 skills
+plus the passive aura were all range-limited to 20/12 blocks with nothing ever moving the boss
+toward a distant target, fixed with a new lowest-priority `ApproachGoal`. Also researched and
+documented a genuinely new API surface for this codebase — 1.21.11's held-item rendering pipeline
+(`docs/fabric-modding.md`'s new "Custom two-handed held-item rendering" section) — needed so the
+boss could visibly wield an oversized, two-handed version of its own drop, per explicit user
+feedback requesting this plus animated telegraphs for all four skills (not just a couple), on top
+of the original skill-list request. `graphics-designer` produced a new "Abyssal Sovereign"
+palette (cool slate-gray flesh, wine-plum robes, icy-cyan "Grave Frost" glow) plus placeholder
+entity/item textures, checked hex-by-hex against every existing palette for collisions.
+`ip-naming-compliance-checker` cleared the full five-name set in a final ensemble pass. Verified:
+`./gradlew build` passes clean after every step, including after both balance-reviewer fixes.
+**Not yet verified in an actual game session** — see "Current state" above for the exact
+follow-up caveat, same as every other boss in this project.
+
+Earlier, still on `fischey_workbranch`: **playtest fix round on Zombie Colossus** (added in the
+prior `fischey_workbranch` commit,
 before this merge — see "Zombie Colossus" above, "Playtest fix round" bullet, for full detail).
 The user actually summoned and fought the boss and reported four things: the leap/fire-wave
 combo "is perfect"; attack/jump animations were missing and the model looked static; the model
@@ -992,13 +1108,21 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
    attack speed can contribute at high Dexterity investment, or accept this as the mod's
    intended "gear matters a lot" power curve. The Colossal Warclub (low speed) is a useful
    counter-example that this isn't unavoidable — see "Zombie Colossus" above.
-2. **In-game verification of all four new mini-bosses** (none have been played, only built) —
-   see each mob's own section above for its exact playtest checklist:
-   `/summon baum2:stone_of_spiders`, `baum2:stone_of_zombies`, `baum2:spider_queen`,
-   `baum2:zombie_colossus`. Also **confirm combat actually feels right** on any mob — attack
-   something and check damage/attack-speed/crits are happening, not just that nothing crashes
-   — and confirm the new "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds
-   still work correctly alongside all the new mob-rendering registrations.
+2. **In-game verification of all five bosses** (none have been played, only built) — see each
+   mob's own section above for its exact playtest checklist: `/summon baum2:stone_of_spiders`,
+   `baum2:stone_of_zombies`, `baum2:spider_queen`, `baum2:zombie_colossus`, `baum2:drevathis`.
+   Also **confirm combat actually feels right** on any mob — attack something and check
+   damage/attack-speed/crits are happening, not just that nothing crashes — and confirm the new
+   "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds still work correctly
+   alongside all the new mob-rendering registrations. **For Drevathis specifically**: confirm
+   all four skills fire and look distinct (Dash's teleport+launch, Chain's slow + sustained
+   chain-hold pose, Wave's telegraph + rectangular hit, Thunder's 3-second multi-strike), the
+   Darkness aura toggles on proximity, the boss visibly wields an oversized two-handed sword
+   (the riskiest untested piece — `DrevathisHeldWeaponFeatureRenderer`'s exact scale/position was
+   written against decompiled API research, not tuned against a live render), the Dash launch
+   height is roughly the intended ~10 blocks (a flagged approximation), and the Cursed Blade's
+   on-hit proc now actually damages the *mob* you hit (the bug `balance-reviewer` found and this
+   session fixed).
 3. **Design questions logged, not yet decided**: (a) does the Poison Dagger's on-hit-poison
    handler need a melee-only guard so it doesn't also trigger on spell damage; (b) should spell
    damage eventually get crits too, now that it scales with attributes; (c) Mana currently only

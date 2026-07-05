@@ -6,9 +6,10 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Current state
 
-This reflects `jonas_workbranch` after merging `origin/master` (Fischey's Vitals/Attribute/
-Character-Stats work) and then adding a Skill System + Class Sub-specializations on top — see
-"Last change" below for both.
+This reflects `jonas_workbranch` after merging `origin/master` twice this session (Fischey's
+Vitals/Attribute/Character-Stats work, then his Combat System v1 + four mini-boss mobs) and
+adding a Skill System + Class Sub-specializations on top — see "Last change" below for detail
+on both merges and the skill/subspec work.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -38,18 +39,15 @@ Character-Stats work) and then adding a Skill System + Class Sub-specializations
   "Attachment API reference" below. Replaced the old in-memory `HashMap<UUID, ...>` approach.
 - **`balance-reviewer` reviewed the old (pre-rebalance) curve and old mob-XP interaction** —
   its logged finding ("a single strong kill can vault a low-level character through many
-  levels") is **substantially addressed by the curve rebalance above**, per
-  `merge-integration-reviewer`'s check during this merge: a max single-kill reward (160 XP,
-  Wither) against a level-1 character now causes exactly one level-up with 32 XP carried
-  over, not a multi-level vault. Caveat: a single very large `/baum2 addxp` grant (700+) can
-  still vault ~3 levels — addressed for the actual mob-kill case, not structurally eliminated
-  for all lump-sum grants. **Worth a fresh `balance-reviewer` pass against the new curve
-  combined with the attribute system below** (not done yet) rather than treating this as
-  fully closed.
-- Other balance-reviewer findings from before the rebalance, still relevant: `ExperienceManager
-  .getMaxLevel()`'s 100-level cap is declared but not enforced anywhere; free/instant class
-  reselection (see Class System below) lets a player capture all four classes' bonuses
-  contextually; Runenwirker's luck bonus has no loot system yet to act on.
+  levels") is **substantially addressed by the curve rebalance above**. Caveat: a single very
+  large `/baum2 addxp` grant (700+) can still vault ~3 levels — addressed for the actual
+  mob-kill case, not structurally eliminated for all lump-sum grants. **Worth a fresh
+  `balance-reviewer` pass against the new curve combined with the attribute/combat system
+  below** (not done yet) rather than treating this as fully closed.
+- Other balance-reviewer findings, still relevant: `ExperienceManager.getMaxLevel()`'s
+  100-level cap is declared but not enforced anywhere; free/instant class reselection (see
+  Class System below) lets a player capture all four classes' bonuses contextually;
+  Runenwirker's luck bonus has no loot system yet to act on.
 
 ### Vitals System — Life, Mana, HUD rework (replaces vanilla heart bar)
 
@@ -81,26 +79,37 @@ Character-Stats work) and then adding a Skill System + Class Sub-specializations
     Crit Chance (`5 + 0.5*(dex-5)`, capped at 75%). Neither cap actually binds via pure
     leveling (max reachable Crit Chance is 54.5%) — intentional headroom for a future
     gear/skill system, not a currently-reachable limit.
-  - **No `combat/` package exists yet** — none of Strength/Intelligence/Dexterity's derived
-    stats affect actual damage/defence/speed/crit in-game; display-only plumbing for now, same
-    as Mana. **This is the biggest open gap in the progression stack** — see "Next recommended
-    step".
+  - **Physical Attack, Attack Speed, and Crit Chance are now wired into real combat** — see
+    "Combat System v1" below. **Magic Attack/Magic Defence remain display-only** — the new
+    Skill System (see below) deals spell damage via flat, hardcoded numbers, not scaled by
+    Intelligence yet; Physical Defence also remains display-only (no incoming-damage-reduction
+    system exists).
 - Networking: `networking/AttributeSyncPayload.java` (S2C, every tick, carries only the 4 raw
   ints + unspent points — derived stats are computed client-side from the same `VitalsCurve`
   methods, not synced separately). `networking/SpendAttributePointPayload.java` — **this
   project's first C2S payload** (`PayloadTypeRegistry.playC2S()` +
   `ServerPlayNetworking.registerGlobalReceiver`), sent when a Stats-screen "+1" button is
-  clicked. Old `Base Damage`/`Base Magic Damage` flat fields and `CombatStatsSyncPayload` are
-  gone, fully superseded by these formulas.
+  clicked; also immediately re-applies the real `ATTACK_DAMAGE`/`ATTACK_SPEED` modifiers via
+  `VitalsManager.applyBaseAttack`/`applyAttackSpeed` so the new Strength/Dexterity value takes
+  effect without needing a relog. Old `Base Damage`/`Base Magic Damage` flat fields and
+  `CombatStatsSyncPayload` are gone, fully superseded by these formulas.
 - UI: pressing **C** (`ui/Baum2KeyBindings.java`, `KeyBinding.Category.MISC`) opens
   `ui/CharacterStatsScreen.java` — a full menu `Screen` built on vanilla's real
-  `Tab`/`TabManager`/`TabNavigationWidget`/`GridScreenTab` system, one tab ("Stats") with 15
-  rows (Life, Mana, Unspent Points, then each attribute interleaved with its derived stats).
-  Content wrapped in vanilla's `ScrollableLayoutWidget` (fixes a real bug where bottom rows
-  were unreachable at high GUI Scale) and given an opaque panel background (fixes a real bug
-  where vanilla's default darkening was too weak against a bright sky, and content overlapped
-  the tab header — see git history for both root causes). Row order/colors in
+  `Tab`/`TabManager`/`TabNavigationWidget`/`GridScreenTab` system. Now **two tabs**: "Stats"
+  (15 rows: Life, Mana, Unspent Points, then each attribute interleaved with its derived
+  stats) and "Class" (added this session — see "Skill System v1 & Custom UI" below). Content
+  wrapped in vanilla's `ScrollableLayoutWidget` (fixes a real bug where bottom rows were
+  unreachable at high GUI Scale) and given an opaque panel background (fixes a real bug where
+  vanilla's default darkening was too weak against a bright sky, and content overlapped the
+  tab header — see git history for both root causes). Row order/colors in
   `docs/visual-style-guide.md` section 12.
+- **"+1" attribute buttons polished per user feedback**: label shortened to "+", size reduced
+  18x18 → 12x12. Clicking now updates the displayed attribute/points values **immediately**
+  client-side (`ClientNetworkingHandler.predictAttributeSpend`), rather than waiting for the
+  next `AttributeSyncPayload` tick — the server stays authoritative and corrects this within
+  ~1 tick if the optimistic update was ever wrong, so there's no real desync risk, just a
+  smoother-feeling button. When `Unspent Points` is 0, the buttons are now `.visible = false`
+  (fully hidden, not just greyed out via `.active`).
 - **Two real, confirmed-not-guessed bugs were fixed during this system's development** (both
   found via actual user screenshots, not caught by build/boot verification alone): the tab
   header overlapping content (root cause: `GridScreenTab`'s default centering anchor goes
@@ -111,56 +120,100 @@ Character-Stats work) and then adding a Skill System + Class Sub-specializations
   don't assume build success + clean boot means the UI actually renders/scrolls correctly —
   it doesn't catch layout bugs.
 
+### Combat System v1 — Physical Attack/Attack Speed/Crit Chance now affect real combat
+
+User reported these three stats had zero effect when attacking a monster (correct — they were
+pure display values). Wired all three into real vanilla combat mechanics rather than building
+a parallel damage system:
+
+- **Base Attack (Strength)**: `VitalsManager.applyBaseAttack` adds a persistent `ADD_VALUE`
+  modifier (fixed `Identifier`, `overwritePersistentModifier` — same pattern as the Class
+  System's own attribute bonuses) to the player's real `EntityAttributes.ATTACK_DAMAGE`.
+  Stacks additively with whatever weapon they're holding.
+- **Attack Speed Multiplier (Dexterity)**: `VitalsManager.applyAttackSpeed` adds a persistent
+  `ADD_MULTIPLIED_TOTAL` modifier to `EntityAttributes.ATTACK_SPEED`, value =
+  `(multiplier - 1.0)` **not** the multiplier itself — confirmed via
+  `EntityAttributeInstance.computeValue()`'s actual decompiled body that this operation
+  computes `total *= 1.0 + value`, so a "+50%" bonus needs modifier value `0.5`.
+- Both modifiers are **persistent** (survive relogin/restart on their own) — only re-applied
+  on join and immediately after a successful attribute-point spend, not every tick.
+- **Crit Chance (Dexterity)**: new Mixin `mixin/PlayerAttackDamageMixin.java`. No Fabric API
+  event can modify a melee attack's final damage float (`AttackEntityCallback` is cancel/allow
+  only, fires before damage is computed) — confirmed by reading the actual event package
+  source. Uses a plain Sponge `@ModifyArg` targeting `Entity.sidedDamage(DamageSource, float)`
+  inside `PlayerEntity.attack(Entity)`, rolls `Math.random()*100 < critChance` server-side only
+  (guarded by `instanceof ServerPlayerEntity`), multiplies by a flat
+  `CRIT_DAMAGE_MULTIPLIER = 1.5f` (a number picked to match vanilla's own fall-crit
+  multiplier, not user-specified).
+- **`balance-reviewer` finding, real and escalating, flagged for a human decision — see "Next
+  recommended step"**: Base Attack (linear), Attack Speed (linear → more attacks/sec), and
+  Crit Chance (linear EV) all multiply together in actual combat, so **total DPS grows
+  superlinearly with investment** — ~8x baseline DPS at 25 points invested in each of
+  Strength/Dexterity, ~46x baseline at max level (99 points each). An iron sword deals ~11
+  damage at start, ~36 at 30 Strength, ~110 at max Strength — **characters one-shot most
+  vanilla mobs (20 HP) from roughly 25 invested Strength points onward**, well before max
+  level. The per-stat formulas were already reviewed/approved before combat existed to consume
+  them — this compounding effect is a genuine new consequence of wiring them together.
+- **Escalated further by two boss-weapon drops in a row** (see "Stone of Zombies" below): Gold
+  Sword nudged the ceiling +12.5% (its attack-speed tuning is faster than vanilla for its
+  damage tier), Poison Dagger pushed it another +145% (reaching ~110x baseline at max
+  investment), because Dexterity's Attack-Speed modifier is multiplicative on top of whatever
+  speed the weapon already has — a fast weapon's speed advantage survives to max investment
+  essentially undiluted, while flat damage differences between weapons get swamped by
+  Strength's own large additive bonus. **This is now a "Balance decision needed" item spanning
+  three separate findings (base combat wiring + 2 weapons) — see "Next recommended step".**
+- Also flagged, not fixed (minor, likely-intentional): vanilla's own fall-crit (1.5x) already
+  applies before this Mixin runs, so a fall-attack crit + a Dexterity crit roll stacks to
+  `1.5 × 1.5 = 2.25x`, uncapped — reads as an acceptable rare-but-fun outcome, not written down
+  as an explicit decision.
+- Verified: build passes, boots cleanly with the Mixin applied. **Not verified in an actual
+  fight** by the session that wrote it — see per-mob "Next recommended step" items below.
+
+### Target nameplate — mob name + level + health bar, top-center
+
+Client-only HUD element, `ui/MobNameplateHud.java`, registered via `HudElementRegistry.
+addLast(...)` (independent element, not attached to `VanillaHudElements.BOSS_BAR`). Shows
+name/level/health bar of a targeted living entity.
+
+- Prefers a recently-**attacked** entity (cached 5s, via `AttackEntityCallback` — confirmed
+  this fires client-side too, Mixin'd into `ClientPlayerInteractionManager.attackEntity`) over
+  the live crosshair target, since fast/erratic mobs (e.g. spiders) often aren't precisely
+  under the crosshair the instant a hit lands.
+- "Lvl. X" via a new `entity.MonsterLevelProvider` interface — currently only implemented by
+  the mini-bosses below; every other mob still shows a hardcoded "Lvl. 1" placeholder.
+- **Real bug found and fixed, same root cause `docs/fabric-modding.md` had already documented
+  from an earlier session's dead HUD prototype**: `DrawContext.drawText*` silently no-ops on a
+  color with a zero alpha byte. This file's text calls originally passed bare `0xFFFFFF`
+  instead of `0xFFFFFFFF` — the exact already-documented mistake, made fresh anyway. Fixed via
+  `net.minecraft.util.Colors.WHITE`. **General lesson worth internalizing**: any raw color
+  `int` passed directly to `drawText*` (not via `Text.styled(style -> style.withColor(...))`,
+  which is unaffected) needs a non-zero alpha byte.
+- Bar styling reuses the Life bar's exact ember/coral hexes. Positioned at vanilla's boss-bar
+  starting y, top-center; `PlayerStatusHud`'s old top-left slot is gone (see "Custom UI"
+  below) so there's no collision risk there anymore.
+
 ### Class System v1 — 4 classes, command + GUI selection
 
 - `classes/` package: `PlayerClass` (enum: `EISENWAECHTER`, `SCHATTENLAEUFER`, `RUNENWIRKER`,
   `WESENSWAHRER`), `ClassDefinition` (record), `ClassRegistry` (static lookup), `ClassManager`
   (persistence + apply/remove bonus + its own join listener).
 - Commands: `/baum2 class list`, `/baum2 class info [<class>]`, `/baum2 class select <class>`.
-- Persistence via Fabric's Attachment API, **now synced to the client** too
-  (`.syncWith(PacketCodecs.STRING.xmap(...), AttachmentSyncPredicate.targetOnly())` — added
-  during the Custom UI work below, since the HUD/Screen need to know the client's own class).
+- Persistence via Fabric's Attachment API, synced to the client too
+  (`.syncWith(PacketCodecs.STRING.xmap(...), AttachmentSyncPredicate.targetOnly())`).
 - Passive bonuses: Eisenwächter +4 max health, Schattenläufer +10% movement speed, Runenwirker
   +1 luck, Wesenswahrer +10% knockback resistance — each a stable-`Identifier`
   `EntityAttributeModifier`, swapped cleanly on reselection/rejoin.
 - **4th class renamed `Seelenhüter` → `Wesenswahrer`** (`ip-naming-compliance-checker` found
   `Seelenhüter` was an exact match to *Echo of Soul*'s player-character title). **Wesenswahrer's
-  bonus attribute changed from `MAX_ABSORPTION` (a confirmed no-op — nothing in the mod grants
-  absorption hearts) to `KNOCKBACK_RESISTANCE`** (`balance-reviewer` finding).
+  bonus attribute changed from `MAX_ABSORPTION` (a confirmed no-op) to `KNOCKBACK_RESISTANCE`**
+  (`balance-reviewer` finding).
 - **Fine-grained `/attribute` verification is still the one open gap** for this system (see
   "Next recommended step") — a quick manual check confirmed class selection/switching *works*
-  end-to-end via both the command and the new GUI (see below), but the exact numeric modifier
-  values (`/attribute @s ... modifier value get baum2:class_bonus/...`) haven't been checked.
+  end-to-end via both the command and the GUI, but the exact numeric modifier values
+  (`/attribute @s ... modifier value get baum2:class_bonus/...`) haven't been checked.
 - **Known, logged, not fixed (design/judgment calls)**: free, instant, zero-cooldown class
   reselection lets a player capture all four bonuses' benefit contextually; Runenwirker's luck
   has no loot system yet to act on.
-
-### Custom UI v1 — Class tab merged into Character Stats Screen, top-left HUD removed
-
-- **Started from a request for a "Metin2 look"**, rejected as conflicting with
-  `MASTERPROMPT.md`'s "no MMORPG UI imitation" rule; resolved with the user in favor of an
-  original look using only generic, non-distinctive genre conventions —
-  `docs/visual-style-guide.md` section 0 records why.
-- `docs/visual-style-guide.md` — "Deepwood & Verdigris" art direction (flat, square-cornered
-  panels, slate/verdigris/rune-cyan palette), per-class accent colors/icon motifs. **This doc
-  was independently created on both branches the same day and merged together at merge time**
-  — it has a "two owners, two palettes" reconciliation note in its own Section 1 worth reading
-  before further UI work (the Vitals/Stats-screen colors and the Class-System colors are not
-  yet unified).
-- **The standalone `ClassScreen` ('K' keybind) and the top-left `PlayerStatusHud` are both
-  gone**, resolving the "two competing identity screens" structural question a prior session
-  flagged: `CharacterStatsScreen` ('C' key) now has a second tab, **"Class"**, built the same
-  way as its existing "Stats" tab (a `GridScreenTab` + `TabNavigationWidget`, per-class-card
-  `ClickableWidget`s in a single-column `GridWidget`) — same click-to-select behavior the old
-  `ClassScreen` had (icon/name/description/bonus per card, "Aktiv" tag + colored border/wash
-  on the selected card), just relocated. The top-left HUD panel was removed outright rather
-  than kept as a level-only indicator, since vanilla's own XP bar already shows level/XP and
-  the panel's only other job (showing class) moved into the new tab.
-  - `networking/ClassSelectPayload.java` (C2S, unchanged) still backs the tab's
-    click-to-select.
-- Dead code removed earlier this session (during the master-merge): a duplicate,
-  never-registered `Baum2Client` (in a `client` subpackage), and the old unwired
-  `ui/ProgressionHud.java` prototype.
 
 ### Skill System v1 — 8 active spells, keybind + command casting
 
@@ -179,15 +232,27 @@ Character-Stats work) and then adding a Skill System + Class Sub-specializations
     *current* class (`SpellCaster.spellForSlot`), not a fixed spell — so only 2 keybinds are
     needed total, not 8. New C2S `networking/CastSpellPayload.java` (carries just a slot int)
     backs this.
-  - **Fallback/testing: `/baum2 cast <spell>`** — kept for direct testing access (e.g. casting
-    a spell not on your current class's slot 0/1 for debugging), same pattern as this project
-    keeping both a command and a GUI for class selection.
+  - **Fallback/testing: `/baum2 cast <spell>`** — kept for direct testing access, same pattern
+    as this project keeping both a command and a GUI for class selection.
 - This started from an explicit request to "get inspired by Metin2's Warrior/Sura/Shaman/Ninja
   classes and their sub-specs" — that was rejected as direct IP copying (Metin2 named
   specifically), and resolved with the user in favor of building original spells/sub-specs
-  from this project's *own* already-established class identities instead. See the Class
-  Sub-specializations entry below for the naming-compliance detail (3 of the sub-spec names
-  were independently caught resembling specific WoW spec names and renamed before landing).
+  from this project's *own* already-established class identities instead.
+- **Damage is flat/hardcoded, not yet scaled by any attribute** (see "Attribute System"
+  above) — a real combat/skill unification (e.g. spell damage scaling off Intelligence via
+  `VitalsCurve.getBaseMagicAttack`, allowing spell crits) is a deliberate future decision, not
+  done yet — see "Next recommended step".
+- **New design-adjacency risk, found by `merge-integration-reviewer` while merging in master's
+  combat/mob work, not yet resolved**: `combat/PoisonDaggerHandler.java` (master) listens on
+  `ServerLivingEntityEvents.AFTER_DAMAGE` and applies Poison to *any* damage a player holding
+  the Poison Dagger causes — it doesn't check the hit was a melee swing. The Skill System's
+  three damage spells (`schildstoss`, `klingenwirbel`, `runenfunke`) deal damage via
+  `target.damage(world, indirectMagic(player, player), amount)`, whose `DamageSource.
+  getAttacker()` also resolves to the player. **Net effect: a player holding a Poison Dagger
+  who casts one of those three spells will also poison every target the spell hits** — an
+  emergent interaction neither branch intended or tested. Not a build break. Worth a conscious
+  decision: scope the handler to melee-only (e.g. check a damage-type tag), or accept it as an
+  intentional-feeling combo.
 
 ### Class Sub-specializations v1 — 2 per class, layered on top of the base class bonus
 
@@ -196,8 +261,7 @@ Character-Stats work) and then adding a Skill System + Class Sub-specializations
   `ClassManager` gained a second `AttachmentType` (`SELECTED_SUBSPEC`, same
   persistent+copyOnDeath+syncWith pattern as `SELECTED_CLASS`) and `selectSubspec(...)`, which
   validates the chosen sub-spec actually belongs to the player's current class and clears the
-  old sub-spec's bonus/attachment whenever the base class changes (a stale sub-spec would
-  otherwise silently linger, invalid, after switching classes).
+  old sub-spec's bonus/attachment whenever the base class changes.
 - Commands: `/baum2 class subspec list`, `/baum2 class subspec select <subspec>` — no GUI yet
   (see "Next recommended step").
 - Final names, after one naming-compliance round caught 3 problems (see below): Eisenwächter
@@ -207,42 +271,259 @@ Character-Stats work) and then adding a Skill System + Class Sub-specializations
 - **`ip-naming-compliance-checker` flagged and got 3 of the original 8 sub-spec names
   renamed** before anything shipped — these weren't generic-word overlaps, they were exact or
   near-exact matches to specific, well-known WoW German spec/spell names: "Vergelter" (→
-  Stahlfaust — matched WoW Paladin's actual "Vergeltung"/community "Vergelter-Paladin" shorthand,
-  same "defensive class turns offensive" concept too), "Wildwuchs" (→ Wesensfülle — exact,
-  unmodified match to WoW Druid's real spell "Wild Growth"), "Zerstörungsrune" (→
-  Splitterrune — contained WoW Warlock's actual "Zerstörung"/Destruction spec name; the
-  replacement reuses this project's own pre-existing "Splitter" motif from Rissobelisk/
-  Sternsplitter/Splitterwächter instead). All 3 replacements re-checked clean. Also
-  double-checked: the "4 classes × 2 sub-specs" *structure* itself doesn't read as
-  Metin2-specific (that shape is shared by multiple genre-wide games), and each class's
-  specific offense/defense-or-utility split was deliberately varied per class rather than
-  applying one uniform template, so it doesn't read as "Metin2's 4 classes with new names."
+  Stahlfaust — matched WoW Paladin's actual "Vergeltung"/community "Vergelter-Paladin"
+  shorthand), "Wildwuchs" (→ Wesensfülle — exact, unmodified match to WoW Druid's real spell
+  "Wild Growth"), "Zerstörungsrune" (→ Splitterrune — contained WoW Warlock's actual
+  "Zerstörung"/Destruction spec name; the replacement reuses this project's own pre-existing
+  "Splitter" motif). All 3 replacements re-checked clean. Also double-checked: the "4 classes
+  × 2 sub-specs" *structure* doesn't read as Metin2-specific, and each class's specific split
+  was deliberately varied per class rather than one uniform template.
 - **`balance-reviewer` found and fixed one real bug**: Wurzelwall was `ADD_MULTIPLIED_BASE`
   while Wesenswahrer's own class bonus (which it's meant to stack with, like Glücksrune
   correctly does with Runenwirker's luck) is `ADD_VALUE` — vanilla's attribute formula means
   those two operations don't combine the way "+10% on top of +10%" suggests (nets ~11%, not
-  20%). Fixed to `ADD_VALUE` to match, and to match Glücksrune's already-correct pattern.
+  20%). Fixed to `ADD_VALUE` to match.
 - **`balance-reviewer` also found Lebensband (the "heal" spell) was non-functional**: a flat
-  6 HP heal against Life's new post-Vitals-rework scale (500-2480, see Vitals System above) is
-  outpaced by passive Life Regen after just ~3 Endurance points — the dedicated heal spell was
-  *worse than doing nothing* for most of the game. Fixed to heal 12% of max life instead of a
-  flat amount, so it scales with the player.
+  6 HP heal against Life's new post-Vitals-rework scale (500-2480) is outpaced by passive Life
+  Regen after just ~3 Endurance points. Fixed to heal 12% of max life instead of a flat amount.
 - **Logged, not fixed (design/judgment calls)**: no spell costs Mana despite a Mana system
-  existing specifically to be spent (currently 100% inert/display-only); sub-spec reselection
-  is free/instant/uncapped, same known gap as base-class reselection; none of the 4 AoE/damage
-  spells do a line-of-sight/raycast check, so they can hit through walls; `Nebelschritt`'s dash
-  has no collision check (can clip through thin walls or land inside terrain); AoE effects
-  (`Geisterwoge`, `Schildstoß`, `Klingenwirbel`, `Arkaner Kreis`) don't filter out other
-  players, so they hit friend and foe alike; `Arkaner Kreis`'s 25s cooldown / 15s duration lets
-  2 coordinated players keep its Luck buff at 100% uptime (currently low-impact only because
-  Luck has no loot-system consumer yet — revisit once one exists).
+  existing specifically to be spent; sub-spec reselection is free/instant/uncapped, same known
+  gap as base-class reselection; none of the 4 AoE/damage spells do a line-of-sight/raycast
+  check, so they can hit through walls; `Nebelschritt`'s dash has no collision check; AoE
+  effects don't filter out other players, so they hit friend and foe alike; `Arkaner Kreis`'s
+  25s cooldown / 15s duration lets 2 coordinated players keep its Luck buff at 100% uptime
+  (currently low-impact only because Luck has no loot-system consumer yet).
+
+### Custom UI v1 — Class tab merged into Character Stats Screen, top-left HUD removed
+
+- **Started from a request for a "Metin2 look"**, rejected as conflicting with
+  `MASTERPROMPT.md`'s "no MMORPG UI imitation" rule; resolved with the user in favor of an
+  original look using only generic, non-distinctive genre conventions —
+  `docs/visual-style-guide.md` section 0 records why.
+- `docs/visual-style-guide.md` — "Deepwood & Verdigris" art direction (flat, square-cornered
+  panels, slate/verdigris/rune-cyan palette), per-class accent colors/icon motifs. **Still has
+  an unresolved "which palette" question, now bigger, not smaller — see the note at the end of
+  this section.**
+- **The standalone `ClassScreen` ('K' keybind) and the top-left `PlayerStatusHud` are both
+  gone.** `CharacterStatsScreen` ('C' key) now has a second tab, **"Class"**, built the same
+  way as its existing "Stats" tab (a `GridScreenTab` + `TabNavigationWidget`, per-class-card
+  `ClickableWidget`s in a single-column `GridWidget`) — same click-to-select behavior the old
+  `ClassScreen` had (icon/name/description/bonus per card, "Aktiv" tag + colored border/wash
+  on the selected card), just relocated. The top-left HUD panel was removed outright rather
+  than kept as a level-only indicator, since vanilla's own XP bar already shows level/XP and
+  the panel's only other job (showing class) moved into the new tab.
+  - `networking/ClassSelectPayload.java` (C2S, unchanged) still backs the tab's
+    click-to-select.
+- **Important: this was a unilateral resolution of an open question, not a joint decision —
+  flag to Fischey.** A prior session's HANDOFF explicitly logged "the `ClassScreen`/
+  `CharacterStatsScreen` structural question... needs a product decision from the
+  contributors, not more code." This session went ahead and merged them anyway (see rationale
+  above) without that being a joint call. Worth a heads-up conversation, even though the
+  outcome is probably what would have been decided anyway.
+- Dead code removed earlier this session (during the first master-merge): a duplicate,
+  never-registered `Baum2Client` (in a `client` subpackage), and the old unwired
+  `ui/ProgressionHud.java` prototype.
+- **The visual-style-guide "which palette" question has grown, not converged, since it was
+  first logged** (per `merge-integration-reviewer`, found while merging in the mini-boss
+  work): what started as a two-palette question (Deepwood & Verdigris menu chrome vs.
+  Vitals/Combat-HUD coral-ember/azure) is now trending toward "every new mob/item gets its own
+  bespoke palette by design" — Spider Queen's "Royal Carapace", Stone of Zombies'/Poison
+  Dagger's "Toxic Bloom", Zombie Colossus' "Ashen Brute" are each declared in the doc as
+  "distinct from every other palette in the mod." The doc's own open-decisions list already
+  flags this (#3) but keeps deferring it. Worth resolving deliberately before a fourth or
+  fifth bespoke palette exists, rather than after.
+
+### Stone of Spiders — first custom mob, first custom item, first custom entity model/renderer
+
+`baum2:stone_of_spiders` (level 10, 200 HP, 3x3-block immobile mini-boss) and `baum2:gold_sword`
+(its guaranteed drop) — this project's first custom `EntityType`, first custom `Item`, and
+first custom `EntityModel`/`EntityRenderer`. New `registry/` package (`ModEntities`, `ModItems`)
+and `entity/` package (split main/client the same way `networking/` already is).
+
+- **Mechanics**: extends `HostileEntity`. Immobile via an empty `travel(Vec3d)` override plus
+  `MOVEMENT_SPEED=0`/`KNOCKBACK_RESISTANCE=1.0` and `isPushable()→false`; never despawns. No
+  attack goals registered at all — **the stone itself cannot attack the player directly**,
+  confirmed by `balance-reviewer`; all danger comes from spider waves it spawns. Reads as an
+  intentional "objective/totem" boss pattern, not an oversight.
+  - **Spider waves**: after each successful hit, spawns one wave of 3 vanilla
+    `EntityType.SPIDER` per full 10%-of-max-HP increment lost, cumulative and one-shot per
+    threshold. Worst case (full depletion, no healing) is exactly 30 spiders total — bounded,
+    confirmed by `balance-reviewer`.
+  - **Death cascade**: spawned spiders' UUIDs tracked in-memory (not NBT-persisted — acceptable
+    for a single-sitting boss fight); `onDeath` force-kills every still-alive tracked spider.
+  - **Drop**: overrides `dropLoot(...)` directly (no loot-table JSON) to drop exactly one
+    `baum2:gold_sword`.
+  - **Level display**: new `entity.MonsterLevelProvider` interface — first real per-mob level
+    in the codebase; every mob not implementing it still shows "Lvl. 1".
+  - **Not yet done**: no natural spawn path — `/summon` only, for now.
+- **Gold Sword**: plain `Item` (not a `SwordItem` subclass — **`SwordItem`/`ToolItem` no longer
+  exist in 1.21.11**, vanilla moved to `Item.Settings.sword(ToolMaterial, attackDamage,
+  attackSpeed)`), built on `ToolMaterial.GOLD` with `.sword(ToolMaterial.GOLD, 5.0F, -2.2F)`.
+  **`balance-reviewer` finding, flagged not fixed**: because `ToolMaterial.GOLD`'s own
+  `attackDamageBonus` is 0.0 (vs Iron's 2.0), this sword's *effective* total damage nets out
+  identical to vanilla Iron despite the higher-looking argument — the real effect is a flat
+  +12.5% attack speed over every vanilla sword tier, which is the first contribution to the
+  now-escalating Combat System v1 DPS-ceiling issue (see "Combat System v1" above).
+- **`ip-naming-compliance-checker`: clear** — generic names, "stationary egg-sac boss spawning
+  adds" is a widely-used genre archetype, not a specific-game match.
+- Visual identity: `docs/visual-style-guide.md` Sections 13-14 — original "Fused Stone/Cocoon
+  Husk/Spun Silk/Larval Glow" palette family, placeholder textures (flat programmatic fills).
+- Verified: build passes clean. **Not yet verified in an actual game session** — see "Next
+  recommended step" for the exact playtest checklist.
+
+### Stone of Zombies — second mini-boss, shares Stone of Spiders' shape/model
+
+`baum2:stone_of_zombies` (level 20, 400 HP, same silhouette, reskinned green with continuous
+toxic smoke) and `baum2:poison_dagger` (guaranteed drop, applies Poison on hit). Structurally a
+near-exact sibling of Stone of Spiders — reviewed here mainly for what's different.
+
+- **Shared geometry refactor**: `StoneOfSpidersEntityModel` renamed to
+  `HulkingCocoonStoneEntityModel` since both stone bosses share the exact same 7-cuboid
+  geometry — only the texture differs. Any future stone-shaped mini-boss should follow this
+  pattern.
+- **Zombie waves**: same trigger math as Stone of Spiders, but each wave spawns 2 normal
+  zombies + 1 baby zombie. Worst case still 30 total adds — flagged by `balance-reviewer` as a
+  judgment call (HP/level ratio scaled consistently with Stone of Spiders, add-pressure per
+  wave did not).
+- **Ambient smoke**: cosmetic-only client-side particle loop, no networking needed (`HEALTH`
+  and similar are already synced `TrackedData`, and particles are a pure client-tick effect).
+- **Poison Dagger**: `ToolMaterial.IRON`, `.sword(ToolMaterial.IRON, 1.0F, 0.0F)` — low raw
+  damage (4.0 total) but very fast (4.0 total attack speed, 2.5x vanilla's uniform 1.6). New
+  `combat/PoisonDaggerHandler.java` (first use of the `combat/` package) applies Poison via
+  `ServerLivingEntityEvents.AFTER_DAMAGE` — see the Skill-System-interaction note logged above.
+- **`balance-reviewer` finding, escalating the same issue Gold Sword started**: because
+  Dexterity's Attack-Speed modifier multiplies whatever speed the weapon already has, at max
+  investment (104 Str/104 Dex) Poison Dagger reaches ~2.45x a vanilla iron sword's DPS and
+  ~2.18x Gold Sword's DPS *at the same investment level* — pushing the Combat System v1
+  ceiling to roughly **~110x baseline**. Two weapons in a row escalating the same ceiling, not
+  two separate local issues — see "Next recommended step".
+- **`ip-naming-compliance-checker`: clear** — generic descriptive compounds, reskin-the-
+  same-boss-per-element is generic genre convention.
+- Visual identity: `docs/visual-style-guide.md` Sections 15-16 — new "Toxic Bloom" palette,
+  explicitly distinct from Stone of Spiders'.
+- Verified: build passes clean. **Not yet verified in an actual game session.**
+
+### Spider Queen — first mobile boss, first armor set (`baum2:spider_queen`)
+
+Level 15, 350 HP giant (3x-scale) spider boss with a fast melee bite (10 dmg, 2 attacks/sec)
+and a signature long-range leap attack (75 dmg, 4-12 block trigger range, 7s cooldown). First
+mobile boss (built on vanilla `SpiderEntity` directly, not `HostileEntity` — inherits
+wall-climbing/navigation/model for free). Drops a full 4-piece "Queen Spider Set" armor — this
+mod's first armor system.
+
+- **3x visual + hitbox scale**: same two-part mechanism vanilla's own Giant uses —
+  `EntityType.Builder.dimensions()` plus `ModelTransformer.scaling(3.0F)` on the model, not the
+  newer `EntityAttributes.SCALE` attribute (which Giant doesn't use either).
+- **Leap attack**: `balance-reviewer` found a real *mechanical* gap (not numeric) and it was
+  fixed in the same pass: the leap originally only aimed once at launch, so a player could beat
+  it with a single sidestep, directly contradicting the "escape is impossible" design brief.
+  Fixed by re-aiming mid-flight toward the target's current position.
+- **Queen Spider Set**: `Item.Settings.armor(ArmorMaterial, EquipmentType)`. Confirmed the worn
+  3D look is a *separate system* from the item icon — a client resource JSON at
+  `assets/baum2/equipment/queen_spider.json` (plain resource-pack asset, not a datapack/
+  dynamic-registry entry despite the type signature suggesting otherwise). No custom rendering
+  code needed for the worn look — vanilla's `PlayerEntityRenderer` picks it up automatically.
+- **`balance-reviewer` findings, logged not fixed**: (a) HP/level ratio (~23.3) drifts ~17%
+  from both Stone bosses' consistent 20 HP/level, in the "harder to farm" direction; (b) armor
+  toughness (1.0) makes zero actual difference against the boss's own 75-damage leap (the
+  `armor × 0.2` floor binds regardless of toughness at that damage level); (c) defense-total
+  and enchantability are Diamond-*equal*, not Diamond-*adjacent*, despite only
+  durability/toughness sitting between Iron and Diamond; (d) repairs via cheapest-ore-tier
+  tags is a real mismatch against Diamond-equal defense, no dedicated repair material exists
+  yet; (e) 75 flat leap damage is fair at starting HP but fades fast as Endurance is invested
+  (same "high investment trivializes content" direction as Combat System v1).
+- **`ip-naming-compliance-checker`: clear, with a future-content watch-item** — "Spider Queen"
+  is a genre-wide trope (multiple unrelated games ship their own), and also the D&D/Forgotten
+  Realms epithet for Lolth; nothing here pulls in Lolth-specific content, so it clears on its
+  own, but a future drow/web-pit/spider-goddess *bundle* would start reading as Lolth
+  specifically — worth remembering if this boss's lore gets expanded.
+
+**Playtest fixes (real user testing surfaced 3 real bugs — clean builds ≠ working features):**
+1. "The jump did not work" — the leap goal now explicitly stops navigation at wind-up start
+   *and every wind-up tick* (killing residual pathing from whichever lower-priority goal was
+   active), not just once.
+2. "I want a real jump animation" — implemented a genuine two-phase telegraphed wind-up
+   (15 ticks, synced via a new `TrackedData<Integer>`) with a dedicated render pipeline
+   (`SpiderQueenRenderState`/`SpiderQueenEntityModel`). Trade-off: this broke compatibility
+   with vanilla's `SpiderEyesFeatureRenderer` (dropped; the replacement texture paints eye-glow
+   directly instead).
+3. "The Spider Armor set requires images for the inventar" — all 4 item model JSONs referenced
+   a non-existent `"minecraft:item/generic"` parent (the real vanilla constant is `GENERATED`
+   → `"minecraft:item/generated"` — confirmed against decompiled source, there is no
+   `GENERIC`). Fixed.
+
+Then, per further feedback ("make it more green... like mutant spider... greenly smoke"): the
+entity texture was reworked to a new "Mutant Ichor" palette (deliberately distinct from Stone
+of Zombies' existing "Toxic Bloom") with a continuous `ParticleTypes.WITCH` toxic aura. **The
+armor's own "Royal Carapace" palette was deliberately left unchanged** per explicit user
+direction — the boss and her drop intentionally use two different palettes now, flagged
+clearly in the style guide so this isn't "fixed" by accident later.
+
+**Leap trajectory rework (second follow-up)**: user gave an exact spec ("2 Y-blocks high and
+12 X-blocks wide" normally, "12 Y-blocks high and 5 wide" for an elevated target). Rather than
+hand-tune by feel, **the actual launch velocities were derived by simulating this game's real
+per-tick physics in a standalone script** (confirmed via decompiled `travelMidAir()`/
+`getEffectiveGravity()` that velocity decays `vy=(vy-0.08)*0.98`, `vx=vx*0.91` per tick,
+semi-implicit Euler), then binary-searched for the two requested trajectories. See git history
+for the exact velocity table if this technique needs to be reused for a future leap/projectile.
+
+Verified throughout: build passes clean. **Still not independently verified in an actual game
+session** — every fix above was driven by the user's own real playtest report; the next
+playtest should confirm all the specific things listed in each fix above.
+
+### Zombie Colossus — third mini-boss, first mob with an AoE + custom-rate DoT
+
+Level 25, 750 HP, 3x-scaled melee zombie boss wielding a real held weapon (the "Colossal
+Warclub" drop). Same mobile-boss family as Spider Queen (extends `ZombieEntity` directly), but
+the first boss with three genuinely different attacks: a slow heavy base hit, a leap ending in
+a ground AoE, and a 3-hit burst combo.
+
+- **Base attack**: 100 damage, exactly 2-block range, fully custom `Goal` (not a
+  `MeleeAttackGoal` subclass — confirmed via `javap` that class has no overridable
+  attack-range hook in this version).
+- **Leap attack**: reuses Spider Queen's proven direct-position-control `travel()` override
+  verbatim — deliberately did **not** re-attempt a velocity-based leap, since this exact
+  codebase already burned two rounds finding that approach unreliable.
+- **Fire wave** (new mechanic, first AoE-that-isn't-a-single-hit in the mod): an expanding ring
+  from the leap's landing point, 5 blocks/sec outward to 10 blocks, 25 damage + 5s burn per
+  player hit once.
+- **Burn DoT** (`combat/BurnDamageManager.java`, new): vanilla's own fire-tick rate is fixed
+  and can't hit the spec's exact "2 damage/sec for 5s" without a Mixin — a minimal
+  `Map<UUID, ticks-remaining>` ticked off `ServerTickEvents.END_SERVER_TICK` instead (same
+  shape as `VitalsTickHandler`/`PoisonDaggerHandler`).
+- **Rage attack**: 3 strikes of 100 damage each, own cooldown, higher goal priority so it
+  periodically preempts the base attack.
+- **Held club**: a real equipped `ItemStack`, not cosmetic — copied vanilla's own `GiantEntity`
+  mechanism (a 6x zombie holding an oversized item) since vanilla's normal zombie renderer
+  hardcodes a non-scaled shadow radius, same problem Spider Queen's renderer hit.
+- **`balance-reviewer` found two genuine mechanical bugs, both fixed in the same pass**: (1)
+  the rage attack originally had **zero telegraph** — 300 damage (60% of a fresh character's
+  starting HP) with no warning, the sharpest "didn't see it coming" burst reviewed in this mod;
+  fixed with an 8-tick wind-up + growl. (2) A real **dead zone between 2 and 3 blocks** where
+  neither the base attack (≤2) nor the leap (originally ≥3) could land; fixed by lowering the
+  leap's minimum trigger range to 2.0.
+- **Also found and fixed (correctness, not just balance)**: the fire wave's burn DoT ignored
+  Fire Resistance/fire immunity entirely (it's an independent tracker from vanilla's own
+  fire-tick damage, which does respect those). Fixed by checking immunity before each tick.
+- **Findings logged, not changed**: (a) 750/25 = 30 HP/level is a new high point, extending an
+  already-drifting trend (Stone bosses 20, Spider Queen ~23.3, this one 30 — three bosses in a
+  row drifting the same direction); (b) the Colossal Warclub's flat damage floor one-shots any
+  ~20-HP vanilla mob at zero Strength investment — but simulated concretely that this weapon's
+  *shape* (low speed) doesn't add to the escalating max-investment DPS ceiling the way Gold
+  Sword/Poison Dagger did (16.7x baseline vs. vanilla iron's own 24.7x — actually sits below
+  the existing ceiling).
+- **`ip-naming-compliance-checker`**: "Zombie Colossus" cleared. **The original drop name,
+  "Colossus Club", was flagged and renamed to "Colossal Warclub"** — an exact 1:1 match to an
+  existing (minor, non-iconic) EverQuest 2 item, not coincidental overlap. Renamed before any
+  other work depended on the old name.
+- Visual identity: `docs/visual-style-guide.md` Section 18 — new "Ashen Brute" palette.
+- Verified: build passes clean. **Not yet verified in an actual game session.**
 
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
-- **Branches**: `jonas_workbranch` just merged `origin/master` (which had already absorbed all
-  of `fischey_workbranch`'s recent work — `master` and `fischey_workbranch` were at the same
-  commit at merge time). `jonas_workbranch` is now ahead of `master` by this merge commit plus
-  its own prior Class-System/Custom-UI commits; push this branch, then decide whether/when to
-  fast-forward or merge it back into `master`.
+- **Branches**: `jonas_workbranch` has merged `origin/master` twice this session and is now
+  ahead of it by this merge plus the Skill System/Sub-specialization commits; `master` and
+  `fischey_workbranch` are kept at the same commit by convention (push jonas_workbranch, then
+  decide when to fast-forward `master` to match, per established practice).
 - `.vscode/` is checked in (extensions.json, settings.json, tasks.json) so fresh checkout gets
   Java+Gradle recommendations and "Run Minecraft Client" task (`Ctrl+Shift+B`) out of the box.
 - Five subagents under `.claude/agents/` (shared via git): `fabric-docs-researcher`,
@@ -253,112 +534,90 @@ Character-Stats work) and then adding a Skill System + Class Sub-specializations
 - **Known limitation (workspace root)**: the harness discovers project agents from its primary
   working directory, not a nested repo root — a session opened at `D:\Baum2` (the parent of
   this repo) instead of `D:\Baum2\Baum2` sees none of the five project agents. **Fix: open the
-  session at `D:\Baum2\Baum2`.** Confirmed fixed as of this session — both `merge-integration-
-  reviewer` calls during this merge ran as the real subagent type, not a workaround.
+  session at `D:\Baum2\Baum2`.**
 - **Known limitation (environment-specific, reported from at least one other environment)**:
   in at least one setup (the VS Code extension host per a prior session's note), custom
   `.claude/agents/` subagents were never available via the `Agent` tool even in a fresh
-  session with the files present on disk — only built-in types resolved. Workaround used
-  there: read the target `.claude/agents/<name>.md` file yourself and dispatch a
-  general-purpose agent reproducing its role/instructions verbatim. Not encountered in this
-  session (custom agent types resolved normally here) — if it recurs, that workaround remains
-  available.
+  session with the files present on disk — only built-in types resolved. Workaround: read the
+  target `.claude/agents/<name>.md` file yourself and dispatch a general-purpose agent
+  reproducing its role/instructions verbatim. Confirmed still needed as of Fischey's latest
+  session (recurred there); not encountered in this session (custom agent types resolved
+  normally here) — environment-dependent, re-test each fresh session rather than assuming
+  either way.
 - **No GUI-automation tool exists in this environment** for the native Minecraft/LWJGL window
-  (unlike a browser/Electron app) — every UI bug found in the Vitals/Attribute/Stats-screen
-  work was only caught because a human played manually and reported back (screenshots, or a
-  direct "it worked" / "it's broken" report), not by build/boot verification. Expect the same
-  for any future UI work: build passing and clean boot are necessary but not sufficient checks.
+  (unlike a browser/Electron app) — nearly every UI/gameplay bug found across both
+  contributors' sessions was only caught because a human played manually and reported back,
+  not by build/boot verification. Expect the same for any future work: build passing and clean
+  boot are necessary but not sufficient checks. All four new mini-bosses in this update are
+  explicitly **not yet verified in an actual game session** for exactly this reason.
 
 ## Last change (on `jonas_workbranch`)
 
-Three things in one session, building on the merge below: (1) moved the standalone
-`ClassScreen` ('K') into `CharacterStatsScreen` as a new "Class" tab and removed the top-left
-`PlayerStatusHud`, resolving the two-competing-screens question the merge had flagged; (2)
-built Skill System v1 (8 spells) and Class Sub-specialization v1 (8 sub-specs) from scratch,
-after explicitly declining a request to base them on Metin2's actual class roster; (3) added
-keybind casting (V/B) after `/baum2 cast <spell>`-only turned out to not make sense as the
-primary way to fight. Used `fabric-docs-researcher` (combat/effect API research — a genuine
-knockback-sync gotcha found, see "Networking API reference" below), `ip-naming-compliance-
-checker` (caught 3 WoW-spec-name collisions in the sub-spec names before they shipped), and
-`balance-reviewer` (found and fixed a stacking-operation bug and a non-functional heal spell)
-proactively per `CLAUDE.md`. Also fixed a real self-found bug during testing: the cooldown
-tracker's original "never cast yet" sentinel was `Long.MIN_VALUE`, which overflows signed
-64-bit arithmetic in the elapsed-time subtraction and made every spell falsely report as
-already on cooldown (with a nonsense multi-trillion-second remaining time) on its very first
-cast — fixed by using `Long.MIN_VALUE / 2` instead, which leaves enough headroom that the
-subtraction can't overflow for any realistic server uptime.
-
-Verified: `./gradlew build` passes; user tested in a real client and confirmed casting via
-both V/B keybinds and the command path work.
-
-Earlier, still on `jonas_workbranch`: **merged `origin/master` into `jonas_workbranch`.** Master had moved substantially since the
-last sync — Fischey's branch added progression persistence, an XP curve rebalance +
-`VanillaXpFormula`→`ProgressionCurve` rename, a full Vitals (Life/Mana) system with a HUD
-rework, and a 4-attribute system with a Character Stats Screen — while `jonas_workbranch` had
-added the Class System and this session's Custom UI work. Used `merge-integration-reviewer`
-twice: once before this scope was fully visible (master kept moving mid-review), and again
-with the full picture once it settled, including a real trial merge in a disposable worktree
-to get ground truth on exact conflicts rather than guessing from diff stats.
+**Merged `origin/master` into `jonas_workbranch` a second time this session.** Master had
+moved again since the first merge — 8 new commits from Fischey adding this project's first
+`combat/` package (wiring the previously-display-only Physical Attack/Attack Speed/Crit Chance
+into real vanilla combat via persistent attribute modifiers + a crit-roll Mixin), a mob
+nameplate HUD, and four new mini-boss mobs with custom models/renderers/AI/drops (Stone of
+Spiders, Stone of Zombies, Spider Queen, Zombie Colossus) — while `jonas_workbranch` had just
+added the Skill System + Class Sub-specializations. Used `merge-integration-reviewer`
+proactively per `CLAUDE.md`'s rule, including a real trial merge in a disposable worktree.
 
 Conflicts resolved:
-- **`progression/PlayerProgressData.java`** — master fully rewrote this class (Codec-based
-  persistence, 5 new attribute/mana fields, 9-arg constructor). Took master's structure as the
-  base and re-applied jonas's one-line fix into it (the no-arg constructor's
-  `experienceForNextLevel` now correctly calls `ProgressionCurve.getXpRequiredForLevel(level +
-  1)` instead of a hardcoded `100`, which — unfixed — would have undercounted the first
-  level-up by ~48% against the new, steeper curve). Dropped jonas's `writeNbt`/`readNbt`
-  entirely (dead code once master's Codec-based persistence superseded manual NBT).
-- **`networking/Baum2Networking.java`** — both branches restructured the same method. Kept
-  master's payload-type registrations, consolidated all C2S receivers (jonas's
-  `ClassSelectPayload`, master's `SpendAttributePointPayload`) into one
-  `registerServerReceivers()` method for consistency, since `Baum2.java` already calls both
-  `registerServerPayloads()` and `registerServerReceivers()` post-merge anyway.
-- **`Baum2.java`, `Baum2Client.java`, `en_us.json`** — mechanical, kept both sides' additions
-  (no functional overlap: different registrations, different keybindings, different lang
-  keys).
-- **`CLAUDE.md`** — both branches independently added an identical `graphics-designer` agent
-  file (confirmed same blob hash) but described it in slightly different prose in this file;
-  kept jonas's wording (marginally more detailed).
-- **`docs/visual-style-guide.md`** — a real add/add conflict (both branches created this file
-  from scratch, same day, no common ancestor to diff against). This was a content
-  reconciliation, not a mechanical conflict: kept jonas's version as the frame (numbered
-  sections, IP-compliance guardrails, base palette) and folded master's two screen specs in as
-  new Sections 11-12, correcting one now-false claim (master's "art direction not yet formally
-  defined" — it now is, in Section 1) and adding an explicit reconciliation note that the two
-  sides' color palettes are not yet unified (a deliberate open follow-up, not an oversight).
-- **`HANDOFF.md`** — rewritten fresh from both sides' state (this file), per established
-  practice for this project's prior cross-branch merges.
-- Two dead-code deletions (`client/Baum2Client.java`, `ui/ProgressionHud.java`) turned out to
-  be convergent — both branches deleted the exact same files independently, no conflict.
+- **`Baum2Client.java`** — the one conflict where naively "accepting both sides" would not
+  compile: master's tree still referenced the now-deleted `ClassScreen`/`PlayerStatusHud`
+  (its branch never touched that code path). Resolved by dropping those stale references
+  entirely and keeping both sides' actual new registrations (jonas's `SpellCastKeyBindings`,
+  master's `MobNameplateHud` + four `EntityModelLayerRegistry`/`EntityRendererFactories`
+  blocks for the new mobs).
+- **`en_us.json`** — dropped the two lang keys orphaned by the same `ClassScreen` deletion
+  (`key.category.baum2.main`, `key.baum2.class_screen`), kept every other key from both sides.
+- **`Baum2Networking.java`** — trivial, adjacent new-import-line conflict only; both branches'
+  actual additions (jonas's `CastSpellPayload` registration/receiver, master's
+  `VitalsManager.applyBaseAttack/applyAttackSpeed` calls inside the existing attribute-spend
+  receiver) had already landed on non-overlapping lines and merged cleanly on their own.
+- **`docs/fabric-modding.md`** — both branches appended a new section at the same insertion
+  point (jonas's "Combat / Skill effects", master's "Target nameplate / health-bar HUD") — no
+  actual content overlap, kept both.
+- **`HANDOFF.md`** — rewritten fresh from both sides' state (this file). Two things corrected
+  while doing so, not just merged verbatim: master's own text said the `ClassScreen`/
+  `CharacterStatsScreen` question "needs a product decision from the contributors" — jonas's
+  branch had already unilaterally resolved it by deleting `ClassScreen`, which is now flagged
+  explicitly in "Custom UI v1" above as a heads-up for Fischey rather than silently overwritten;
+  and jonas's own prior claim "no `combat/` package exists" is now false and was removed.
+- `CharacterStatsScreen.java` and `docs/visual-style-guide.md` merged with **zero conflict
+  markers** — non-overlapping regions of the same file in the first case (master's "+1" button
+  polish never touched the new "Class" tab code), and `docs/visual-style-guide.md` specifically
+  because `jonas_workbranch` never touched it since the last merge, so master's ~854-line
+  mob/item-palette addition applied as a clean, if large, addition.
 
-Verified: `./gradlew build` passes after all resolutions. Not yet re-verified in-game post-merge
-— see "Next recommended step".
+**New design questions surfaced by this merge, logged in "Current state" above rather than
+silently resolved**: (1) the Poison Dagger's on-hit-poison handler doesn't check for a melee
+swing, so it also triggers off the Skill System's three damage spells — an untested emergent
+interaction; (2) now that master has a real (if narrow) combat pipeline and jonas's spells deal
+flat, unscaled damage, both branches are independently raising "should spell damage eventually
+route through a shared calculation with real combat" — worth aligning on deliberately before a
+third damage-dealing system appears, rather than each branch guessing separately.
 
-Why: user asked to merge `master` into `jonas_workbranch` to bring both contributors' recent
-work together. Used the project's own `merge-integration-reviewer` agent proactively, per
-`CLAUDE.md`'s rule, given the scope of parallel work on both branches touching progression,
-networking, and UI at the same time.
+Verified: `./gradlew build` passes after all resolutions.
 
-Earlier, on `jonas_workbranch`: ran `ip-naming-compliance-checker` and `balance-reviewer` for
-real against Class System v1, then built Custom UI v1 (HUD overlay + Class Screen) with
-`graphics-designer` and `fabric-docs-researcher`. Full detail on both of these (naming
-rename, balance fixes, style guide creation, HUD/Screen implementation, dead-code cleanup) is
-folded into "Current state" above under "Class System v1" and "Custom UI v1" — see
-`git log -p HANDOFF.md` for the original blow-by-blow narrative if needed.
+Earlier, still on `jonas_workbranch` this session: added Skill System v1 (8 spells) and Class
+Sub-specializations v1 (8 sub-specs), merged the standalone Class Screen into
+`CharacterStatsScreen` as a new tab, removed `PlayerStatusHud`, added V/B keybind casting. Full
+detail folded into "Current state" above under "Skill System v1", "Class Sub-specializations
+v1", and "Custom UI v1" — see `git log -p HANDOFF.md` for the original commit narrative
+(naming-compliance renames, balance fixes, a self-found cooldown-overflow bug) if needed.
 
-Earlier, on `fischey_workbranch` (now merged): added the 4-attribute system + Character Stats
-Screen rework (including the scrolling and header-overlap bug fixes), the Vitals (Life/Mana)
-system + HUD rework, the XP curve rebalance/rename, and progression persistence via the
-Attachment API (including two real bugs found and fixed: a lazy-class-loading bug that
-silently reset progress on join, and a dev-environment random-username bug that looked like
-the same symptom but wasn't). Full detail folded into "Current state" above under
-"Progression System", "Vitals System", and "Attribute System" — see `git log -p HANDOFF.md`
-for the original blow-by-blow narrative (multiple detailed entries, each with root-cause
-analysis) if needed.
+Earlier, still on `jonas_workbranch`: merged `origin/master` into `jonas_workbranch` for the
+first time this session (Fischey's Vitals/Attribute/Character-Stats/persistence work + jonas's
+own Class System/Custom-UI work) — full detail folded into "Current state" above, original
+merge-conflict narrative in `git log -p HANDOFF.md` if needed.
 
-Earlier, on `master`: merged both contributors' branches together for the first time (fast-
-forward of `jonas_workbranch`'s agent/docs work, merge commit for `fischey_workbranch`'s
-progression/networking/mixin work) — see `git log -p HANDOFF.md` for that merge's detail.
+Earlier, on `fischey_workbranch` (now merged): added Zombie Colossus, Spider Queen (plus two
+playtest-driven follow-up fix rounds), Stone of Zombies, Stone of Spiders, Combat System v1,
+the mob nameplate HUD, and the underlying Vitals/Attribute/Character-Stats/persistence systems
+before that. Full detail folded into "Current state" above under each system's own heading —
+see `git log -p HANDOFF.md` for the original blow-by-blow narrative (extensive root-cause
+analysis on nearly every fix) if needed.
 
 See `git log -p HANDOFF.md` for the full detail on all earlier revisions.
 
@@ -393,13 +652,13 @@ If you add more custom payloads, follow `ExperienceSyncPayload.java` (S2C) or
 as templates.
 
 **Combat/skill-effect APIs** (dealing damage, AoE entity queries, knockback, status effects,
-healing, dashing — used by the new Skill System's `SpellEffects.java`) are documented
-separately in `docs/fabric-modding.md`'s "Combat / Skill effects" section, not duplicated
-here. The one gotcha worth calling out at this level since it's easy to reintroduce: pushing a
-**player** target with `takeKnockback(...)`/`addVelocity(...)` alone silently never reaches
-that player's own client (only nearby *observers* see them fly back) — you must additionally
-send `new EntityVelocityUpdateS2CPacket(targetPlayer)` to `targetPlayer.networkHandler`
-yourself. `SpellEffects.pushAwayFrom(...)` already does this; reuse it rather than calling
+healing, dashing — used by the Skill System's `SpellEffects.java`) are documented separately
+in `docs/fabric-modding.md`'s "Combat / Skill effects" section, not duplicated here. The one
+gotcha worth calling out at this level since it's easy to reintroduce: pushing a **player**
+target with `takeKnockback(...)`/`addVelocity(...)` alone silently never reaches that player's
+own client (only nearby *observers* see them fly back) — you must additionally send `new
+EntityVelocityUpdateS2CPacket(targetPlayer)` to `targetPlayer.networkHandler` yourself.
+`SpellEffects.pushAwayFrom(...)` already does this; reuse it rather than calling
 `takeKnockback` directly for any future spell/effect.
 
 ## Attachment API reference (persistent per-player/entity data)
@@ -408,8 +667,8 @@ For any future "store custom data on a player/entity/block-entity/chunk that sho
 restarts" need, use `fabric-data-attachment-api-v1` (already a dependency) rather than a
 hand-rolled `HashMap<UUID, ...>` + manual save/load. Reference implementations:
 `progression/PlayerLevelSystem.java` (`PROGRESSION` field) + `progression/PlayerProgressData.java`
-(`CODEC`), and `classes/ClassManager.java` (`SELECTED_CLASS`, including client sync via
-`.syncWith(...)`).
+(`CODEC`), and `classes/ClassManager.java` (`SELECTED_CLASS`/`SELECTED_SUBSPEC`, including
+client sync via `.syncWith(...)`).
 
 **Critical gotcha, learned the hard way (cost a full debugging cycle):** the class holding
 your `AttachmentType` static field must be force-loaded during `Baum2.onInitialize()`, via an
@@ -422,9 +681,9 @@ attachment data (silently), permanently losing it on the next save. Symptom: pro
 but only sometimes, and looks exactly like a persistence failure even though writes are
 working fine. `classes/ClassManager` avoids this incidentally (its `registerEvents()` is
 called directly and unconditionally from `Baum2.onInitialize()`, which forces its static
-`SELECTED_CLASS` field to initialize as a side effect of Java's class-init rules) but doesn't
-document this the way `PlayerLevelSystem.bootstrap()`'s Javadoc does — worth a defensive
-comment if `registerEvents()` is ever refactored to be lazy.
+fields to initialize as a side effect of Java's class-init rules) but doesn't document this
+the way `PlayerLevelSystem.bootstrap()`'s Javadoc does — worth a defensive comment if
+`registerEvents()` is ever refactored to be lazy.
 
 **Second gotcha, also cost a real debugging cycle:** adding a new field to an already-
 `persistent()` attachment Codec must use `Codec.optionalFieldOf(name, default)`, never
@@ -489,36 +748,50 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-1. **Human decisions needed on the Skill System's logged (not auto-fixed) balance findings** —
-   see "Class Sub-specializations v1" above for full detail: (a) should spells cost Mana now
-   that a real consumer for it would exist, or stay cooldown-only by design; (b) should
-   sub-spec reselection get a cost/cooldown (same open question as base-class reselection);
-   (c) should the 4 AoE/damage spells gain a line-of-sight check, and should `Nebelschritt`'s
-   dash gain a collision check, or are both acceptable as "short blink through thin obstacles"
-   for v1; (d) should AoE effects exclude other players (friendly fire currently on); (e)
-   revisit `Arkaner Kreis`'s cooldown/duration once Luck has an actual loot-system consumer.
-2. **Fine-grained `/attribute` verification of the Class System** (older, still-pending item):
+1. **Balance decision needed, now spanning three separate findings, not yet made**: Combat
+   System v1's base ~46x baseline-DPS-at-max-investment issue has been escalated further by
+   two consecutive boss-weapon drops — Gold Sword (+12.5%) and Poison Dagger (+145%, pushing
+   the effective ceiling to ~110x) — because both lean on attack speed, and Dexterity's
+   Attack-Speed modifier multiplies (not adds to) whatever speed a weapon already has. Worth
+   deciding before a third weapon repeats the pattern: cap/temper how much a single item's
+   attack speed can contribute at high Dexterity investment, or accept this as the mod's
+   intended "gear matters a lot" power curve. The Colossal Warclub (low speed) is a useful
+   counter-example that this isn't unavoidable — see "Zombie Colossus" above.
+2. **In-game verification of all four new mini-bosses** (none have been played, only built) —
+   see each mob's own section above for its exact playtest checklist:
+   `/summon baum2:stone_of_spiders`, `baum2:stone_of_zombies`, `baum2:spider_queen`,
+   `baum2:zombie_colossus`. Also **confirm combat actually feels right** on any mob — attack
+   something and check damage/attack-speed/crits are happening, not just that nothing crashes
+   — and confirm the new "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds
+   still work correctly alongside all the new mob-rendering registrations.
+3. **The two new design questions from this merge** (see "Current state" → "Skill System v1"
+   and "Last change" above): does the Poison Dagger's on-hit-poison handler need a melee-only
+   guard so it doesn't also trigger on spell damage; should spell damage eventually route
+   through a shared calculation with real combat (Intelligence scaling, crits) rather than
+   staying a permanently separate flat-number system.
+4. **Fine-grained `/attribute` verification of the Class System** (older, still-pending item):
    `/baum2 class select eisenwaechter` → `/attribute @s minecraft:max_health modifier value
    get baum2:class_bonus/eisenwaechter_max_health` (expect `4.0`) → `/attribute @s
    minecraft:max_health get` (expect `24.0`) → disconnect/rejoin → `/kill @s` and respawn
    (confirm `.copyOnDeath()` holds). Spot-check `wesenswahrer`'s
    `minecraft:generic.knockback_resistance` (expect `0.1`).
-3. **Fresh `balance-reviewer` pass on the new `ProgressionCurve` + attribute system together**
-   — the old curve was reviewed, the new one hasn't been, and the attribute system's own
-   caps/formulas were only reviewed via a workaround-agent, not the real subagent.
-4. **The biggest gap in the whole progression stack**: no `combat/` package exists, so Base
-   Attack/Magic Attack/Physical/Magic Defence/Attack-Cast Speed/Crit Chance (and now the Skill
-   System's damage numbers) are all separate from each other — a real combat system should
-   unify them (e.g. spell damage scaling off Strength/Intelligence) rather than staying two
-   parallel, non-interacting number sets.
-5. **Sub-spec selection has no GUI yet** (`/baum2 class subspec list|select` only) — the new
-   "Class" tab in `CharacterStatsScreen` shows/selects the base class but not sub-specs; a
-   natural next step once the tab's card layout is proven out.
-6. Get real (non-placeholder) art for the 4 class icons, and consider whether the 8 spells/8
-   sub-specs want icons too once there's a GUI surface to show them in — see
-   `docs/visual-style-guide.md` section 9.
-7. Remaining Priority 1 items per `CLAUDE.md`: first custom item, first weapon, first
-   world-event block (the first active skill is now done — see Skill System v1 above). Consult
-   `fabric-docs-researcher` / `docs/fabric-modding.md` before implementing any of these if the
-   relevant Fabric API is unclear. Use `graphics-designer` for the texture/model/icon each of
-   these will need.
+5. **Fresh `balance-reviewer` pass on the new `ProgressionCurve` + attribute + combat system
+   together** — the old XP curve was reviewed pre-combat, the attribute formulas were reviewed
+   pre-combat, and combat itself has now been reviewed in isolation per weapon — nobody has
+   looked at all three together as one system.
+6. **A conversation with Fischey about the unilateral `ClassScreen`/`CharacterStatsScreen`
+   merge** (see "Custom UI v1" above) — not urgent, but a previously-logged "needs a joint
+   decision" item was resolved without one.
+7. **The visual-style-guide's growing "one bespoke palette per mob/item" pattern** (see "Custom
+   UI v1" above) — worth a deliberate decision before a fourth or fifth palette exists.
+8. Sub-spec selection has no GUI yet (`/baum2 class subspec list|select` only) — the "Class"
+   tab shows/selects the base class but not sub-specs; a natural next step.
+9. No natural spawn path exists for any of the four mini-bosses yet (`/summon`-only) — decide
+   when/how this mob family should actually appear in the world (a structure? a `dungeons/`-
+   package encounter? natural biome spawn?).
+10. Get real (non-placeholder) art for the 4 class icons and the four new mini-bosses/items —
+    see `docs/visual-style-guide.md` section 9 and each mob's own section above.
+11. Remaining Priority 1 items per `CLAUDE.md`: first world-event block (item, weapon, and
+    first active skill are now all done — see Stone of Spiders/Skill System v1 above). Consult
+    `fabric-docs-researcher` / `docs/fabric-modding.md` before implementing if the relevant
+    Fabric API is unclear. Use `graphics-designer` for the texture/model/icon it will need.

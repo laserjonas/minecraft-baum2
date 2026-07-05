@@ -289,10 +289,10 @@ public class CharacterStatsScreen extends Screen {
             this.critChanceValue.setMessage(colored(String.format("%.1f%%", VitalsCurve.getCritChance(dexterity)), DEXTERITY_COLOR));
 
             boolean canSpend = unspentPoints > 0;
-            this.enduranceButton.active = canSpend;
-            this.intelligenceButton.active = canSpend;
-            this.strengthButton.active = canSpend;
-            this.dexterityButton.active = canSpend;
+            this.enduranceButton.visible = canSpend;
+            this.intelligenceButton.visible = canSpend;
+            this.strengthButton.visible = canSpend;
+            this.dexterityButton.visible = canSpend;
         }
 
         /** Extra-height spacer row spanning all columns, per the style guide's between-family gap. */
@@ -306,9 +306,15 @@ public class CharacterStatsScreen extends Screen {
         }
 
         private static ButtonWidget plusOneButton(AttributeType type) {
-            return ButtonWidget.builder(Text.literal("+1"), button ->
-                    ClientPlayNetworking.send(new SpendAttributePointPayload(type))
-            ).dimensions(0, 0, 18, 18).build();
+            return ButtonWidget.builder(Text.literal("+"), button -> {
+                ClientPlayNetworking.send(new SpendAttributePointPayload(type));
+                // Update the displayed values immediately rather than waiting for the next
+                // server tick's AttributeSyncPayload - the server remains authoritative and
+                // will correct this within ~1 tick if the prediction was ever wrong (e.g. a
+                // race where points ran out), but in the normal case this removes the
+                // otherwise-visible round-trip delay.
+                ClientNetworkingHandler.predictAttributeSpend(type);
+            }).dimensions(0, 0, 12, 12).build();
         }
 
         private static TextWidget label(String text, TextRenderer textRenderer) {

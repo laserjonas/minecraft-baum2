@@ -63,8 +63,522 @@ here as they come up: `@Inject`, `@Redirect`, `@ModifyVariable`, shadow fields, 
 
 ## Registries
 
-_(Nothing registered yet beyond the mod itself — add `Registry`/`Registries` API findings
-here once `registry/ModItems` etc. exist.)_
+### Custom `EntityType<T>` registration (MC 1.21.11) — researched 2026-07-05
+
+Researched ahead of this project's first custom hostile mob. Verified against decompiled
+`net/minecraft/entity/EntityType.java`, `net/minecraft/entity/mob/HostileEntity.java`,
+`net/minecraft/entity/mob/MobEntity.java`, `net/minecraft/entity/SpawnGroup.java` (from
+`minecraft-common-6dd721cd7d-1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.6-v2-sources.jar`,
+generated fresh via `gradlew.bat genSources` — no prior decompile existed in this checkout) and
+`net/fabricmc/fabric/api/object/builder/v1/entity/{FabricEntityTypeBuilder,FabricEntityType,
+FabricDefaultAttributeRegistry}.java` (from `fabric-object-builder-api-v1` `21.1.40+4fc5413f3e`,
+pulled in by `fabric-api-0.141.4+1.21.11`).
+
+- **`FabricEntityTypeBuilder` is `@Deprecated` in this API version — do not use it.** Its own
+  javadoc points at the replacement: vanilla's own `EntityType.Builder<T>` now directly
+  implements Fabric's extension interface (`EntityType.java` line ~1736:
+  `public static class Builder<T extends Entity> implements
+  net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityType.Builder<T>`), so the
+  Fabric-specific extras (`alwaysUpdateVelocity`, `canPotentiallyExecuteCommands`,
+  `createLiving(...)`, `createMob(...)`) are just extra methods available directly on the
+  vanilla builder via Mixin/interface-injection — there is no separate Fabric type to
+  construct. **Use `net.minecraft.entity.EntityType.Builder` directly.**
+- **Exact builder call chain, confirmed real vanilla usage** (`EntityType.SPIDER`'s own
+  definition in `EntityType.java`, adapted):
+  ```java
+  RegistryKey<EntityType<?>> MY_MOB_KEY =
+      RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "my_mob"));
+
+  EntityType<MyMobEntity> MY_MOB = Registry.register(
+      Registries.ENTITY_TYPE,
+      MY_MOB_KEY,
+      EntityType.Builder.create(MyMobEntity::new, SpawnGroup.MONSTER)
+          .dimensions(3.0F, 3.0F)          // width, height — confirmed via EntityType.Builder.dimensions(float, float)
+          .build(MY_MOB_KEY)                // build(RegistryKey<EntityType<?>>) — the key is required, not optional
+  );
+  ```
+  `EntityType.Builder.create(EntityType.EntityFactory<T> factory, SpawnGroup spawnGroup)` is the
+  confirmed static entry point (there's also a key-less `create(SpawnGroup)` overload with a
+  no-op factory, not useful here). `EntityType.EntityFactory<T>` is
+  `@FunctionalInterface { @Nullable T create(EntityType<T> type, World world); }` — matches a
+  constructor reference `MyMobEntity::new` only if the entity has a
+  `(EntityType<? extends X>, World)` constructor (see `HostileEntity`'s own constructor below,
+  which does). **`.build(registryKey)` requires the same `RegistryKey` used for
+  `Registry.register(...)` — build it once, reuse the local for both.** Vanilla's own pattern
+  wraps this in a `register(String id, Builder<T> type)` helper that does exactly the
+  `RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier...)` + `Registry.register(...)` +
+  `.build(key)` dance — worth mirroring as a small helper method in a `ModEntityTypes` registry
+  class rather than inlining at each registration site.
+- **`SpawnGroup.MONSTER` confirmed still the correct constant name and value**, unchanged —
+  `net/minecraft/entity/SpawnGroup.java`: `MONSTER("monster", 70, false, false, 128)`. (The
+  constructor args are `id, despawnLimit/capacity-ish int, isPeaceful, isAnimal/rare-ish
+  boolean, immediateDespawnRange` per the enum's own field order — not otherwise needed for
+  registration, just confirming the constant itself is present and named `MONSTER`.)
+- **`HostileEntity` constructor, confirmed exact signature**
+  (`net/minecraft/entity/mob/HostileEntity.java`):
+  ```java
+  protected HostileEntity(EntityType<? extends HostileEntity> entityType, World world) {
+      super(entityType, world);
+      this.experiencePoints = 5;
+  }
+  ```
+  `HostileEntity extends PathAwareEntity implements Monster` (still the right base class for a
+  "normal" pathfinding hostile mob — confirmed via the class declaration itself). A custom mob
+  subclass just needs to expose the same `(EntityType<? extends MyMobEntity>, World)`
+  constructor shape and call `super(entityType, world)` (plus whatever extra one-time setup),
+  so it's directly usable as `MyMobEntity::new` for the `EntityType.EntityFactory<T>` above.
+- **`FabricDefaultAttributeRegistry.register(...)` — exact confirmed shape, two overloads**
+  (`net/fabricmc/fabric/api/object/builder/v1/entity/FabricDefaultAttributeRegistry.java`):
+  ```java
+  public static void register(EntityType<? extends LivingEntity> type, DefaultAttributeContainer.Builder builder);
+  public static void register(EntityType<? extends LivingEntity> type, DefaultAttributeContainer container);
+  ```
+  The `Builder` overload is the one to use directly (it calls `.build()` for you). Practical
+  call, following `HostileEntity.createHostileAttributes()`'s own pattern
+  (`MobEntity.createMobAttributes().add(EntityAttributes.ATTACK_DAMAGE)`):
+  ```java
+  FabricDefaultAttributeRegistry.register(
+      ModEntityTypes.MY_MOB,
+      HostileEntity.createHostileAttributes()
+          .add(EntityAttributes.MAX_HEALTH, 40.0)
+          // .add(...) any other attribute needed — see "Attributes" section above for
+          // computeValue()/modifier semantics if adding modifiers instead of base values
+  );
+  ```
+  **Every `LivingEntity` subclass must have a default-attribute registration or it throws at
+  spawn time** (`DefaultAttributeRegistry` javadoc, confirmed on the registry method itself) —
+  do this in the mod's common init path (`Baum2.onInitialize()`), not lazily.
+- **Full minimal registration shape for this project's first custom hostile mob**, combining
+  all of the above:
+  ```java
+  // registry/ModEntityTypes.java
+  public final class ModEntityTypes {
+      public static final RegistryKey<EntityType<?>> MY_MOB_KEY =
+          RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "my_mob"));
+
+      public static final EntityType<MyMobEntity> MY_MOB = Registry.register(
+          Registries.ENTITY_TYPE, MY_MOB_KEY,
+          EntityType.Builder.create(MyMobEntity::new, SpawnGroup.MONSTER)
+              .dimensions(3.0F, 3.0F)
+              .build(MY_MOB_KEY)
+      );
+
+      public static void init() {
+          FabricDefaultAttributeRegistry.register(MY_MOB, HostileEntity.createHostileAttributes()
+              .add(EntityAttributes.MAX_HEALTH, 40.0));
+      }
+  }
+  // call ModEntityTypes.init() from Baum2.onInitialize() (a static field reference alone
+  // triggers class-load/registration; init() just needs to run once too, same as this
+  // project's other registry init() patterns)
+  ```
+
+### Making a `HostileEntity` completely immovable — researched 2026-07-05
+
+Researched for a stationary/turret-style boss-like hostile mob: can't walk, can't be
+knocked back or shoved by other entities, stays fixed at its spawn position, but remains a
+normal damageable/killable `LivingEntity` (health, death, loot, etc. all still work
+normally). Verified against decompiled `LivingEntity.java`, `Entity.java`,
+`entity/mob/MobEntity.java`, `entity/attribute/EntityAttributes.java` (same
+`minecraft-common-6dd721cd7d-...` sources jar as above).
+
+- **(a) Overriding `travel(Vec3d)` as a no-op — confirmed still correct, and actually stronger
+  than it looks.** `LivingEntity.travel(Vec3d movementInput)` (not `final`) is the single
+  dispatch point for all three movement modes (`travelInFluid`/`travelGliding`/`travelMidAir`),
+  and **every one of vanilla's own `this.move(MovementType.SELF, this.getVelocity())` calls
+  that actually change position lives inside `travel()`'s own call tree** (inside
+  `travelFlying`/`travelInWater`/`travelInLava`; confirmed by grepping every `this.move(...)`
+  call in the file — all seven hits are within `travel()`'s reachable methods). `travel()` is
+  only even invoked from `tickMovement()` when
+  `this.canMoveVoluntarily() && this.canActVoluntarily()` (or via a controlling passenger, not
+  relevant for a hostile mob). **A fully empty `@Override public void travel(Vec3d
+  movementInput) {}` therefore doesn't just skip AI-driven walking — it also skips gravity
+  application and skips the position-changing `move()` call that would otherwise apply
+  knockback-added velocity to the entity's actual position.** This is the single most
+  effective override for "never changes position, period."
+- **(b) Exact attribute identifiers for zero movement / max knockback resistance**, confirmed
+  via `EntityAttributes.java`:
+  ```java
+  EntityAttributes.MOVEMENT_SPEED       // default 0.7, ClampedEntityAttribute range [0.0, 1024.0]
+  EntityAttributes.KNOCKBACK_RESISTANCE // default 0.0, ClampedEntityAttribute range [0.0, 1.0]
+  ```
+  Set in the mob's `FabricDefaultAttributeRegistry.register(...)` builder:
+  ```java
+  HostileEntity.createHostileAttributes()
+      .add(EntityAttributes.MAX_HEALTH, 40.0)
+      .add(EntityAttributes.MOVEMENT_SPEED, 0.0)
+      .add(EntityAttributes.KNOCKBACK_RESISTANCE, 1.0)   // 1.0 is the max the ClampedEntityAttribute allows
+  ```
+  Confirmed exactly how `KNOCKBACK_RESISTANCE` is consumed
+  (`LivingEntity.takeKnockback(double strength, double x, double z)`):
+  ```java
+  public void takeKnockback(double strength, double x, double z) {
+      strength *= 1.0 - this.getAttributeValue(EntityAttributes.KNOCKBACK_RESISTANCE);
+      if (!(strength <= 0.0)) { /* ...apply velocity... */ }
+  }
+  ```
+  At `KNOCKBACK_RESISTANCE = 1.0`, `strength` becomes exactly `0.0`, and the entire
+  velocity-applying branch is skipped — **knockback resistance alone already fully
+  neutralizes knockback**, even before considering the `travel()` override above. Both
+  together is belt-and-suspenders (and the `travel()` override also covers non-knockback
+  velocity sources, e.g. explosions, fluids push, etc., which don't go through
+  `takeKnockback` at all).
+- **(c) Goal-init method name: still `initGoals()`, unchanged, confirmed** —
+  `MobEntity.java`: `protected void initGoals() {}` (empty body in the base class), called
+  conditionally from `MobEntity`'s own constructor: `if (world instanceof ServerWorld) {
+  this.initGoals(); }`. No rename occurred.
+- **(d) Leaving goal selectors empty is sufficient to prevent AI-driven movement — confirmed,
+  but not sufficient on its own for full immovability.** Simply not overriding `initGoals()`
+  (or overriding it with an empty body / only adding non-movement goals, e.g. a look-at-player
+  goal that doesn't implement `Goal.Control.MOVE`) means `goalSelector`/`targetSelector` never
+  queue a movement-driving `Goal`, so nothing will ever set `sidewaysSpeed`/`upwardSpeed`/
+  `forwardSpeed` or call `navigation.startMovingTo(...)`. **This alone stops self-directed
+  walking, but does NOT stop knockback-driven displacement or gravity** (those don't go
+  through goals at all) — hence (a) and (b) above are still both needed for "completely
+  immovable" in the full sense the task describes, not just "doesn't walk on its own."
+- **(e) Collision-push method name: `Entity.pushAwayFrom(Entity)`, confirmed unchanged**, gated
+  by `Entity.isPushable()`:
+  ```java
+  public void pushAwayFrom(Entity entity) {
+      ...
+      if (!this.hasPassengers() && this.isPushable()) { this.addVelocity(-d, 0.0, -e); }
+      if (!entity.hasPassengers() && entity.isPushable()) { entity.addVelocity(d, 0.0, e); }
+      ...
+  }
+  ```
+  `Entity.isPushable()` itself defaults to `false`, but **`LivingEntity` overrides it**:
+  ```java
+  @Override
+  public boolean isPushable() {
+      return this.isAlive() && !this.isSpectator() && !this.isClimbing();
+  }
+  ```
+  i.e. every ordinary living mob is pushable by default. **Override `isPushable()` to return
+  `false` unconditionally** in the custom mob to stop other entities from ever adding push
+  velocity to it via `pushAwayFrom`. Given the `travel()` no-op above already blocks the
+  position-changing `move()` call that any added velocity would otherwise drive, this is
+  defense-in-depth (also prevents the small `addVelocity` calls from silently accumulating on
+  an entity that otherwise never gets a chance to bleed them off via normal movement code).
+- **Practical minimal immovable-mob shape**, combining all five:
+  ```java
+  public class MyMobEntity extends HostileEntity {
+      protected MyMobEntity(EntityType<? extends MyMobEntity> entityType, World world) {
+          super(entityType, world);
+      }
+
+      @Override
+      protected void initGoals() {
+          // intentionally empty, or only non-movement goals (e.g. look-at-target)
+      }
+
+      @Override
+      public void travel(Vec3d movementInput) {
+          // intentionally empty — no gravity, no fluid/air movement, no velocity-driven
+          // position change of any kind
+      }
+
+      @Override
+      public boolean isPushable() {
+          return false;
+      }
+  }
+  ```
+  Combined with `MOVEMENT_SPEED = 0.0` and `KNOCKBACK_RESISTANCE = 1.0` in the default
+  attributes (see (b) above), damage/health/death/loot all continue to work completely
+  normally since none of that logic routes through movement/goals/travel at all.
+
+## Custom `Item`s in 1.21.11 — `SwordItem` class no longer exists — researched 2026-07-05
+
+Researched ahead of this project's first custom item (a sword). **Major, confirmed rework:
+verified by listing every top-level class in `net/minecraft/item/` inside
+`minecraft-common-6dd721cd7d-...-sources.jar` — there is no `SwordItem.java`, no
+`PickaxeItem.java`, no `ToolItem.java`/`MiningToolItem.java` at all in 1.21.11.** (`AxeItem`,
+`HoeItem`, `ShovelItem`, `MaceItem`, `TridentItem` still exist as dedicated classes — swords
+and pickaxes specifically were folded into plain `Item` + data components, not the other
+tool types.) Any tutorial/training-data reference to `new SwordItem(ToolMaterial, Item.Settings)`
+**will not compile** against this version. Verified against decompiled `Item.java` and
+`ToolMaterial.java` from the same sources jar, cross-checked against `Items.java`'s own
+`DIAMOND_SWORD` definition.
+
+- **Vanilla's own construction, confirmed exact** (`Items.java`):
+  ```java
+  public static final Item DIAMOND_SWORD =
+      register("diamond_sword", new Item.Settings().sword(ToolMaterial.DIAMOND, 3.0F, -2.4F));
+  ```
+  i.e. a **plain `Item`**, built via `Item.Settings().sword(ToolMaterial material, float
+  attackDamage, float attackSpeed)` — no dedicated sword class at all. `attackDamage`/
+  `attackSpeed` here are added on top of the material's own bonuses (see below), matching the
+  two trailing numeric args every vanilla sword definition passes (diamond: `3.0F` damage,
+  `-2.4F` speed literal — vanilla's own diamond sword tooltip attack speed of 1.6 comes from
+  `4.0 (base ATTACK_SPEED) + (-2.4)`).
+- **`Item.Settings.sword(...)` confirmed exact signature and delegation**
+  (`Item.java`, inside `public static class Settings`):
+  ```java
+  public Item.Settings sword(ToolMaterial material, float attackDamage, float attackSpeed) {
+      return material.applySwordSettings(this, attackDamage, attackSpeed);
+  }
+  ```
+  Sibling methods with the identical `(ToolMaterial, float attackDamage, float attackSpeed)`
+  shape exist for the tool types that do still have their own item class:
+  `pickaxe(...)`/`axe(...)`/`hoe(...)`/`shovel(...)` all delegate to a shared
+  `tool(ToolMaterial, TagKey<Block> effectiveBlocks, float attackDamage, float attackSpeed,
+  float disableBlockingForSeconds)`. (There's also a `spear(...)` builder used for the
+  trident-like weapon shape, unrelated to swords/tools, not relevant here.)
+- **`ToolMaterial` is a `record`, confirmed, not a builder or enum-like class you extend** —
+  full confirmed definition (`ToolMaterial.java`):
+  ```java
+  public record ToolMaterial(
+      TagKey<Block> incorrectBlocksForDrops, int durability, float speed,
+      float attackDamageBonus, int enchantmentValue, TagKey<Item> repairItems
+  ) {
+      public static final ToolMaterial WOOD     = new ToolMaterial(BlockTags.INCORRECT_FOR_WOODEN_TOOL,   59,  2.0F, 0.0F, 15, ItemTags.WOODEN_TOOL_MATERIALS);
+      public static final ToolMaterial STONE    = new ToolMaterial(BlockTags.INCORRECT_FOR_STONE_TOOL,   131,  4.0F, 1.0F,  5, ItemTags.STONE_TOOL_MATERIALS);
+      public static final ToolMaterial COPPER   = new ToolMaterial(BlockTags.INCORRECT_FOR_COPPER_TOOL,  190,  5.0F, 1.0F, 13, ItemTags.COPPER_TOOL_MATERIALS);
+      public static final ToolMaterial IRON     = new ToolMaterial(BlockTags.INCORRECT_FOR_IRON_TOOL,    250,  6.0F, 2.0F, 14, ItemTags.IRON_TOOL_MATERIALS);
+      public static final ToolMaterial DIAMOND  = new ToolMaterial(BlockTags.INCORRECT_FOR_DIAMOND_TOOL, 1561, 8.0F, 3.0F, 10, ItemTags.DIAMOND_TOOL_MATERIALS);
+      public static final ToolMaterial GOLD     = new ToolMaterial(BlockTags.INCORRECT_FOR_GOLD_TOOL,     32, 12.0F, 0.0F, 22, ItemTags.GOLD_TOOL_MATERIALS);
+      public static final ToolMaterial NETHERITE= new ToolMaterial(BlockTags.INCORRECT_FOR_NETHERITE_TOOL,2031, 9.0F, 4.0F, 15, ItemTags.NETHERITE_TOOL_MATERIALS);
+  }
+  ```
+  So yes, it's a fixed constant set (`WOOD`/`STONE`/`COPPER`/`IRON`/`DIAMOND`/`GOLD`/
+  `NETHERITE`) **but nothing prevents constructing an entirely custom `new
+  ToolMaterial(...)` record instance** for an original weapon tier — the two `TagKey` fields
+  (`incorrectBlocksForDrops`, `repairItems`) are the only friction point, since they're block/
+  item *tags* (`BlockTags.INCORRECT_FOR_X_TOOL`, `ItemTags.X_TOOL_MATERIALS`) that must
+  resolve to something at runtime. **Practical recommendation for a first custom sword**:
+  reuse an existing vanilla `ToolMaterial` constant (e.g. `ToolMaterial.IRON` or
+  `ToolMaterial.DIAMOND`) rather than authoring a new record — it sidesteps needing to define
+  new block/item tags just to get a working "incorrect blocks" mining-speed rule, and nothing
+  about the IP/naming rules is violated by reusing a numeric tier internally (only player-
+  facing names/text need to be original, not internal material constants). A genuinely
+  original custom tier is possible later once a matching original ore/repair-material item
+  and its own tags exist.
+- **`ToolMaterial.applySwordSettings(...)` confirmed exact — this is where the sword's
+  `AttributeModifiersComponent` actually gets built**:
+  ```java
+  public Item.Settings applySwordSettings(Item.Settings settings, float attackDamage, float attackSpeed) {
+      return this.applyBaseSettings(settings)   // maxDamage(durability) + repairable(repairItems) + enchantable(enchantmentValue)
+          .component(DataComponentTypes.TOOL, new ToolComponent(List.of(
+              ToolComponent.Rule.ofAlwaysDropping(RegistryEntryList.of(Blocks.COBWEB.getRegistryEntry()), 15.0F),
+              ToolComponent.Rule.of(<SWORD_INSTANTLY_MINES tag>, Float.MAX_VALUE),
+              ToolComponent.Rule.of(<SWORD_EFFICIENT tag>, 1.5F)
+          ), 1.0F, 2, false))
+          .attributeModifiers(this.createSwordAttributeModifiers(attackDamage, attackSpeed))
+          .component(DataComponentTypes.WEAPON, new WeaponComponent(1));
+  }
+
+  private AttributeModifiersComponent createSwordAttributeModifiers(float attackDamage, float attackSpeed) {
+      return AttributeModifiersComponent.builder()
+          .add(EntityAttributes.ATTACK_DAMAGE,
+               new EntityAttributeModifier(Item.BASE_ATTACK_DAMAGE_MODIFIER_ID,
+                   attackDamage + this.attackDamageBonus, EntityAttributeModifier.Operation.ADD_VALUE),
+               AttributeModifierSlot.MAINHAND)
+          .add(EntityAttributes.ATTACK_SPEED,
+               new EntityAttributeModifier(Item.BASE_ATTACK_SPEED_MODIFIER_ID,
+                   attackSpeed, EntityAttributeModifier.Operation.ADD_VALUE),
+               AttributeModifierSlot.MAINHAND)
+          .build();
+  }
+  ```
+  **This *is* the confirmed current idiomatic shape for giving a custom item
+  attack-damage/attack-speed `EntityAttributeModifier`s: a `DataComponentTypes
+  .ATTRIBUTE_MODIFIERS` component holding an `AttributeModifiersComponent`, built via
+  `AttributeModifiersComponent.builder().add(RegistryEntry<EntityAttribute>,
+  EntityAttributeModifier, AttributeModifierSlot).build()`, attached via `Item.Settings
+  .attributeModifiers(AttributeModifiersComponent)`.** `AttributeModifierSlot.MAINHAND` is
+  what scopes the modifier to "only applies while this item is the held main-hand item" —
+  confirmed as the slot vanilla itself uses for sword/tool attack stats (as opposed to e.g.
+  armor's `AttributeModifierSlot` variants for worn equipment slots). `Item
+  .BASE_ATTACK_DAMAGE_MODIFIER_ID`/`Item.BASE_ATTACK_SPEED_MODIFIER_ID` are vanilla's own fixed
+  `Identifier` constants (`Identifier.ofVanilla("base_attack_damage")`/`"base_attack_speed"`)
+  — reuse a **different**, mod-owned `Identifier` for a custom item's modifiers (e.g.
+  `Identifier.of("baum2", "base_attack_damage")`) so it doesn't collide with/get silently
+  overwritten by vanilla's own bookkeeping for the same fixed id.
+- **Practical minimal custom sword shape**, combining all of the above (plain `Item`
+  subclass only needed if custom *behavior* — e.g. a special right-click ability — is wanted;
+  a vanilla-behavior custom sword needs no subclass at all, just a configured `Item`
+  instance):
+  ```java
+  // No custom behavior — a plain vanilla-behavior sword, no subclass:
+  RegistryKey<Item> MY_SWORD_KEY = RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "my_sword"));
+  Item.Settings settings = new Item.Settings()
+      .registryKey(MY_SWORD_KEY)                 // MUST be set before constructing the Item — see above
+      .sword(ToolMaterial.IRON, 4.0F, -2.2F);     // reuse IRON tier; tune damage/speed originally
+  public static final Item MY_SWORD = Registry.register(Registries.ITEM, MY_SWORD_KEY, new Item(settings));
+
+  // With custom behavior — subclass plain Item (NOT any "SwordItem" — it doesn't exist):
+  public class MySwordItem extends Item {
+      public MySwordItem(Item.Settings settings) {
+          super(settings); // Item(Item.Settings settings) — confirmed exact ctor, Item.java:171
+      }
+      // override e.g. postHit(...)/useOnBlock(...)/etc. for custom behavior
+  }
+  ```
+  **Ordering matters here, confirmed by reading both sides**: vanilla's own
+  `Items.register(RegistryKey<Item> key, Function<Item.Settings, Item> factory, Item.Settings
+  settings)` helper does `Item item = factory.apply(settings.registryKey(key));` — i.e. it
+  calls `settings.registryKey(key)` **before** constructing the `Item`, then separately
+  `Registry.register(Registries.ITEM, key, item)` after. This isn't just a convention: `Item`'s
+  own constructor reads `settings.getTranslationKey()` (and `settings.getModelId()`) — both
+  derived from whatever registry key was set on the settings at that point — so calling
+  `.registryKey(key)` on the `Item.Settings` **before** passing it to the `Item`/subclass
+  constructor is required, not optional, or the translation key and model id will be wrong/
+  missing. `Registry.register(...)`'s own key argument does not retroactively fix this up.
+
+## Loot / Guaranteed Item Drops — researched 2026-07-05
+
+Researched for a guaranteed single-item drop from this project's first custom hostile mob.
+Verified against decompiled `LivingEntity.java` (same sources jar as above) and
+`net.fabricmc.fabric.api.datagen.v1.provider.{FabricLootTableProvider,
+FabricEntityLootTableProvider}` (`fabric-data-generation-api-v1` `23.4.1+69974c4e3e`, pulled
+in by `fabric-api-0.141.4+1.21.11`). Also checked this project's actual
+`Baum2DataGenerator.java` (`src/client/java/de/baum2dev/baum2/client/Baum2DataGenerator.java`).
+
+- **Overriding `dropLoot(...)` is still valid and is the current override point, confirmed
+  unchanged name** — `LivingEntity.java`:
+  ```java
+  protected void dropLoot(ServerWorld world, DamageSource damageSource, boolean causedByPlayer) {
+      Optional<RegistryKey<LootTable>> optional = this.getLootTableKey();
+      if (!optional.isEmpty()) {
+          this.dropLoot(world, damageSource, causedByPlayer, optional.get());
+      }
+  }
+  ```
+  Called from `LivingEntity.drop(ServerWorld, DamageSource)` (itself invoked from the
+  entity's death handling), gated by `this.shouldDropLoot(world)` (which `HostileEntity`
+  already overrides to check `GameRules.DO_MOB_LOOT`, so a custom `HostileEntity` subclass
+  gets that check for free). **For a guaranteed single item, override `dropLoot(...)` directly
+  and skip the loot-table system entirely**:
+  ```java
+  @Override
+  protected void dropLoot(ServerWorld world, DamageSource damageSource, boolean causedByPlayer) {
+      this.dropStack(world, new ItemStack(ModItems.MY_DROP));
+  }
+  ```
+  `Entity.dropStack(ServerWorld world, ItemStack stack)` confirmed exact signature
+  (`Entity.java`), returns `@Nullable ItemEntity`. This is simpler than a datagen loot table
+  for a fixed, always-the-same, single-item drop, and needs zero data-pack JSON.
+- **Datagen (`FabricLootTableProvider`/`FabricEntityLootTableProvider`) confirmed to exist as
+  the alternative, idiomatic path for a real (weighted/conditional/multi-entry) loot table**,
+  but **this project's `Baum2DataGenerator` is confirmed an effectively-empty stub — it IS a
+  real blocker for that specific path, though not for the direct-override path above.** Read
+  directly:
+  ```java
+  public class Baum2DataGenerator implements DataGeneratorEntrypoint {
+      @Override
+      public void onInitializeDataGenerator(FabricDataGenerator fabricDataGenerator) {
+          FabricDataGenerator.Pack pack = fabricDataGenerator.createPack();
+          // <- nothing registered here; pack.addProvider(...) is never called
+      }
+  }
+  ```
+  Since no provider is registered, running the datagen entrypoint currently emits nothing —
+  for the loot-table route to work at all, either (a) wire up
+  `pack.addProvider(MyEntityLootTableProvider::new)` here (a subclass of
+  `FabricEntityLootTableProvider`) and run datagen to emit the JSON, or (b) hand-author the
+  raw loot table JSON directly under
+  `src/main/resources/data/baum2/loot_table/entities/my_mob.json` and point
+  `getLootTableKey()` (or the `EntityType.Builder`'s implicit default, which already resolves
+  to `entities/<id>` per `EntityType.Builder`'s `lootTable` field default — see the Registries
+  section above) at it, with no datagen involved at all. **Recommendation for a single
+  guaranteed drop: skip loot tables entirely and use the direct `dropLoot(...)` override
+  above** — it's strictly simpler, needs no JSON, no datagen wiring, and isn't blocked by the
+  empty `Baum2DataGenerator` stub. Reach for the datagen path only once an actual
+  probability/weighted/multi-item table is needed, at which point wiring up
+  `Baum2DataGenerator` becomes necessary regardless of this specific mob.
+
+## Combat / Damage — `LivingEntity.damage(...)` signature and `AFTER_DAMAGE` event — researched 2026-07-05
+
+Researched for "run custom logic exactly once per health-threshold crossing" on a custom
+hostile mob (e.g. an enrage effect at 50% health). Verified against decompiled
+`LivingEntity.java` (same sources jar) and
+`net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents`
+(`fabric-entity-events-v1` `3.1.1+1d0ab4303e`, pulled in by `fabric-api-0.141.4+1.21.11`).
+
+- **`LivingEntity.damage(...)` confirmed reworked — `ServerWorld` is now the first
+  parameter, exactly as suspected**:
+  ```java
+  @Override
+  public boolean damage(ServerWorld world, DamageSource source, float amount)
+  ```
+  (`Entity`'s own abstract/base declaration matches this same shape — `LivingEntity`
+  `@Override`s it, and it is **not** `final`, so a custom mob subclass can override it
+  directly.) This is a legitimate, simple override point: call `super.damage(world, source,
+  amount)` to get the boolean "was any damage actually applied" result, then read
+  `this.getHealth()` immediately after — the field is already mutated by the time `damage(...)`
+  returns (health mutation happens synchronously inside `applyDamage(...)`, called from within
+  `damage(...)` itself, confirmed by reading the full method body).
+- **`ServerLivingEntityEvents.AFTER_DAMAGE` confirmed to exist, exact functional signature**
+  (`net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents`):
+  ```java
+  Event<AfterDamage> AFTER_DAMAGE = ...;
+  @FunctionalInterface
+  interface AfterDamage {
+      void afterDamage(LivingEntity entity, DamageSource source,
+                        float baseDamageTaken, float damageTaken, boolean blocked);
+  }
+  ```
+  Fired from inside `LivingEntity.damage(...)` itself after the health mutation is applied (or
+  after a shield fully/partially blocked it) — **confirmed caveat, straight from the event's
+  own javadoc: "This event is not fired if the entity was killed by the damage."** So relying
+  on `AFTER_DAMAGE` alone would silently miss the exact tick a threshold-crossing hit is also
+  the killing blow. There's also `ServerLivingEntityEvents.ALLOW_DAMAGE` (before mitigation,
+  cancellable) and `.AFTER_DEATH`/`.ALLOW_DEATH` for the death-adjacent cases, all in the same
+  class, all confirmed present with the shapes documented in the class's own file.
+- **Recommendation for this project's use case (a custom mob's own threshold logic, not a
+  generic "any entity" hook): override `damage(ServerWorld, DamageSource, float)` directly
+  in the mob's own class, not the Fabric event.** Reasons: (1) it's the mob's own class, so no
+  event registration/`instanceof` filtering is needed to scope the logic to just this mob; (2)
+  it naturally also covers the lethal-hit case (`AFTER_DAMAGE`'s documented gap above) since
+  the override can check `this.getHealth() <= 0` or `this.isDead()` itself, inline, right where
+  `super.damage(...)` returns; (3) "exactly once per threshold crossing" is trivial to
+  guarantee with a simple boolean/enum instance field on the mob (e.g. `private boolean
+  enraged = false;`) checked and set inside the override, with no ordering/registration
+  concerns relative to other listeners. Reach for `ServerLivingEntityEvents.AFTER_DAMAGE`
+  instead only if the same logic must also apply to entities this project doesn't own the
+  class of (e.g. reacting to *any* mob or player crossing a threshold) — confirmed available
+  and correctly shaped for that broader case, just not the simplest tool for a mob-owned
+  effect.
+
+## Spawning additional hostile mobs server-side near a position — researched 2026-07-05
+
+Verified against decompiled `EntityType.java` and `server/world/ServerWorld.java` (same
+sources jar).
+
+- **`EntityType<T>.spawn(ServerWorld world, BlockPos pos, SpawnReason reason)` confirmed as
+  the single-call convenience factory+position+spawn method** — the most direct fit for
+  "spawn a mob near a position":
+  ```java
+  public @Nullable T spawn(ServerWorld world, BlockPos pos, SpawnReason reason) {
+      return this.spawn(world, null, pos, reason, false, false);
+  }
+  // internally: creates the entity, positions it at pos (+0.5/+0.5 center offset, random yaw),
+  // calls world.spawnEntityAndPassengers(entity), and for MobEntity also calls
+  // mobEntity.initialize(world, world.getLocalDifficulty(...), reason, null) + playAmbientSound()
+  ```
+  Usage: `EntityType.SPIDER.spawn(serverWorld, blockPos, SpawnReason.MOB_SUMMONED)` (or your own
+  custom `EntityType`). Returns `@Nullable T` — null if the entity type is feature-gated off
+  for that world's enabled features (irrelevant for a mod-added type) — no null-check skip
+  needed for a normal mod entity type, but the signature is still `@Nullable` so a defensive
+  null-check is good practice either way.
+- **Lower-level factory, `EntityType<T>.create(World world, SpawnReason reason)`, confirmed
+  exact signature** (just constructs the entity via the registered `EntityFactory`, no
+  position/spawn-into-world):
+  ```java
+  public @Nullable T create(World world, SpawnReason reason) {
+      return !this.isEnabled(world.getEnabledFeatures()) ? null : this.factory.create(this, world);
+  }
+  ```
+  Use this (plus manual `entity.refreshPositionAndAngles(...)` and `world.spawnEntity(entity)`)
+  only if finer control over positioning/initialization is needed than the one-call `spawn(...)`
+  above provides — for a plain "put a mob near this position" case, prefer `spawn(...)`.
+- **`ServerWorld.spawnEntity(Entity entity)` confirmed still exact, unchanged**:
+  ```java
+  public boolean spawnEntity(Entity entity)
+  ```
+  This is what `EntityType.spawn(...)`'s internal `world.spawnEntityAndPassengers(entity)`
+  itself ultimately routes through for the plain (non-passenger) case — still correct to call
+  directly if constructing+positioning an entity by hand instead of via `EntityType.spawn(...)`.
 
 ## Events (Fabric API)
 
@@ -635,6 +1149,53 @@ decompiled `fabric-rendering-v1-16.2.10+0290ad933e-sources.jar` (Maven artifact
   `method_60656` on `class_2960`/`Identifier`) — a shortcut for
   `Identifier.of("minecraft", name)`. Use `Identifier.of("baum2", "...")` for your own ids.
 
+### Custom entity model + renderer registration (MC 1.21.11 / Fabric API 0.141.4) — researched 2026-07-05
+
+Researched implementing `StoneOfSpidersEntityRenderer`/`StoneOfSpidersEntityModel` (this
+project's first custom-rendered mob). Verified against decompiled
+`fabric-rendering-v1-16.2.10+0290ad933e-sources.jar` and vanilla's
+`net/minecraft/client/render/entity/{EntityRendererFactories,EntityModel,Model}.java` /
+`net/minecraft/client/render/entity/model/{EndermiteEntityModel,ShulkerEntityModel,
+EntityModelLayer}.java`.
+
+- **`net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry` is `@Deprecated`** in
+  this Fabric API version (confirmed via its own javadoc: `@deprecated Replaced with transitive
+  access wideners in Fabric Transitive Access Wideners (v1).`) — it still compiles and works,
+  but `-Xlint:deprecation` flags it. **Use vanilla's own
+  `net.minecraft.client.render.entity.EntityRendererFactories.register(EntityType<? extends T>,
+  EntityRendererFactory<T>)` directly instead** (same call shape, just a different holder
+  class) — confirmed this is exactly how every vanilla mob renderer is registered
+  (`EntityRendererFactories`'s static initializer registers all ~150 vanilla entities this
+  way).
+- `net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry.registerModelLayer(
+  EntityModelLayer, TexturedModelDataProvider)` is **not** deprecated — still the correct way
+  to register a custom `EntityModelLayer`'s `TexturedModelData` supplier.
+  `TexturedModelDataProvider` is a nested `@FunctionalInterface` on that same class (`
+  TexturedModelData createModelData()`), so a static no-arg `getTexturedModelData()` method
+  reference matches it directly.
+- **Model-space ground-line convention, confirmed via `LivingEntityRenderer.render()`'s actual
+  matrix ops**: after `matrixStack.scale(-1.0F, -1.0F, 1.0F)` (the Y-flip from model-space to
+  world-space), every `LivingEntityRenderer` subclass applies a fixed
+  `matrixStack.translate(0.0F, -1.501F, 0.0F)` — confirmed as a genuine engine-wide constant,
+  not per-mob (`EntityModel.java` even names it `field_52908 = -1.501F`, an unmapped Yarn
+  intermediate constant kept for exactly this value). Net effect: **absolute model-space Y=24
+  is always ground level, for every mob regardless of its actual height** (24 units = 1.5
+  blocks, the `-1.501F` constant's origin) — smaller Y values are higher up, larger Y values
+  go underground. Confirmed by cross-referencing `ShulkerEntityModel` (base cuboid's bottom
+  edge sits at exactly `pivot(0,24,0) + offsetY(-8) + sizeY(8) = 24`) and `EndermiteEntityModel`
+  (body segments pivoted at `24 - segmentHeight`, i.e. bottom edge also always resolves to 24).
+  Useful for any future stationary/ground-fused custom mob model, not just this one.
+- **Minimal custom mob renderer shape** (no animation): model class `extends
+  EntityModel<EntityRenderState>` using the 1-arg `protected EntityModel(ModelPart root)`
+  constructor (defaults to `RenderLayers::entityCutoutNoCull`, fine for an opaque texture; skip
+  entirely if no per-tick pose animation is needed — `Model`'s own default `setAngles` just
+  calls `resetTransforms()`). Renderer class `extends MobEntityRenderer<YourMobEntity,
+  LivingEntityRenderState, YourEntityModel>`, constructor `super(context, new
+  YourEntityModel(context.getPart(YOUR_LAYER)), shadowRadius)`, must override
+  `getTexture(LivingEntityRenderState)` (abstract on `LivingEntityRenderer`) and
+  `createRenderState()` (abstract on `EntityRenderer`, returns `new LivingEntityRenderState()`
+  if no custom render-state fields are needed).
+
 ## Attributes
 
 - **Max health attribute constant**: `net.minecraft.entity.attribute.EntityAttributes.MAX_HEALTH`
@@ -668,6 +1229,165 @@ decompiled `fabric-rendering-v1-16.2.10+0290ad933e-sources.jar` (Maven artifact
   player join (as planned) purely as a defense against desync (e.g. player joining before our
   level-derived value would otherwise be (re)computed), not because persistence itself is
   missing.
+
+### `ATTACK_DAMAGE` / `ATTACK_SPEED` constants — confirmed, same de-prefixed naming as `MAX_HEALTH`
+
+Researched 2026-07-04 for scaling real melee combat off Strength/Dexterity. Verified straight
+from decompiled `EntityAttributes.java` (same file already read for the `MAX_HEALTH`
+precedent, `minecraft-common-6dd721cd7d-...-sources.jar`):
+
+```java
+public static final RegistryEntry<EntityAttribute> ATTACK_DAMAGE = register(
+    "attack_damage", new ClampedEntityAttribute("attribute.name.attack_damage", 2.0, 0.0, 2048.0)
+);
+public static final RegistryEntry<EntityAttribute> ATTACK_SPEED = register(
+    "attack_speed", new ClampedEntityAttribute("attribute.name.attack_speed", 4.0, 0.0, 1024.0).setTracked(true)
+);
+```
+
+- **No `GENERIC_` prefix, exactly like `MAX_HEALTH`** — `EntityAttributes.ATTACK_DAMAGE` and
+  `EntityAttributes.ATTACK_SPEED` are both correct, confirmed real fields in this Yarn mapping.
+  Every constant in this file follows the same de-prefixed pattern; don't reach for
+  `GENERIC_ATTACK_DAMAGE`/`GENERIC_ATTACK_SPEED` from older tutorials.
+- Base/clamp values: `ATTACK_DAMAGE` default `2.0`, clamped `[0.0, 2048.0]`, **not**
+  `.setTracked(true)` (i.e. not synced to tracking clients by default — matches vanilla, since
+  other players don't need to see your exact attack-damage attribute value). `ATTACK_SPEED`
+  default `4.0` (this is the *attribute's* internal unit — vanilla's familiar "attacks per
+  second" number on the tooltip is a display transform of this, not a 1:1 reading), clamped
+  `[0.0, 1024.0]`, **is** `.setTracked(true)`.
+
+### `EntityAttributeInstance.computeValue()` — confirmed exact operation order and semantics
+
+Verified straight from the decompiled method body (`EntityAttributeInstance.java`, same file
+already used for the `addPersistentModifier`/`removeModifier` findings above):
+
+```java
+private double computeValue() {
+    double d = this.getBaseValue();
+    for (var m : getModifiersByOperation(ADD_VALUE))          d += m.value();
+    double e = d;
+    for (var m : getModifiersByOperation(ADD_MULTIPLIED_BASE)) e += d * m.value();
+    for (var m : getModifiersByOperation(ADD_MULTIPLIED_TOTAL)) e *= 1.0 + m.value();
+    return this.type.value().clamp(e);
+}
+```
+
+- **Three-phase, fixed order, confirmed**: all `ADD_VALUE` modifiers sum onto the base value
+  first (giving `d`); then all `ADD_MULTIPLIED_BASE` modifiers each add `d * value()` onto a
+  running total `e` that starts at `d`; then all `ADD_MULTIPLIED_TOTAL` modifiers each multiply
+  `e` by `1.0 + value()`, one after another (so two `ADD_MULTIPLIED_TOTAL` modifiers of `0.5`
+  each compound: `e * 1.5 * 1.5`, not `e * 2.0`). Final result is clamped by the attribute's own
+  `EntityAttribute.clamp(double)` (the widened range for `MAX_HEALTH` via
+  `ClampedEntityAttributeAccessor` applies here too, for any attribute this project widens).
+- **Confirms the semantics assumed for a percentage "Attack Speed Multiplier" bonus**: an
+  `ADD_MULTIPLIED_TOTAL` modifier with `value() = 0.5` means "+50% of the total computed so far
+  at this phase" (`e *= 1.0 + 0.5`), i.e. exactly "add 1 to the modifier's own value, then
+  multiply" per the method's own javadoc on `EntityAttributeModifier.Operation` — **not** "the
+  modifier's raw value is used directly as the multiplier" (that would need `value() = 1.5` for
+  a +50% effect, which is wrong). Use `ADD_MULTIPLIED_TOTAL` with `value() = (multiplier - 1.0)`
+  for a "Dexterity gives +X% attack speed" style bonus, or use `ADD_VALUE` directly on the
+  attribute's own unit if a flat additive bonus is wanted instead (e.g. `Base Attack` as a flat
+  `+N` on `ATTACK_DAMAGE` — use `ADD_VALUE`, matching the existing `addPersistentModifier`
+  pattern already documented above for class bonuses).
+- `Operation` enum constants confirmed exact names, unchanged from what's already documented
+  above for the Class System: `ADD_VALUE`, `ADD_MULTIPLIED_BASE`, `ADD_MULTIPLIED_TOTAL` — no
+  `GENERIC_`-style variants, no renames.
+- `addPersistentModifier(EntityAttributeModifier)` and `removeModifier(Identifier)` (returns
+  `boolean`, `true` if a modifier with that id existed and was removed) both confirmed present
+  on `EntityAttributeInstance` with these exact names — reusable for a "Base Attack"/"Attack
+  Speed Multiplier" bonus that needs to be added once and later updated (e.g. on attribute-point
+  respend): call `removeModifier(id)` then `addPersistentModifier(new EntityAttributeModifier(id,
+  newValue, operation))` — there is no direct "update in place" method other than
+  `updateModifier(EntityAttributeModifier)`, which is package-private (`EntityAttributeInstance`
+  itself, no access modifier) and not usable from mod code; `overwritePersistentModifier(modifier)`
+  is the actual public one-call replace-or-add method (does `removeModifier` then `addModifier`
+  then re-registers as persistent) — **prefer `overwritePersistentModifier(...)` over the
+  manual remove-then-add pair** for updating an existing bonus, since it's the same net effect in
+  one call and is what vanilla/Fabric API code itself would reach for.
+
+## Combat / Damage
+
+Researched 2026-07-04 for a custom Crit Chance % roll that adds bonus damage on top of
+whatever vanilla computes for a player's melee attack, independent of vanilla's own
+fall-based critical hit. Verified against decompiled `PlayerEntity.java`
+(`minecraft-common-6dd721cd7d-...-sources.jar`) and the `fabric-entity-events-v1` /
+`fabric-events-interaction-v0` source jars (`3.1.1+1d0ab4303e` and `4.1.1+3b89ecf63e`
+respectively, both pulled in transitively by `fabric-api-0.141.4+1.21.11`).
+
+- **The real method is still `PlayerEntity.attack(Entity target)`, unchanged name.** Full body
+  read and confirmed. The exact final-damage local variable, right before the entity is
+  actually damaged, is `i` in:
+  ```java
+  float i = f + h;                                  // <- final melee damage, pre-crit-roll insertion point
+  ...
+  boolean bl5 = target.sidedDamage(damageSource, i); // <- this is where it's applied
+  ```
+  (`f` = base attack damage after cooldown scaling + weapon bonus + vanilla's own 1.5x
+  fall-crit multiplier already folded in; `h` = the attack-cooldown sweep/partial-damage term.
+  `i` is the true final float that reaches the target — this is the value to multiply/add onto
+  for a custom Crit Chance roll.)
+- **`Entity.sidedDamage` signature, confirmed** (`Entity.java`, same jar):
+  ```java
+  public final boolean sidedDamage(DamageSource source, float amount)
+  ```
+  `final` — cannot be overridden, must be intercepted via Mixin at the call site inside
+  `PlayerEntity.attack`, not by subclassing/overriding.
+- **No Fabric API event modifies this float — confirmed by reading both plausible
+  candidates:**
+  - `net.fabricmc.fabric.api.event.player.AttackEntityCallback` (package
+    `net.fabricmc.fabric.api.event.player`, module `fabric-events-interaction-v0`) fires
+    *before* `PlayerEntity.attack` even runs and only returns an `ActionResult`
+    (`SUCCESS`/`PASS`/`FAIL`) — cancel-or-allow only, no damage value passes through it at all.
+  - `net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY`
+    (module `fabric-entity-events-v1`) only fires *after* a kill has already happened, with no
+    damage-amount parameter — not useful for pre-damage modification either.
+  - Neither `net.fabricmc.fabric.api.entity.event.v1` nor
+    `net.fabricmc.fabric.api.event.player` (both fully listed/checked via each jar's file
+    listing) contains anything shaped like "modify attack damage" — this is a real gap in
+    Fabric API's public event surface, a Mixin is required.
+- **Recommended Mixin: plain Sponge Mixin `@ModifyArg`, not `@ModifyVariable`/
+  `@ModifyExpressionValue`.** Since the final damage value is passed as the second argument to
+  a call with a `final`, uniquely-signatured target method (`Entity.sidedDamage`), targeting
+  the **call site's argument** avoids the ordinal-guessing risk of `@ModifyVariable` (the
+  decompiled method reuses short float-letter locals `f`/`g`/`h`/`i`/`j` — brittle to target by
+  local-variable ordinal if the compiled bytecode's local slot layout doesn't match the
+  decompiled source 1:1). `@ModifyArg` targets the call, not the local, and needs only the
+  target method's own descriptor:
+  ```java
+  @Mixin(PlayerEntity.class)
+  public class PlayerAttackDamageMixin {
+      @ModifyArg(
+          method = "attack",
+          at = @At(
+              value = "INVOKE",
+              target = "Lnet/minecraft/entity/Entity;sidedDamage(Lnet/minecraft/entity/damage/DamageSource;F)Z"
+          ),
+          index = 1
+      )
+      private float baum2$applyCritRoll(float amount) {
+          // roll Crit Chance here (server-side only — (PlayerEntity)(Object)this is a
+          // ServerPlayerEntity when this runs on the logical server), return boosted amount
+          return amount;
+      }
+  }
+  ```
+  `@ModifyArg` is a core `org.spongepowered.asm.mixin.injection.ModifyArg` annotation — **not**
+  MixinExtras-specific, so it needs nothing beyond the Mixin setup this project already has.
+  MixinExtras' `@ModifyExpressionValue` would also work here in principle (targeting the same
+  `INVOKE` slice) but offers no advantage over `@ModifyArg` for a single-argument case like
+  this — `@ModifyArg` is the more direct, standard tool.
+- **MixinExtras availability confirmed, but not via an explicit `build.gradle` dependency
+  line** — grepped `build.gradle` and `gradle.properties` for `mixinextras`/`MixinExtras`,
+  found nothing explicit. However `io.github.llamalad7:mixinextras-fabric:0.5.4` **is** present
+  in this machine's Gradle module cache (`~/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-fabric/0.5.4/`), confirming **Fabric Loom 1.17.13 bundles MixinExtras
+  transparently** (transitively injected by the Loom plugin itself since Loom 1.1+, no explicit
+  dependency declaration needed) — so `@ModifyExpressionValue`/`@WrapOperation`/etc. are
+  available if ever needed for a trickier injection than this one, without adding anything to
+  `build.gradle`.
+- Existing mixin wiring precedent to follow: add the new mixin class under
+  `de.baum2dev.baum2.mixin` and list its simple name in `src/main/resources/baum2.mixins.json`
+  (`"mixins": [...]`), same as `LivingEntityMixin`/`ExperienceOrbSpawnMixin`/
+  `ClampedEntityAttributeAccessor` already are.
 
 ## Open questions
 
@@ -1538,3 +2258,203 @@ for correctness since a stale entry for an offline player is harmless (just a fe
 in a map keyed by a UUID nobody will look up again unless that exact player rejoins, at which
 point the entry becomes useful again — arguably not even worth clearing since it'd have to be
 recreated on their next cast anyway).
+
+## Target nameplate / health-bar HUD — researched 2026-07-04
+
+Researched for a custom "target nameplate + health bar" HUD element (showing whatever
+entity the player is currently looking at), drawn via `HudElementRegistry` as a new,
+separate element — not replacing/attaching to `VanillaHudElements.BOSS_BAR`. Verified
+against the named `minecraft-clientOnly-6dd721cd7d-...-sources.jar`
+(`net/minecraft/client/MinecraftClient.java`, `net/minecraft/util/hit/EntityHitResult.java`,
+`net/minecraft/client/gui/hud/BossBarHud.java`) and `minecraft-common-6dd721cd7d-...-sources.jar`
+(`net/minecraft/entity/LivingEntity.java`, `net/minecraft/entity/data/DataTracker.java`).
+
+- **`MinecraftClient.crosshairTarget` confirmed present, exact field (not a method)**:
+  ```java
+  public @Nullable HitResult crosshairTarget;
+  ```
+  Public, nullable, plain field — updated each frame by `MinecraftClient`'s own raycast logic
+  (used internally for block/entity interaction, e.g. the same field driving attack/use-item
+  handling). Read it directly from a `HudElement`'s `render(...)` — no accessor mixin needed
+  since it's already public.
+- **`EntityHitResult.getEntity()` confirmed**, exact signature `public Entity getEntity()` —
+  trivial getter, backed by a `private final Entity entity` field. Check
+  `crosshairTarget instanceof EntityHitResult` and that its type is `HitResult.Type.ENTITY`
+  before casting (mirrors the existing vanilla call-site pattern in `MinecraftClient` itself,
+  e.g. `switch (this.crosshairTarget.getType()) { case ENTITY -> ((EntityHitResult)
+  this.crosshairTarget).getEntity(); ... }`).
+- **`LivingEntity.getHealth()`/`getMaxHealth()`/`getName()` are reliably readable
+  client-side for *any* nearby tracked entity, not just boss-bar-eligible ones — confirmed,
+  no special-casing found.** `LivingEntity.java` registers health as a perfectly ordinary
+  `TrackedData`:
+  ```java
+  private static final TrackedData<Float> HEALTH = DataTracker.registerData(LivingEntity.class, TrackedDataHandlerRegistry.FLOAT);
+  ...
+  builder.add(HEALTH, 1.0F);              // default value in initDataTracker
+  public float getHealth() { return this.dataTracker.get(HEALTH); }
+  public void setHealth(float health) { this.dataTracker.set(HEALTH, MathHelper.clamp(health, 0.0F, this.getMaxHealth())); }
+  ```
+  `DataTracker.java` (the sync engine itself) has **no filtering/"isPrivate" concept at all** —
+  every registered `TrackedData` for an entity is synced to every client that has that entity
+  loaded/tracked within normal entity-tracking range, unconditionally. Boss bars are a
+  completely separate, opt-in mechanism (`BossBarS2CPacket`, driven by `BossBar`/
+  `ServerBossBar`, manually sent) — nothing about vanilla's boss-bar system restricts or
+  special-cases regular `HEALTH` tracked-data sync. So reading `getHealth()`/`getMaxHealth()`
+  (a derived value off the synced `EntityAttributes.MAX_HEALTH` attribute instance, also
+  ordinarily synced) or `getName()` (an `Entity`-level field, not even gated by `LivingEntity`)
+  on an arbitrary nearby mob/player works exactly the same as it does for the local player —
+  no extra sync work needed for a target-nameplate HUD element.
+- **Vanilla boss-bar HUD placement, for visual-reference sizing only** (`BossBarHud.render`,
+  confirmed exact values, not paraphrased):
+  ```java
+  int i = context.getScaledWindowWidth();
+  int j = 12;                              // <- first boss bar's top Y, confirmed
+  for (ClientBossBar clientBossBar : this.bossBars.values()) {
+      int k = i / 2 - 91;                  // <- bar X: horizontally centered, bar width 182 (91 = 182/2)
+      int l = j;                           // bar's own top Y
+      this.renderBossBar(context, k, l, clientBossBar);   // bar height WIDTH=182, HEIGHT=5 (5px tall)
+      ...
+      int o = l - 9;                       // <- name text drawn 9px ABOVE the bar's top edge
+      context.drawTextWithShadow(this.client.textRenderer, text, n, o, Colors.WHITE);
+      j += 10 + 9;                         // <- next bar's top Y: +19px per additional bar
+      if (j >= context.getScaledWindowHeight() / 3) break;  // stops filling past 1/3 screen height
+  }
+  ```
+  So: bar top starts at **y = 12** from the top of the screen, is **182px wide × 5px tall**,
+  horizontally centered (`screenWidth/2 - 91`), with its name label drawn **9px above** the
+  bar's own top edge (i.e. the label's baseline sits around y = 3), and each additional
+  stacked bar adds **19px** of vertical spacing. A custom target-nameplate element wanting a
+  similar "sits naturally near the top-center, doesn't collide with the boss bar" look should
+  either anchor below whatever boss bars are currently showing (dynamic, since bar count varies)
+  or pick a fixed y in the same rough neighborhood (e.g. `y ≈ 12`–`40` depending on whether boss
+  bars are expected to co-exist with it) — there's no vanilla API that reports "current boss bar
+  stack height" directly, so if avoiding overlap with a *variable* number of active boss bars
+  matters, compute it the same way `BossBarHud` does (`12 + bossBars.size() * 19`, capped at
+  `screenHeight/3`) rather than hardcoding a single y.
+
+### "Last entity the local player actually attacked" — `AttackEntityCallback` fires client-side, confirmed (researched 2026-07-04)
+
+Researched for a real bug report: attacking a `minecraft:spider` sometimes shows no
+`MobNameplateHud` nameplate. Root cause: `MobNameplateHud.render()` only reads
+`MinecraftClient.crosshairTarget` live, once per rendered frame — spiders are fast/erratic
+(wall-climbing, jumping), so the crosshair frequently isn't exactly on the spider by the time
+a given `render()` call runs, even on a tick where the attack itself landed. Fix direction:
+cache "the last entity the local player actually attacked" (with a short expiry, e.g. a few
+seconds) as a HUD fallback, driven by an actual attack event instead of re-sampling
+`crosshairTarget`. Verified against the decompiled `fabric-events-interaction-v0`
+`4.1.1+3b89ecf63e` **client and common** source jars (both pulled in transitively by
+`fabric-api-0.141.4+1.21.11`, found at
+`.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-events-interaction-v0-16c8840d-{client,common}/4.1.1+3b89ecf63e/...-sources.jar`) and the named
+`minecraft-clientOnly-6dd721cd7d-...-sources.jar` (`ClientPlayerInteractionManager.java`,
+`MinecraftClient.java`).
+
+- **Yes — `net.fabricmc.fabric.api.event.player.AttackEntityCallback` fires on the CLIENT
+  logical side for the local player's own attack, confirmed by reading the actual call
+  site.** It is invoked from **two** separate Mixin call sites, not one:
+  - **Client-side**: `net.fabricmc.fabric.mixin.event.interaction.client.MultiPlayerGameModeMixin`
+    (`@Mixin(ClientPlayerInteractionManager.class)`), injected into the Yarn-mapped
+    `ClientPlayerInteractionManager.attackEntity(PlayerEntity player, Entity target)` method,
+    right before the interact packet is sent:
+    ```java
+    // MultiPlayerGameModeMixin (client jar), @Inject before ClientPlayNetworkHandler.sendPacket(...)
+    public void attackEntity(PlayerEntity player, Entity entity, CallbackInfo info) {
+        ActionResult result = AttackEntityCallback.EVENT.invoker().interact(player, player.getEntityWorld(), Hand.MAIN_HAND, entity, null);
+        if (result != ActionResult.PASS) {
+            if (result == ActionResult.SUCCESS) {
+                this.connection.sendPacket(PlayerInteractEntityC2SPacket.attack(entity, player.isSneaking()));
+            }
+            info.cancel();
+        }
+    }
+    ```
+    Confirmed real, current Yarn 1.21.11 method it targets by reading
+    `ClientPlayerInteractionManager.java` directly:
+    ```java
+    public void attackEntity(PlayerEntity player, Entity target) {
+        this.syncSelectedSlot();
+        this.networkHandler.sendPacket(PlayerInteractEntityC2SPacket.attack(target, player.isSneaking()));
+        if (this.gameMode != GameMode.SPECTATOR) {
+            player.attack(target);
+            player.resetTicksSince();
+        }
+    }
+    ```
+    And confirmed the only caller of that method, `MinecraftClient.doAttack()` (called once per
+    queued left-click from `handleInputEvents()`, i.e. the real "player just attacked" moment,
+    not a render-frame sample):
+    ```java
+    switch (this.crosshairTarget.getType()) {
+        case ENTITY:
+            AttackRangeComponent attackRangeComponent = (AttackRangeComponent) itemStack.get(DataComponentTypes.ATTACK_RANGE);
+            if (attackRangeComponent == null || attackRangeComponent.isWithinRange(this.player, this.crosshairTarget.getPos())) {
+                this.interactionManager.attackEntity(this.player, ((EntityHitResult) this.crosshairTarget).getEntity());
+            }
+            break;
+        ...
+    }
+    ```
+    **Important nuance**: this is still gated on `this.crosshairTarget.getType() == ENTITY` at
+    the moment `doAttack()` runs — it's the *same* `crosshairTarget` field the HUD already
+    reads, not an independent raycast. The reliability win isn't a different targeting method;
+    it's that `doAttack()`/`AttackEntityCallback` fires exactly once, exactly at the instant the
+    game itself resolved "you just attacked this entity" (once per queued attack-key press,
+    each client tick), whereas `MobNameplateHud.render()` re-samples the same field on every
+    rendered frame and can catch it mid-flicker right before/after a fast entity moves off
+    crosshair. Caching the entity at the moment `AttackEntityCallback` fires (instead of only
+    trusting whatever `render()` currently sees) is what actually fixes the "landed the hit but
+    no nameplate" symptom.
+  - **Server-side**: `net.fabricmc.fabric.mixin.event.interaction.ServerPlayerMixin`
+    (`@Mixin(ServerPlayerEntity.class)`), injected at `HEAD` of `ServerPlayerEntity.attack(Entity target)`:
+    ```java
+    public void onPlayerInteractEntity(Entity target, CallbackInfo info) {
+        ServerPlayerEntity player = (ServerPlayerEntity) (Object) this;
+        ActionResult result = AttackEntityCallback.EVENT.invoker().interact(player, player.getEntityWorld(), Hand.MAIN_HAND, target, null);
+        if (result != ActionResult.PASS) info.cancel();
+    }
+    ```
+  - **Practical consequence — the same static `Event<AttackEntityCallback>` is shared per JVM,
+    so in singleplayer (integrated server in the same process) a listener registered once fires
+    TWICE per attack**: once from the client-side mixin (`world.isClient()` true, fires first,
+    before the packet is even sent) and once from the server-side mixin when the integrated
+    server processes that packet (`world.isClient()` false). On a real dedicated-server +
+    remote-client setup this doesn't happen (the server-side mixin only runs in the server's own
+    JVM, which a remote client never shares) — but code should not assume single-fire. **Guard
+    with `world.isClient()`** and only react to the client-side firing for a client-only HUD
+    cache (it's also the earliest, most input-latency-free of the two).
+- **No Mixin needed — `AttackEntityCallback` is the correct, sufficient, already-available
+  hook.** Since it's already invoked from the real client-side attack path
+  (`ClientPlayerInteractionManager.attackEntity`), there's no need for a custom Mixin into
+  `ClientPlayerInteractionManager`/`MinecraftClient.doAttack()` just to observe "the local
+  player attacked entity X" — register a listener on the existing Fabric API event instead.
+- **Exact functional interface signature, confirmed** (`net.fabricmc.fabric.api.event.player.AttackEntityCallback`, module `fabric-events-interaction-v0`, unchanged from the "Combat / Damage" section's earlier read of the same file):
+  ```java
+  public interface AttackEntityCallback {
+      Event<AttackEntityCallback> EVENT = EventFactory.createArrayBacked(...);
+      ActionResult interact(PlayerEntity player, World world, Hand hand, Entity entity, @Nullable EntityHitResult hitResult);
+  }
+  ```
+  Returning anything other than `ActionResult.PASS` **cancels the attack** (client: suppresses
+  the packet send + local `player.attack(target)` call; server: cancels `ServerPlayerEntity.attack`
+  processing) — a passive "just observe and cache the target" listener **must always return
+  `ActionResult.PASS`**, never `SUCCESS`/`FAIL`, or real combat breaks.
+- **`hitResult` is always passed as `null` at both current call sites** — confirmed, both
+  `MultiPlayerGameModeMixin` and `ServerPlayerMixin` call `.interact(player, world, hand, target, null)`
+  literally. Don't rely on a non-null `hitResult` from this event in practice, even though the
+  parameter exists on the interface.
+- **Recommended registration** (client-only code, e.g. `Baum2Client.onInitializeClient()`,
+  registering the common-module event from client code is fine — `AttackEntityCallback` lives
+  in `fabric-events-interaction-v0`'s common package and is usable from either environment):
+  ```java
+  AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
+      if (world.isClient() && player == MinecraftClient.getInstance().player && entity instanceof LivingEntity living) {
+          MobNameplateHud.setLastAttacked(living); // cache with a short expiry (e.g. a few seconds)
+      }
+      return ActionResult.PASS;
+  });
+  ```
+  `player == MinecraftClient.getInstance().player` is technically redundant given the
+  `ClientPlayerInteractionManager` call site can only ever be the physical client's own player,
+  but cheap and self-documenting against ever accidentally registering this in a
+  non-client-only file later.
+
+## Open questions

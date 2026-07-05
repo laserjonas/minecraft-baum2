@@ -1,0 +1,10 @@
+{
+  "layers": {
+    "humanoid": [
+      { "texture": "baum2:queen_spider" }
+    ],
+    "humanoid_leggings": [
+      { "texture": "baum2:queen_spider" }
+    ]
+  }
+}

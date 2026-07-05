@@ -1,5 +1,16 @@
 {
   "key.baum2.open_stats": "Open Character Stats",
   "key.baum2.cast_spell_1": "Cast Spell 1",
-  "key.baum2.cast_spell_2": "Cast Spell 2"
+  "key.baum2.cast_spell_2": "Cast Spell 2",
+  "entity.baum2.stone_of_spiders": "Stone of Spiders",
+  "item.baum2.gold_sword": "Gold Sword",
+  "entity.baum2.stone_of_zombies": "Stone of Zombies",
+  "item.baum2.poison_dagger": "Poison Dagger",
+  "entity.baum2.spider_queen": "Spider Queen",
+  "item.baum2.queen_spider_helmet": "Queen Spider Helmet",
+  "item.baum2.queen_spider_chestplate": "Queen Spider Chestplate",
+  "item.baum2.queen_spider_leggings": "Queen Spider Leggings",
+  "item.baum2.queen_spider_boots": "Queen Spider Boots",
+  "entity.baum2.zombie_colossus": "Zombie Colossus",
+  "item.baum2.colossal_warclub": "Colossal Warclub"
 }

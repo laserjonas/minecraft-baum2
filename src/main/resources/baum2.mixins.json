@@ -6,7 +6,8 @@
   "mixins": [
     "LivingEntityMixin",
     "ExperienceOrbSpawnMixin",
-    "ClampedEntityAttributeAccessor"
+    "ClampedEntityAttributeAccessor",
+    "PlayerAttackDamageMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -5,6 +5,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
+import de.baum2dev.baum2.progression.AttributeType;
 import de.baum2dev.baum2.progression.ProgressionCurve;
 import de.baum2dev.baum2.progression.VitalsCurve;
 
@@ -86,6 +87,25 @@ public class ClientNetworkingHandler {
 
     public static int getCurrentUnspentAttributePoints() {
         return currentUnspentAttributePoints;
+    }
+
+    /**
+     * Optimistically applies a "+1" button press locally, before the server's next
+     * AttributeSyncPayload confirms it - removes the visible round-trip delay. The server
+     * remains authoritative; the next real sync (every tick) overwrites this with the true
+     * values regardless, correcting anything if the prediction was ever wrong.
+     */
+    public static void predictAttributeSpend(AttributeType type) {
+        if (currentUnspentAttributePoints <= 0) {
+            return;
+        }
+        currentUnspentAttributePoints--;
+        switch (type) {
+            case ENDURANCE -> currentEndurance++;
+            case INTELLIGENCE -> currentIntelligence++;
+            case STRENGTH -> currentStrength++;
+            case DEXTERITY -> currentDexterity++;
+        }
     }
 
     /**

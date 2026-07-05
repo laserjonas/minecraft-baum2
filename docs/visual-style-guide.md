@@ -294,11 +294,37 @@ assets/baum2/
         schattenlaeufer.png
         runenwirker.png
         wesenswahrer.png
-    item/        (future: item icons, 16x16 unless an item type calls for otherwise)
+    item/
+      gold_sword.png           (16x16, item icon - see Section 14)
+      poison_dagger.png        (16x16, item icon - see Section 16)
+      colossal_warclub.png     (16x16, item icon - see Section 18.3)
     block/       (future: block textures)
+    entity/
+      stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
+      stone_of_zombies.png     (176x176 box-UV sheet, same layout as above - see Section 15)
+      spider_queen.png         (64x32, vanilla spider UV layout - see Section 17)
+      zombie_colossus.png      (64x64, vanilla biped/zombie UV layout - see Section 18.2)
+      equipment/
+        humanoid/
+          queen_spider.png     (64x32, vanilla classic armor-layer UV - see Section 17.4)
+        humanoid_leggings/
+          queen_spider.png     (64x32, same UV convention - see Section 17.4)
   models/
-    item/        (future)
+    item/
+      gold_sword.json          (see Section 14)
+      poison_dagger.json       (see Section 16)
+      queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
+      queen_spider_boots.json  (see Section 17.4)
+      colossal_warclub.json    (see Section 18.3)
     block/       (future)
+  items/
+    gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
+    poison_dagger.json         (1.21.11 item-model-definition entry point - see Section 16)
+    queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
+    queen_spider_boots.json    (1.21.11 item-model-definition entry points - see Section 17.4)
+    colossal_warclub.json      (1.21.11 item-model-definition entry point - see Section 18.3)
+  equipment/
+    queen_spider.json          (1.21.11 equipment-texture definition - see Section 17.4)
   blockstates/   (future)
 ```
 
@@ -799,8 +825,832 @@ blocking for either screen to keep working as-is in the meantime.
 
 ---
 
+## 13. Monster visual identity: "Stone of Spiders" (`baum2:stone_of_spiders`)
+
+The mod's first custom hostile mob — a stationary, level-10 mini-boss: an immobile cocoon/
+egg-sac fused into the ground, roughly 3x3x3 blocks (`ModEntities.STONE_OF_SPIDERS` is
+registered `.dimensions(3.0F, 3.0F)`), that spawns a wave of 3 spiders per 10%-of-max-health
+lost and drops a Gold Sword (Section 14) on death. Full mechanical detail lives in
+`entity/StoneOfSpidersEntity.java`; this section covers the visual identity only.
+
+### 13.1 Why this shape
+
+Deliberately **not** a standard biped/quadruped mob silhouette — no legs, arms, or face. The
+brief calls for it to read as an ominous "monster nest" object fused with rock, not a creature.
+This is also the mod's first monster, so the approach here (organic-mass-as-geometric-volumes,
+described below) sets precedent for future stationary/boss-type mobs — reuse this method
+(a few overlapping simple cuboids at deliberately asymmetric offsets, rather than a symmetrical
+"correct" creature skeleton) rather than reinventing per-mob.
+
+*Compliance note:* "giant stationary egg-sac boss that spawns adds" is a generic, widely-used
+monster archetype (bosses with summon mechanics exist across countless unrelated games) —
+genre convention, not any specific game's IP. The shape (fused organic-mass-and-rock, cracked/
+webbed shell, sickly glow-veins) and the exact palette below are original and were not modeled
+on any specific existing creature's actual design.
+
+### 13.2 Cuboid breakdown (for `ModelPartBuilder.cuboid(...)` translation)
+
+Seven cuboids total: three main volumes (base, body, cap) plus four small accent cuboids
+(2 web-strand/crack accents, 2 glow-vein bumps). All sizes in model units (16 units = 1 block,
+matching the registered 3x3x3 bounding box). Positions below are described in "blocks from the
+entity's horizontal center / from the ground up" for conceptual clarity — translating that into
+whatever pivot/origin convention the actual `ModelPartBuilder` calls end up using (Minecraft's
+own model-part Y axis conventionally increases *downward* from a part's pivot) is an
+implementation detail for whoever writes `StoneOfSpidersEntityModel`, not fixed by this spec.
+
+| # | Part | Size (blocks, X x Y x Z) | Size (px, sx x sy x sz) | Position | Role |
+|---|---|---|---|---|---|
+| A | Fused Rock Base | 2.75 x 0.75 x 2.75 | 44 x 12 x 44 | Centered at (0,0,0), flush on the ground, nearly filling the full 3x3 footprint (slightly inset from the edge) | Hardened stone the sac has fused into — the "monster nest" reads as grown out of the ground, not placed on it |
+| B | Egg-Sac Body | 2.125 x 1.5 x 2.125 | 34 x 24 x 34 | Centered horizontally, sunk ~2px into the base (top of base to ~y=2.1 blocks) so the join reads fused, not stacked | The dominant visual mass — most of the mob's silhouette and hit-detection volume |
+| C | Upper Lump | 1.25 x 1.0 x 1.25 | 20 x 16 x 20 | Offset **off-center** — shifted toward one side (e.g. +0.5 block X, +0.3 block Z from the body's center), sitting on top of the body around y=1.9-2.9 blocks, slightly embedded into the body's top the same way B embeds into A | The secondary lump that breaks perfect symmetry — this asymmetric offset is what reads as "lumpy organic mass," not a clean 3-tier snowman stack. Total height stays within the 3-block bounding box. |
+| D | Web-Strand/Crack Accent 1 | 1.625 x 0.125 x 0.125 | 26 x 2 x 2 | Flush against the body's surface (~0.5px standoff to avoid z-fighting), rotated off-axis (e.g. ~25° around Y, ~-15° around Z) | A jagged crack/silk-strand running diagonally across the shell — not axis-aligned, that's the important part, exact degrees are the implementer's taste |
+| E | Web-Strand/Crack Accent 2 | 1.25 x 0.125 x 0.125 | 20 x 2 x 2 | Same treatment as D, different position/rotation (e.g. ~-20° around Y, ~20° around X) for visual variety | Same role as D, second strand so the surface doesn't read as having only one crack |
+| F | Glow-Vein Bump 1 | 0.375 x 0.1875 x 0.375 | 6 x 3 x 6 | Flush on the body's front-upper face, poking out ~1-2px | A visible glowing egg-vein bulging through the shell |
+| G | Glow-Vein Bump 2 | 0.3125 x 0.1875 x 0.3125 | 5 x 3 x 5 | Flush on the cap's front face, poking out ~1-2px | Second glow-vein, on the cap rather than the body, so the glow reads across the whole silhouette rather than one spot |
+
+### 13.3 Color palette (original, distinct from the UI chrome palette in Section 2)
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Rock shadow | Fused Stone Shadow | `#3A362E` | Base cuboid's bottom/back faces |
+| Rock mid-tone | Fused Stone | `#5C574A` | Base cuboid's main faces |
+| Rock highlight | Fused Stone Pale | `#7A7566` | Reserved for a future non-placeholder pass — not used in the current placeholder texture |
+| Shell shadow | Cocoon Husk Shadow | `#6E6850` | Body/cap bottom+back faces |
+| Shell mid-tone | Cocoon Husk | `#9C9478` | Body/cap side+front faces |
+| Shell highlight | Cocoon Husk Pale | `#BDB495` | Body/cap top faces |
+| Web/silk accent | Spun Silk | `#D8D2BE` | Web-strand accent cuboids (D, E) |
+| Crack/fissure accent | Fissure Dark | `#2A251C` | Crack-line detail painted onto the shell's front faces, and the underside of the web-strand cuboids |
+| Glow-vein core | Larval Glow | `#C4E064` | Bright chartreuse-lime — the glow-vein bumps' visible faces and the small glow blotches painted onto the body/cap |
+| Glow-vein edge | Larval Glow Dim | `#6E8A2E` | Darker vein-edge tone, glow bump's hidden/side faces |
+
+*Compliance note:* chosen to be clearly distinct from both the UI chrome palette (Section 1's
+verdigris/rune-cyan) and the Vitals HUD reds/blues (Section 11) — no reused hues across
+systems. The chartreuse glow-vein color is a genre-generic "eerie bioluminescent organic
+monster" cue (seen across many unrelated games/media), not copied from any specific existing
+game's exact creature-glow branding.
+
+### 13.4 Placeholder texture (produced this pass)
+
+**Explicitly a temporary placeholder**, per `MASTERPROMPT.md`'s asset rule — flat-color box-UV
+fills generated programmatically (PowerShell + `System.Drawing`, no Python/ImageMagick
+available in this environment), not hand-drawn final art. No traced, extracted, or downloaded
+source material was used.
+
+- **File:** `assets/baum2/textures/entity/stone_of_spiders.png` — matches the registered entity
+  id `baum2:stone_of_spiders` (Section 6 naming convention: texture file name mirrors the
+  registry id, not a sub-folder-per-mob layout, since this is a single-texture mob with no
+  animation-frame variants).
+- **Canvas:** 176 x 176 px, RGBA with transparent background outside the seven cuboids' UV
+  regions. Size is dictated by the standard Minecraft "box UV" unwrap of the seven cuboids
+  above (each cuboid needs `2*sizeX + 2*sizeZ` px wide by `sizeY + sizeZ` px tall of texture
+  space) stacked in a single column — not a fixed/conventional size like 16x16 item textures,
+  since entity texture sheets are sized to fit whatever cuboids the model actually uses.
+- **Exact UV offsets used** (top-left corner of each cuboid's box-UV region on the sheet;
+  reproduce these exactly via `.uv(u, v)` before each `.cuboid(...)` call so the placeholder
+  texture lines up with the model without further adjustment):
+
+  | Part | UV (u, v) | Box size (w x h) |
+  |---|---|---|
+  | A - Base | (0, 0) | 176 x 56 |
+  | B - Body | (0, 56) | 136 x 58 |
+  | C - Cap | (0, 114) | 80 x 36 |
+  | D - Web-strand 1 | (0, 150) | 56 x 4 |
+  | E - Web-strand 2 | (0, 154) | 44 x 4 |
+  | F - Glow bump 1 | (0, 158) | 24 x 9 |
+  | G - Glow bump 2 | (0, 167) | 20 x 8 |
+
+- Each volume's faces are flat-filled per Section 13.3 (top=highlight, bottom=shadow, sides/
+  front=mid-tone for A/B/C; web-strand cuboids filled solid Spun Silk with a Fissure Dark
+  underside; glow bumps filled Larval Glow/Glow Dim). A handful of hand-placed crack-line and
+  glow-blotch pixel clusters were painted directly onto the body's and cap's front-face UV
+  regions so the placeholder isn't just flat rectangles — still simple pixel-art, no
+  anti-aliasing, not final art.
+- **Not yet done, flagged for a future art pass**: real hand-drawn surface detail (organic
+  cracks, silk texture, glow gradients) across the full shell — the current texture only
+  proves the UV layout and gives *something* to look at in-game, per this agent's own scope
+  limits (a text-based agent doesn't fake detailed pixel art as final).
+
+---
+
+## 14. Weapon visual identity: "Gold Sword" (`baum2:gold_sword`)
+
+The mod's first custom item — a straightforward reward-drop sword (Section 13's Stone of
+Spiders drops it), built on vanilla's `ToolMaterial.GOLD` tier with custom attack numbers
+(`ModItems.GOLD_SWORD`, `.sword(ToolMaterial.GOLD, 5.0F, -2.2F)`), plain `Item`, no custom
+model class. This section also establishes this mod's first item-icon conventions, since it's
+the first custom item overall.
+
+### 14.1 Design direction
+
+Plain, not ornate (per the brief) — a simple, clean diagonal blade silhouette, original in
+color and shape, **not a recolor or clone of vanilla's actual golden sword texture**. Vanilla's
+own gold sword icon was not referenced pixel-for-pixel; only the generic "diagonal tool icon
+in a 16x16 canvas" convention (shared by every tool/weapon item in every version of Minecraft
+and most other block-grid games) was reused, which is a technical/genre convention, not IP.
+
+- **Silhouette:** standard diagonal orientation, blade tip at top-right, pommel at bottom-left
+  — matches the read-at-a-glance convention every Minecraft tool/weapon icon uses (a technical
+  necessity for a 16x16 hotbar icon, not a stylistic choice unique to any one game).
+- **Parts, bottom-left to top-right:** a small 2x2 pommel block, a short diagonal grip, a
+  perpendicular crossguard accent breaking the diagonal at the grip/blade junction, then a
+  tapering 2px-thick blade to a 1px point.
+- **Palette ties back to the mod's existing UI accent**: the pommel reuses **Aged Brass
+  (`#D9B36C`)** from Section 2.2 exactly — the UI palette's existing "gold-associated" accent
+  color — for cross-system cohesion between this weapon and the mod's established chrome,
+  rather than inventing an unrelated gold tone.
+
+### 14.2 Color palette
+
+| Role | Hex | Notes |
+|---|---|---|
+| Pommel | `#D9B36C` | Reuses UI "Aged Brass" (Section 2.2) exactly |
+| Grip | `#4A3728` | Dark brown, plain leather-style handle, deliberately unornamented |
+| Crossguard | `#8A6E2E` | Muted bronze-gold, distinct from both the pommel and blade tones so the three hilt parts read separately |
+| Blade fill | `#E8C25A` | Main blade body |
+| Blade shadow edge | `#8A6B1E` | Thickening/shadow pixel along the blade's lower edge |
+| Blade highlight | `#FFF0B0` | Single highlight pixel near the tip |
+
+*Compliance note:* this is an original 6-color diagonal-sword treatment; it does not reproduce
+vanilla's actual `golden_sword.png` pixel layout or any other specific game's exact sword icon.
+
+### 14.3 Files produced (placeholder texture, real model/item-definition JSON)
+
+- **Texture** (placeholder, per `MASTERPROMPT.md`'s asset rule — flat pixel art, no
+  anti-aliasing, generated via PowerShell + `System.Drawing`, not hand-drawn final art):
+  `assets/baum2/textures/item/gold_sword.png`, 16x16, RGBA, transparent background.
+- **Model JSON** (real, not a placeholder — this is the correct, verified 1.21.11 schema, not
+  guessed): `assets/baum2/models/item/gold_sword.json`:
+  ```json
+  {
+    "parent": "minecraft:item/handheld",
+    "textures": { "layer0": "baum2:item/gold_sword" }
+  }
+  ```
+  `minecraft:item/handheld` (not `minecraft:item/generated`) is vanilla's own parent for every
+  sword/tool item — confirmed by reading vanilla's actual `golden_sword.json` /
+  `iron_sword.json` directly out of the decompiled client jar
+  (`.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-clientOnly-...-1.21.11-...-v2.jar`,
+  `assets/minecraft/models/item/golden_sword.json`) — not assumed from possibly-stale training
+  data, per this agent's hard rule about not guessing schema.
+- **Item-model-definition entry point** (real, not a placeholder — **this file is new in
+  1.21.x and did not exist in older Minecraft versions**; confirmed by reading vanilla's own
+  `assets/minecraft/items/golden_sword.json` from the same jar): `assets/baum2/items/gold_sword.json`:
+  ```json
+  {
+    "model": {
+      "type": "minecraft:model",
+      "model": "baum2:item/gold_sword"
+    }
+  }
+  ```
+  **Both files are required in 1.21.11** — `assets/<ns>/items/<name>.json` is the entry point
+  the item's registered id actually resolves to; it in turn points at
+  `assets/<ns>/models/item/<name>.json` for the textures/parent. An item defined only under the
+  old `models/item/` path (no matching `items/` entry) will fail to resolve a model at all in
+  this version — this is the exact gotcha the graphics-designer brief asked to verify against
+  ground truth rather than guess, and it's now the confirmed, working shape for any future
+  item this mod adds.
+
+---
+
+## 15. Monster visual identity: "Stone of Zombies" (`baum2:stone_of_zombies`)
+
+The mod's second stationary mini-boss, mechanically and geometrically the sibling of Section
+13's Stone of Spiders: level 20, 400 HP (`StoneOfZombiesEntity.createStoneOfZombiesAttributes`),
+immobile, same 3x3-block cocoon-stone silhouette. Every 10%-of-max-health lost spawns a wave of
+2 zombies + 1 baby zombie (`StoneOfZombiesEntity.spawnZombieWave`); killing the stone kills every
+zombie it has spawned so far. Drops a Poison Dagger (Section 16) on death. Ambient
+`ParticleTypes.LARGE_SMOKE` drifts off it continuously, client-side (`tickMovement`).
+
+### 15.1 Shared geometry — reuses Section 13.2 exactly, no new shape
+
+**This mob does not introduce new geometry.** `HulkingCocoonStoneEntityModel` (see
+`src/client/java/de/baum2dev/baum2/entity/HulkingCocoonStoneEntityModel.java`) is literally the
+same Java model class shared between Stone of Spiders and Stone of Zombies — same 7 cuboids,
+same sizes, same positions, same 176x176 box-UV layout at the exact same UV offsets. Section
+13.2's cuboid breakdown table and its rationale ("organic-mass-as-geometric-volumes... reuse
+this method rather than reinventing per-mob") apply here unchanged — refer back to it rather
+than re-deriving. **Only the texture differs between the two mobs.** No Java model changes were
+needed or made for this pass.
+
+*Compliance note:* "cocoon mini-boss reskinned with a different infestation/theme and spawn
+type" is itself a generic, widely-used monster-variant convention (recoloring/rethreading a
+boss archetype for a second encounter) — genre convention, not IP. The toxic/zombie theme and
+palette below are original.
+
+### 15.2 Color palette: "Toxic Bloom" (original, distinct from every other palette in the mod)
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Rock shadow | Blight Stone Shadow | `#26301F` | Base cuboid's bottom/back faces |
+| Rock mid-tone | Blight Stone | `#435930` | Base cuboid's main faces (toxic-infused rock, reskin of Section 13.3's Fused Stone) |
+| Rock highlight | Blight Stone Pale | `#647A47` | Reserved for a future non-placeholder pass — not used in the current placeholder texture, mirrors Section 13.3's own unused "Pale" convention |
+| Shell shadow | Plague Husk Shadow | `#4F5A2C` | Body/cap bottom+back faces |
+| Shell mid-tone | Plague Husk | `#7C8F49` | Body/cap side+front faces |
+| Shell highlight | Plague Husk Pale | `#A8BD70` | Body/cap top faces |
+| Ooze accent | Toxic Ooze | `#B8D888` | Web-strand accent cuboids (D, E) — reskin of Section 13.3's silk-strand role as a sickly ooze/drip instead |
+| Crack/fissure accent | Fissure Rot | `#17200F` | Crack-line detail on the shell's front faces, and the underside of the ooze-accent cuboids |
+| Glow-vein core | Plague Glow | `#3DFF7E` | Bright toxic emerald-green — the glow-vein bumps' visible faces and the small glow blotches painted onto the body/cap |
+| Glow-vein edge | Plague Glow Dim | `#1B8A45` | Darker vein-edge tone, glow bump's hidden/side faces |
+
+*Compliance note:* chosen to be clearly distinct from Section 13.3's Fused Stone/Cocoon Husk
+(brown/tan) and Larval Glow (`#C4E064`, a warm yellow-lime hue) — Plague Glow is a cooler,
+more saturated emerald-green (hue shifted well away from Larval Glow's yellow-green, and much
+brighter/more saturated than the muted UI Verdigris Glow `#5FA98C` or the Character-Stats-
+Screen's jade Dexterity green `#4CBB7A`, per Section 12), so it reads as its own distinct
+"toxic glow" rather than a restyled copy of any existing green in the mod. "Sickly toxic green
+monster glow" itself is a genre-generic bioluminescence/poison cue (same reasoning Section
+13.3 already applied to its own chartreuse), not copied from any specific existing game's
+creature-glow branding.
+
+### 15.3 Placeholder texture (produced this pass)
+
+**Explicitly a temporary placeholder**, per `MASTERPROMPT.md`'s asset rule — flat-color box-UV
+fills generated programmatically (PowerShell + `System.Drawing`, same technique as Section
+13.4, no Python/ImageMagick available in this environment), not hand-drawn final art. No
+traced, extracted, or downloaded source material was used.
+
+- **File:** `assets/baum2/textures/entity/stone_of_zombies.png` (under
+  `src/main/resources/`) — matches the registered entity id `baum2:stone_of_zombies`, mirrors
+  Section 13.4's naming convention.
+- **Canvas:** 176 x 176 px, RGBA, transparent background outside the seven cuboids' UV
+  regions — **identical canvas size to `stone_of_spiders.png`**, since the geometry is
+  identical (Section 15.1).
+- **UV offsets used — identical to Section 13.4's table, reproduced verbatim, not
+  redesigned:**
+
+  | Part | UV (u, v) | Box size (w x h) |
+  |---|---|---|
+  | A - Base | (0, 0) | 176 x 56 |
+  | B - Body | (0, 56) | 136 x 58 |
+  | C - Cap | (0, 114) | 80 x 36 |
+  | D - Web-strand 1 (ooze accent) | (0, 150) | 56 x 4 |
+  | E - Web-strand 2 (ooze accent) | (0, 154) | 44 x 4 |
+  | F - Glow bump 1 | (0, 158) | 24 x 9 |
+  | G - Glow bump 2 | (0, 167) | 20 x 8 |
+
+- Each volume's faces are flat-filled using the standard Minecraft box-UV face sub-layout
+  (top=highlight, bottom+back=shadow, remaining sides+front=mid-tone for A/B/C; ooze-accent
+  cuboids filled solid Toxic Ooze with a Fissure Rot underside; glow bumps filled Plague
+  Glow/Plague Glow Dim on visible/hidden faces respectively) — same method as Section 13.4. A
+  handful of hand-placed crack-line and glow-blotch pixel clusters were painted directly onto
+  the body's and cap's front-face UV regions, same as Section 13.4's approach.
+- **Not yet done, flagged for a future art pass** (same caveat as Section 13.4): real
+  hand-drawn surface detail across the full shell — this texture only proves the palette/theme
+  swap and gives something to look at in-game.
+- **No Java/model changes required** — confirmed the UV table above is pixel-identical to
+  Section 13.4's, so `HulkingCocoonStoneEntityModel`'s existing `.uv(...)` calls line up with
+  this new texture exactly as they do with `stone_of_spiders.png`.
+
+---
+
+## 16. Weapon visual identity: "Poison Dagger" (`baum2:poison_dagger`)
+
+The mod's second custom item — a reward-drop dagger (Section 15's Stone of Zombies drops it),
+built on `ToolMaterial.IRON` with custom low-damage/high-speed args
+(`ModItems.POISON_DAGGER`, `.sword(ToolMaterial.IRON, 1.0F, 0.0F)`) — a "dagger" archetype:
+fast, weak per-hit, compensated by an on-hit Poison status effect wired in
+`combat/PoisonDaggerHandler.java`. Plain `Item`, no custom model class, following Section 14's
+precedent exactly.
+
+### 16.1 Design direction
+
+Small, fast, venomous blade — green-tinged metal with a poison sheen/drip accent, **not a
+recolor or clone of vanilla's iron sword texture, and not a resize of this mod's own Gold
+Sword (Section 14)**. Only the generic "diagonal tool icon in a 16x16 canvas" convention is
+reused (same genre-convention reasoning as Section 14.1), but the silhouette is deliberately
+**shorter and stubbier** than Gold Sword's full-canvas diagonal, to read as a distinct "dagger"
+archetype rather than a small sword: the blade runs from the bottom-left pommel only to roughly
+the canvas's center-upper area, leaving the top-right quadrant of the canvas empty/transparent
+(Gold Sword's blade tip reaches the top-right corner; this one does not).
+
+- **Silhouette:** same bottom-left-to-top-right diagonal orientation as every tool/weapon icon
+  in the mod (Section 14.1's read-at-a-glance convention), but roughly two-thirds the length —
+  pommel at (1,13)-(2,14), blade tip at (11,3), instead of spanning the full 16px diagonal.
+- **Parts, bottom-left to top-right:** a small 2x2 pommel block, a short 2px diagonal grip, a
+  perpendicular crossguard accent breaking the diagonal at the grip/blade junction, then a
+  tapering blade to a 1px point — same part vocabulary as Gold Sword (Section 14.1) for
+  cross-item consistency, just compressed to the shorter dagger length.
+- **New element not present on Gold Sword:** a single poison-sheen/drip accent pixel partway
+  up the blade, signaling the on-hit Poison effect visually.
+- **Palette is original, does not reuse Gold Sword's Aged Brass** — a dagger dropped by a toxic
+  mob calls for its own green-tinged steel identity rather than inheriting Gold Sword's warm
+  gold/bronze hilt, so this item gets a fully new palette rather than a partial one.
+
+### 16.2 Color palette
+
+| Role | Hex | Notes |
+|---|---|---|
+| Pommel | `#4A4F45` | Dark worn iron-green metal cap |
+| Grip | `#2E2A22` | Near-black leather-wrap handle, plain and unornamented |
+| Crossguard | `#6E7A5E` | Muted sage-metal accent, distinct from both pommel and blade tones |
+| Blade fill | `#8FA894` | Pale green-tinged steel |
+| Blade shadow edge | `#3F4A3C` | Thickening/shadow pixel along the blade's lower edge |
+| Blade highlight | `#D8E8C8` | Highlight pixels near the tip |
+| Poison sheen/drip accent | `#5FE06B` | Bright toxic-green accent pixel on the blade, signals the on-hit Poison effect |
+
+*Compliance note:* this is an original 7-color diagonal-dagger treatment; it does not
+reproduce vanilla's actual `iron_sword.png` pixel layout, Section 14's Gold Sword palette, or
+any other specific game's exact dagger/knife icon.
+
+### 16.3 Files produced (placeholder texture, real model/item-definition JSON)
+
+- **Texture** (placeholder, per `MASTERPROMPT.md`'s asset rule — flat pixel art, no
+  anti-aliasing, generated via PowerShell + `System.Drawing`, not hand-drawn final art):
+  `assets/baum2/textures/item/poison_dagger.png`, 16x16, RGBA, transparent background.
+- **Model JSON** (real, not a placeholder — same verified 1.21.11 schema as Section 14.3's
+  Gold Sword, reused exactly): `assets/baum2/models/item/poison_dagger.json`:
+  ```json
+  {
+    "parent": "minecraft:item/handheld",
+    "textures": { "layer0": "baum2:item/poison_dagger" }
+  }
+  ```
+- **Item-model-definition entry point** (real, not a placeholder — same 1.21.x schema
+  confirmed in Section 14.3): `assets/baum2/items/poison_dagger.json`:
+  ```json
+  {
+    "model": {
+      "type": "minecraft:model",
+      "model": "baum2:item/poison_dagger"
+    }
+  }
+  ```
+  Both files are required in 1.21.11, per the same gotcha Section 14.3 already documented and
+  verified against the decompiled vanilla client jar — not re-verified here since Section 14.3
+  already established it as ground truth for any future item this mod adds.
+
+---
+
+## 17. Boss visual identity: "Spider Queen" (`baum2:spider_queen`) and the "Queen Spider Set" armor
+
+The mod's **first true mobile boss** (level 15, 350 HP) — every prior hostile mob (Sections 13,
+15) was a stationary mini-boss fused to the ground. Spider Queen is a giant spider (literally
+3x a normal Minecraft spider) that fights with a fast bite and a long-range leaping lunge
+(`SpiderQueenEntity.java`), and drops the mod's **first genuine boss-tier armor set** — the
+4-piece "Queen Spider Set" — rather than a single mini-boss trinket (Sections 14, 16). Both of
+these are precedents, the same way Section 13 was the precedent for mini-boss visual identity:
+future mobile bosses and future armor sets should look to this section first.
+
+**Deliberate two-palette split (read this before "fixing" it):** as of 2026-07-05, the Spider
+Queen entity's own texture (Section 17.3, "Mutant Ichor" — sickly/toxic green) and the Queen
+Spider Set armor she drops (Section 17.4, "Royal Carapace" — violet/gold) intentionally use two
+*different*, unrelated palettes. This is not an oversight or a half-finished reskin — it's
+direct user feedback after playtesting: the boss's own look was asked to become "more green and
+more like a mutant spider" with a green smoke aura, while the armor drop was explicitly confirmed
+to already "look fine" and was asked to stay untouched. Do not unify these two palettes, and do
+not treat the mismatch as a bug to silently correct — if a future pass wants to reconcile them,
+that's a deliberate design decision to raise with the user first, not an assumed cleanup.
+
+### 17.1 Why this shape/approach
+
+Unlike Stone of Spiders/Stone of Zombies (custom cuboid geometry, Section 13.2), Spider Queen
+**reuses vanilla's own `SpiderEntityModel` geometry unchanged**, scaled 3x via a
+`ModelTransformer` at model-layer registration (confirmed against decompiled `EntityModels`/
+`GiantEntityModel` — the same two-part "bigger dimensions + scaled shared model" mechanism
+vanilla's own Giant uses to look 6x a Zombie). Only the *texture* is original — this section's
+job is exclusively the re-theme, not new geometry.
+
+*Compliance note:* "giant reskinned version of a normal enemy, scaled up, as a boss" is a
+generic, widely-used monster-variant convention (colossal/elite versions of common enemies
+appear across countless unrelated games, and vanilla Minecraft does this exact thing with
+Giant/Zombie) — genre convention, not IP. The palette, markings, and armor design below are
+original and were not modeled on any specific existing creature or game's actual design.
+
+### 17.2 Entity texture: `spider_queen.png`
+
+- **File:** `assets/baum2/textures/entity/spider_queen.png`.
+- **Canvas:** **64x32 px, confirmed exactly matching vanilla's own UV layout** — verified by
+  reading `SpiderEntityModel.getTexturedModelData()` directly out of the decompiled
+  `minecraft-clientOnly-...-sources.jar` in `.gradle/loom-cache/minecraftMaven/` (not assumed):
+  `TexturedModelData.of(modelData, 64, 32)`. The Java model/renderer
+  (`SpiderQueenEntityRenderer.java`) reuses vanilla's `SpiderEntityModel` unmodified, so this
+  texture **must** fill the exact same UV regions vanilla's own spider texture uses — the model
+  was not redesigned, only re-themed, per the exact UV table below (derived directly from the
+  same source file's `ModelPartBuilder.cuboid(...)`/`.uv(...)` calls, not guessed):
+
+  | Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) |
+  |---|---|---|---|
+  | Legs (all 8, shared/mirrored) | (18, 0) | 16 x 2 x 2 | (18, 0, 36, 4) |
+  | Thorax (`body0`) | (0, 0) | 6 x 6 x 6 | (0, 0, 24, 12) |
+  | Head | (32, 4) | 8 x 8 x 8 | (32, 4, 32, 16) |
+  | Abdomen (`body1`) | (0, 12) | 10 x 8 x 12 | (0, 12, 44, 20) |
+
+### 17.3 Entity palette: "Mutant Ichor" (boss's own texture — distinct from the armor's palette; see divergence note below)
+
+**Revised 2026-07-05 after playtesting.** The entity's own texture no longer uses "Royal
+Carapace" — that name and violet/gold palette now describes only the Queen Spider Set armor
+(Section 17.4, unchanged). Direct playtest feedback asked for the boss itself to read as "more
+green and more like a mutant spider," with a green smoke/aura (already implemented in Java via
+vanilla's `ParticleTypes.WITCH` swirl — not a texture concern). This section documents the new
+entity-only palette; Section 17.4 is untouched.
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Carapace mid-tone | Mutant Ichor | `#4C6B5A` | Main body/head/leg front+side faces — a desaturated, sickly gray-teal green (not a clean/saturated "grass green") |
+| Carapace highlight | Mutant Ichor Pale | `#7FA893` | Top faces (thorax, abdomen, head) |
+| Carapace shadow | Mutant Ichor Dusk | `#263B30` | Bottom/back faces |
+| Joint/crack accent | Necrotic Vein | `#241626` | Near-black plum (not pure black) — leg joints and dark venous crack lines painted onto the carapace, the main "diseased" cue |
+| Vein accent, pale | Necrotic Vein Pale | `#4A2E4A` | Secondary/lighter vein-crack tone, used sparingly next to Necrotic Vein for a two-tone crack read |
+| Diseased blotch | Bile Blotch | `#B8C13A` | Sickly yellow-green pustule/blotch marks — irregular, asymmetrical placement (abdomen bulge, leg mottling) is what sells the "mutant" read over a flat green reskin |
+| Eye glow (painted, not vanilla overlay) | Toxic Eye | `#E8FF6B` | See eye note below |
+| Eye-socket base | Void Socket | `#100C14` | Dark base under the painted eye cluster |
+
+*Compliance note:* "sickly/mutant green monster" is a broad, unclaimed genre convention (used
+across countless unrelated games and other media for corrupted/diseased/mutated creatures), not
+IP tied to any one game. This specific palette is also checked distinct from every *other* green
+already in this document — Section 15.2's "Toxic Bloom" (Stone of Zombies: `Blight Stone
+#435930` / `Plague Husk #7C8F49` / `Toxic Ooze #B8D888` / `Plague Glow #3DFF7E`) is a warm,
+yellow-olive/lime-leaning green family. Mutant Ichor is deliberately cooler and grayer (its blue
+channel sits noticeably higher relative to red/green than Toxic Bloom's at every matching role —
+e.g. mid-tone `#4C6B5A` vs. Blight Stone `#435930`), reading as "diseased gray-flesh" rather than
+"toxic plant bloom," so the mod's two green palettes stay visually distinguishable rather than
+being near-duplicates. Bile Blotch's yellow-green does sit in a similar family to Toxic Bloom's
+accents (both draw on the same "toxic yellow-green highlight" genre convention) but is used only
+as a sparse blotch accent, not either palette's dominant tone, so the two identities as a whole
+remain distinct. Necrotic Vein's near-black-plum hue is a new addition not reused from any other
+palette in this document (distinct from Royal Carapace's saturated violet family and from
+Chitin Void's neutral near-black).
+
+**On the eyes — no vanilla glow overlay anymore:** vanilla spiders normally get a glowing-eyes
+overlay from `SpiderEyesFeatureRenderer`, a separate fixed vanilla texture rendered additively on
+top of the shared spider head geometry. `SpiderQueenEntityRenderer` no longer attaches that
+feature renderer — it's generically bound to vanilla's own `SpiderEntityModel`/render-state type
+and isn't compatible with `SpiderQueenEntityModel`/`SpiderQueenRenderState`'s custom pair (needed
+for the leap-attack crouch pose; see that renderer's own class javadoc), so it was dropped rather
+than forced. This means Spider Queen has **no automatic eye-glow overlay at all** — the eye read
+has to be painted directly into `spider_queen.png`'s head UV region instead of relying on the
+vanilla overlay the way the old "Royal Carapace" version did. The current texture paints a dark
+`Void Socket` patch on the head's front face with a small irregular cluster of bright `Toxic Eye`
+(`#E8FF6B`) dots on top — a static painted glow (no actual light emission/glowing-in-the-dark;
+Minecraft texture pixels don't emit light on their own), but bright/saturated enough against the
+darker carapace to read as eyes at normal render distance.
+
+### 17.4 Queen Spider Set armor — first boss-tier armor set
+
+4 pieces (`baum2:queen_spider_helmet/_chestplate/_leggings/_boots`), dropped as a full-set kill
+reward (`SpiderQueenEntity.dropLoot`). **Unchanged in the 2026-07-05 mutant-green revision** —
+confirmed by the user to already "look fine" as-is; this armor is what "Royal Carapace" refers
+to from here on (the entity's own texture moved to "Mutant Ichor," Section 17.3, above). Two
+separate visual systems, per 1.21.11's equipment architecture:
+
+**Armor palette: "Royal Carapace"** (unchanged from the original pass; kept here for reference
+now that the entity texture has its own separate palette):
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Carapace mid-tone | Royal Carapace | `#4B2170` | Main body/head/leg side+front faces |
+| Carapace highlight | Royal Carapace Pale | `#7A46A6` | Top faces |
+| Carapace shadow | Royal Carapace Dusk | `#2A0F3F` | Bottom/back faces |
+| Chitin void | Chitin Void | `#1C0E28` | Legs and other near-black joint/accent tones, boot-leather tone |
+| Regal trim | Regal Amber | `#D9A73A` | Markings, joint glints, trim bands |
+| Regal trim, dark | Regal Amber Dusk | `#8C6A1E` | Shadow-side trim accents |
+| Regal trim, pale | Regal Amber Pale | `#F0C878` | Sparse gem/crest highlight pixels only |
+| Eye-socket base | Void Socket | `#0D0609` | Dark base under the helmet's visor slit — unrelated to the entity texture's own separate `Void Socket` `#100C14` (Section 17.3), a near-identical near-black role-name coincidence between the two now-separate palettes, not a shared value |
+
+*Compliance note (unchanged):* deep violet/royal-purple with gold/amber trim is a widely-used
+genre convention for "regal/queen" enemy/armor coding (seen across countless unrelated games and
+other media, plus real-world regalia associations) — not any specific existing game's exact
+branding. Distinct from every other palette in this document, including the entity's own new
+"Mutant Ichor" (Section 17.3) — that divergence is intentional, see the note at the top of
+Section 17.
+
+**Item icons** (`textures/item/queen_spider_<piece>.png`, 16x16 each) — standard flat inventory
+icons following the vanilla armor-icon silhouette convention (helmet dome, chestplate torso +
+pauldrons, leggings waistband + twin legs, boots twin ankle/foot shapes) in the Royal
+Carapace/Regal Amber palette above, each with a thin gold trim line and a small gem/accent so
+the set reads as one cohesive "boss reward" family at a glance in the inventory grid. Model/
+item-definition JSON (`assets/baum2/items/queen_spider_*.json` + `models/item/queen_spider_*.json`)
+already existed and were verified correct against these exact texture files — no changes needed.
+
+**Worn-on-player textures** (the "looks beautiful when worn" layer) — `assets/baum2/equipment/
+queen_spider.json` points at two texture files:
+- `assets/baum2/textures/entity/equipment/humanoid/queen_spider.png` (helmet, chestplate, boots)
+- `assets/baum2/textures/entity/equipment/humanoid_leggings/queen_spider.png` (leggings)
+
+**Canvas: 64x32 px each, confirmed exactly matching vanilla's own classic armor-layer
+convention** (the same UV layout as the pre-1.21.11 `armor/diamond_layer_1.png`/`_layer_2.png`
+files — only the file location/lookup mechanism changed in 1.21.11, not the biped model
+geometry) — verified by reading `BipedEntityModel.getModelData()` directly out of the
+decompiled sources jar (not assumed), which gives this exact UV table:
+
+| Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) |
+|---|---|---|---|
+| Head (inner) | (0, 0) | 8 x 8 x 8 | (0, 0, 32, 16) |
+| Hat (outer helmet shell) | (32, 0) | 8 x 8 x 8 | (32, 0, 32, 16) |
+| Body | (16, 16) | 8 x 12 x 4 | (16, 16, 24, 16) |
+| Arms (shared/mirrored) | (40, 16) | 4 x 12 x 4 | (40, 16, 16, 16) |
+| Legs (shared/mirrored) | (0, 16) | 4 x 12 x 4 | (0, 16, 16, 16) |
+
+Both files were painted at this exact layout: the `humanoid` (main) layer's head/hat regions
+carry the helmet's face-plate + visor slit + a small crest gem, the body/arm regions carry the
+chestplate with gold edge trim and a chest gem, and the leg region uses `Chitin Void` (dark
+boot-leather tone, distinct from the carapace-violet used elsewhere) with a gold sole trim so
+the boots read as their own distinct piece rather than a recolored leg segment. The
+`humanoid_leggings` layer's body region (hip band) and leg region (thigh plating) instead reuse
+the carapace-violet + a gold belt/knee band, so the leggings read as continuing the chestplate's
+plating rather than matching the boots' darker leather tone — the set is designed to look like
+one continuous suit of "queen-spider chitin plating" when all 4 pieces are worn together, per
+the brief's "should look beautiful" requirement, not four independently-themed pieces that
+happen to share a name.
+
+*Compliance note:* a violet-and-gold "regal insect/spider queen" armor identity is, again, a
+genre-generic association (does not require or reproduce any specific existing game's exact
+armor-set branding); the specific silhouette/trim/gem execution here is original.
+
+### 17.5 Files produced this pass (all explicitly temporary placeholders)
+
+Per `MASTERPROMPT.md`'s asset rule — flat-color pixel fills generated programmatically
+(PowerShell + `System.Drawing`, same technique as every prior placeholder in this document; no
+Python/ImageMagick available in this environment), not hand-drawn final art. No traced,
+extracted, or downloaded source material was used anywhere in this pass.
+
+- `assets/baum2/textures/entity/spider_queen.png` (64x32)
+- `assets/baum2/textures/item/queen_spider_helmet.png` (16x16)
+- `assets/baum2/textures/item/queen_spider_chestplate.png` (16x16)
+- `assets/baum2/textures/item/queen_spider_leggings.png` (16x16)
+- `assets/baum2/textures/item/queen_spider_boots.png` (16x16)
+- `assets/baum2/textures/entity/equipment/humanoid/queen_spider.png` (64x32)
+- `assets/baum2/textures/entity/equipment/humanoid_leggings/queen_spider.png` (64x32)
+
+**Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
+document): real hand-drawn surface detail (leg segmentation shading, carapace sheen, finer
+armor engraving) — this pass proves the UV layouts, establishes the palette, and gives the
+mod's first real boss and first armor set something considered to look at in-game, but a human
+artist pass would meaningfully raise the ceiling here given the "should look beautiful" bar.
+
+---
+
+## 18. Boss visual identity: "Zombie Colossus" (`baum2:zombie_colossus`) and the "Colossal Warclub"
+
+The mod's **second mobile boss** (level 25, 750 HP) - a hulking, muscular zombie warlord, 3x the
+size of a vanilla zombie (`ModEntities.ZOMBIE_COLOSSUS` is `.dimensions(1.8F, 5.85F)`, exactly
+triple a vanilla zombie's `0.6F, 1.95F`), that fights with a slow, heavy 2-block-range club attack
+plus a leap-and-fire-wave signature move (`ZombieColossusEntity.java`). Its guaranteed drop is the
+**Colossal Warclub** (`baum2:colossal_warclub`) - originally drafted as "Colossus Club" but renamed
+before any asset work referenced it, after `ip-naming-compliance-checker` found that exact string
+is a real (if minor/non-iconic) existing item name in EverQuest 2; only the item's name/id changed,
+the entity keeps "Zombie Colossus." This section follows Section 17's precedent (first true mobile
+boss, `spider_queen`) as the second data point for that family, and the same reused-vanilla-model-
+plus-`ModelTransformer.scaling` mechanism applies again below - see 18.1 for the version-specific
+verification.
+
+### 18.1 Why this shape/approach - held-item rendering, not a baked-on club
+
+Two rendering options were on the table (a real held item vs. a permanently-baked cosmetic club
+cuboid). **Real held-item rendering was used** - confirmed straightforward to get working
+correctly in 1.21.11 by decompiling the actual client jar rather than guessing, because vanilla
+already solves this *exact* problem for its own oversized-zombie boss:
+
+- `GiantEntity` (vanilla's 6x-scaled zombie) is rendered by `GiantEntityRenderer`, which:
+  - extends `MobEntityRenderer` **directly** (not `BipedEntityRenderer`/`ZombieBaseEntityRenderer`)
+    specifically so it can pass its own scaled shadow radius (`0.5F * scale`) to the constructor -
+    `ZombieBaseEntityRenderer`'s own constructor hardcodes an unscaled `0.5F` with no override
+    hook, the same "vanilla renderer hardcodes a fixed shadow radius" problem
+    `SpiderQueenEntityRenderer`'s javadoc already documents for `SpiderEntityRenderer`;
+  - reuses vanilla's own `ZombieEntityRenderState` unchanged (no custom render-state subclass -
+    Giant needs no bespoke pose, and neither does this boss);
+  - reuses `GiantEntityModel`, which is just `AbstractZombieModel<ZombieEntityRenderState>` with
+    **no scaling logic of its own** - the scaling instead happens once, centrally, where
+    `EntityModels.getModels()` registers `EntityModelLayers.GIANT`: the exact same shared
+    `TexturedModelData` used for the plain `ZOMBIE` layer gets `.transform(ModelTransformer.scaling(6.0F))`
+    - this is the same "reuse the shared vanilla `TexturedModelData`, scale it once via
+    `ModelTransformer` at model-layer registration" mechanism `SpiderQueenEntityModel`/
+    `Baum2Client` already established for Spider Queen, now confirmed (by decompiling
+    `EntityModels.getModels()` directly, not assumed) to be vanilla's own real mechanism for this
+    exact archetype, not just this mod's own convention;
+  - adds `HeldItemFeatureRenderer` by hand (since `ZombieBaseEntityRenderer` doesn't add one
+    itself - only `GiantEntityRenderer`, for this exact "big zombie holding a big item" case);
+  - calls the static helper `BipedEntityRenderer.updateBipedRenderState(entity, state, tickDelta,
+    itemModelResolver)` from its own `updateRenderState` override to populate the render state's
+    held-item/arm-pose fields, since it no longer extends `BipedEntityRenderer` to get that for
+    free.
+
+`ZombieColossusEntityRenderer`/`ZombieColossusEntityModel` copy this exact, vanilla-proven
+mechanism verbatim for this boss (see those two classes' own javadoc for the full mapping), rather
+than inventing a new one or falling back to option (b)'s baked-on cosmetic club. No `ArmorFeatureRenderer`
+is attached - this boss only ever equips a mainhand weapon (`ZombieColossusEntity.initEquipment()`),
+never armor, so that plumbing (which `GiantEntityRenderer` does use, for Giant's equippable armor
+slots) isn't needed here.
+
+*Compliance note:* "giant reskinned/muscular version of a normal enemy wielding an oversized
+weapon" is the same generic, widely-used monster-variant convention Section 17.1 already argued
+for Spider Queen (vanilla's own Giant/Zombie is this exact archetype) - genre convention, not IP.
+The palette and musculature/club design below are original and not modeled on any specific
+existing creature or game's actual design.
+
+### 18.2 Entity texture: `zombie_colossus.png`
+
+- **File:** `assets/baum2/textures/entity/zombie_colossus.png`.
+- **Canvas: 64x64 px, confirmed exactly matching vanilla's own plain biped/zombie UV layout** -
+  verified by reading `BipedEntityModel.getModelData(Dilation, float)` directly out of the
+  decompiled client-sources jar (not assumed): `TexturedModelData.of(BipedEntityModel.getModelData(Dilation.NONE, 0.0F), 64, 64)`,
+  the same call `EntityModels.getModels()` uses to build the shared `TexturedModelData` for
+  vanilla's own `ZOMBIE` **and** `GIANT` model layers (see 18.1). Only the bottom half of the 64x64
+  canvas is used - this base biped call defines just 5 real parts (head, hat-overlay, body, one
+  shared mirrored arm region, one shared mirrored leg region), not the additional jacket/sleeves/
+  pants overlay cuboids the full player-skin format also supports - so, like vanilla's own
+  `zombie.png`, the region below y=32 is unused/transparent.
+
+  | Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) | Notes |
+  |---|---|---|---|---|
+  | Head (inner) | (0, 0) | 8 x 8 x 8 | (0, 0, 32, 16) | Face painted with eyes + jaw line (below) |
+  | Hat (outer head overlay) | (32, 0) | 8 x 8 x 8, dilated | (32, 0, 32, 16) | **Left fully transparent**, matching vanilla `zombie.png`'s own convention of not using this overlay |
+  | Body | (16, 16) | 8 x 12 x 4 | (16, 16, 24, 16) | Bare muscled torso, not a shirt - see 18.3 |
+  | Arm (shared/mirrored, both arms) | (40, 16) | 4 x 12 x 4 | (40, 16, 16, 16) | Bare muscled bicep |
+  | Leg (shared/mirrored, both legs) | (0, 16) | 4 x 12 x 4 | (0, 16, 16, 16) | Tattered cloth wrap, distinct tone from the bare torso/arms |
+
+  Both the arm and leg regions are genuinely shared between left/right (vanilla mirrors the same
+  UV rectangle for both sides via `.mirrored()`, confirmed in the same decompiled source) - painting
+  one side's region paints both limbs automatically.
+
+### 18.3 Color palette: "Ashen Brute" (original, distinct from every other palette in this document)
+
+Deliberately **not another green** - every prior hostile-mob palette in this document (Toxic
+Bloom, Mutant Ichor) is some shade of sickly/toxic green; this boss instead reads as long-dead,
+ashen, sun-bleached flesh with raw exposed red-brown musculature, so it's immediately
+distinguishable from the mod's other zombie/spider mobs at a glance rather than being a third green
+recolor.
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Skin shadow | Ashen Hide Shadow | `#332C22` | Head bottom face |
+| Skin mid-tone | Ashen Hide | `#5C5142` | Head side/back faces |
+| Skin highlight | Ashen Hide Pale | `#7D715C` | Head top face |
+| Muscle base | Exposed Muscle | `#7A2E24` | Torso/arm side/back/front base fill - the dominant "visible muscles" color per the brief |
+| Muscle highlight (wet sheen) | Exposed Muscle Sheen | `#B24A3A` | Torso top face, bicep bulge highlight, ab/pec striation highlights |
+| Muscle shadow | Exposed Muscle Dusk | `#4A1712` | Torso bottom face, bicep lower-shadow, ab striation shadows |
+| Wound/seam accent | Wound Edge | `#1F1A16` | Near-black - sternum groove, side striation lines, jaw line, ragged hem |
+| Eye glow (painted, no vanilla overlay involved) | Brute Glare | `#D9C24A` | Dull amber-yellow eye dots on the head's front face |
+| Eye-socket base | Deep Socket | `#140F0A` | Dark base under each eye dot |
+| Cloth-wrap mid-tone | Tattered Wrap | `#2E251C` | Leg region side/front/back faces - ragged trouser remnants, distinct tone from the bare torso/arms |
+| Cloth-wrap highlight | Tattered Wrap Fold | `#4A3C2C` | Leg top face + fold-line accents |
+| Cloth-wrap shadow | Tattered Wrap Dusk | `#180F09` | Leg bottom face |
+| Bone/tusk accent | Bone | `#D8CFC0` | Two small tooth/tusk pixels at the jaw corners |
+
+*Compliance note:* an ashen/gray-brown "long-dead brute" palette with raw red-brown exposed
+muscle is a broad, unclaimed genre convention (undead/berserker "muscle-bound brute" enemies with
+visible musculature appear across countless unrelated games and other media), not IP tied to any
+one game. Checked distinct from every existing palette in this document: it shares no hue family
+with Section 13.3's warm tan/lime (Fused Stone/Larval Glow), Section 15.2's yellow-olive toxic
+green (Toxic Bloom), or Section 17.3's cool gray-teal green (Mutant Ichor) - Ashen Brute is
+brown/red-based, not green at all, which is the deliberate distinguishing choice. `Brute Glare`'s
+dull amber-yellow eye glow is also checked distinct from Section 17.3's brighter chartreuse `Toxic
+Eye` (`#E8FF6B`) and Section 13.3's `Larval Glow` (`#C4E064`) - all three sit in a loose
+yellow-green family (a common "monster eye glow" genre convention), but Brute Glare is the dullest/
+most desaturated of the three and is a minor accent here, not the palette's dominant tone.
+
+### 18.4 Weapon visual identity: "Colossal Warclub" (`baum2:colossal_warclub`)
+
+Follows Section 14/16's exact item conventions (plain `Item`, no custom model class, same
+`minecraft:item/handheld` parent + `assets/baum2/items/<name>.json` entry-point pair, both files
+required per the gotcha Section 14.3 already verified against the decompiled vanilla client jar).
+
+- **Silhouette:** a deliberate departure from Gold Sword/Poison Dagger's tapering-blade shape,
+  since a club needs to read as blunt/heavy rather than sharp: a thin 2px diagonal handle
+  (bottom-left, matching the established bottom-left-to-top-right orientation convention) leading
+  into a large, lumpy, irregular club-head mass occupying roughly the top-right third of the 16x16
+  canvas - asymmetric/organic-looking lumps (not a clean circle/oval) so it reads as a heavy,
+  crude weapon rather than a polished mace.
+- **Details:** a couple of small metal studs jutting from the head (menace/weight cue), a single
+  dulled blood/dirt smear low on the head (battle-worn flavor), and a dark leather-style grip wrap
+  crossing the handle partway up.
+
+| Role | Hex | Notes |
+|---|---|---|
+| Handle wood, dark | `#3E2A1A` | Alternating with the mid-tone along the diagonal for a faceted-wood read |
+| Handle wood, mid | `#5A3D24` | |
+| Grip wrap | `#24180F` | Near-black leather bands crossing the handle |
+| Club-head base | `#6B5A42` | Dominant fill of the lumpy head mass |
+| Club-head highlight | `#8C7854` | Upper-left lumps, simulating top-lit shading |
+| Club-head shadow | `#463823` | Lower-right lumps |
+| Metal stud | `#8A8A82` | Small embedded studs |
+| Metal stud shadow | `#4A4A44` | |
+| Blood/dirt smear | `#6B2A1E` | Single accent low on the head |
+
+*Compliance note:* this is an original 9-color club treatment - a plain wood-and-stud war club is
+a broad, unclaimed fantasy-weapon archetype (not any one game's specific IP), and this palette/
+silhouette does not reproduce any existing game's specific club/mace icon, nor either of this mod's
+own existing weapon palettes (Gold Sword's bronze/gold hilt, Poison Dagger's green-tinged steel).
+
+### 18.5 Files produced this pass
+
+Placeholder texture + real (verified, not guessed) 1.21.11 model/item-definition JSON, generated
+via PowerShell + `System.Drawing` (same technique as every prior placeholder in this document; no
+Python/ImageMagick available in this environment). No traced, extracted, or downloaded source
+material was used.
+
+- `assets/baum2/textures/entity/zombie_colossus.png` (64x64, placeholder - flat box-UV fills plus
+  a handful of hand-placed muscle-striation/eye/jaw accent pixels, same effort level as Sections
+  13.4/15.3/17.2's placeholders)
+- `assets/baum2/textures/item/colossal_warclub.png` (16x16, placeholder)
+- `assets/baum2/models/item/colossal_warclub.json` (real, verified schema)
+- `assets/baum2/items/colossal_warclub.json` (real, verified schema)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityModel.java` (real Java, not a
+  placeholder - reuses vanilla's shared `TexturedModelData` factory, no new geometry)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityRenderer.java` (real Java, not a
+  placeholder - mirrors vanilla's `GiantEntityRenderer` mechanism, see 18.1)
+- `Baum2Client.java`'s registration block, extended with this boss's `EntityModelLayerRegistry`/
+  `EntityRendererFactories` pair, mirroring Spider Queen's existing block exactly.
+
+**Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
+document): real hand-drawn surface detail (skin texture, fabric weave on the leg-wrap, wood grain
+on the club) - this pass proves the UV layout, establishes the palette/silhouette, and gives this
+boss and its drop something considered to look at in-game, but a human artist pass would meaningfully
+raise the ceiling here.
+
+---
+
 ## Changelog
 
+- **2026-07-05** — Added Section 18 (boss visual identity: "Zombie Colossus",
+  `baum2:zombie_colossus` — the mod's **second** true mobile boss, joining Spider Queen — and its
+  "Colossal Warclub" drop, `baum2:colossal_warclub`, renamed from the originally-drafted "Colossus
+  Club" after `ip-naming-compliance-checker` found that exact string matches an existing EverQuest
+  2 item name; only the item's name/id changed before any asset referenced it, the entity keeps
+  its own name). Verified against the decompiled 1.21.11 client jar (not guessed) that vanilla
+  already solves the exact "oversized zombie-family boss holding an oversized item" problem via its
+  own `GiantEntity`/`GiantEntityRenderer`/`GiantEntityModel` — copied that mechanism directly:
+  `ZombieColossusEntityRenderer` extends `MobEntityRenderer` (not `BipedEntityRenderer`, which
+  hardcodes an unscaled shadow radius with no override), reuses vanilla's own
+  `ZombieEntityRenderState` unchanged, adds `HeldItemFeatureRenderer` by hand, and calls the static
+  `BipedEntityRenderer.updateBipedRenderState` helper — giving this boss real held-item rendering
+  (the club is a genuine equipped `ItemStack`, not a baked-on cosmetic cuboid) with no new render-
+  state class needed. `ZombieColossusEntityModel` reuses vanilla's exact shared
+  `BipedEntityModel.getModelData()`/`TexturedModelData` (64x64 canvas, confirmed identical to what
+  vanilla's own `ZOMBIE` and `GIANT` model layers both use), scaled 3x via `ModelTransformer` at
+  model-layer registration — the same mechanism Spider Queen already established for this mod.
+  Established a new "Ashen Brute" palette (brown/red-based, deliberately *not* another green,
+  unlike every other hostile mob in this document) with exposed-muscle red-brown accents per the
+  "visible muscles" brief, and a 9-color "Colossal Warclub" item palette/silhouette distinct from
+  both Gold Sword and Poison Dagger's existing weapon treatments. Produced a placeholder 64x64
+  entity texture and 16x16 item texture (PowerShell + `System.Drawing`, no Python/ImageMagick
+  available in this environment) plus the real, verified 1.21.11 model/item-definition JSON pair
+  for the club. Updated Section 6's folder listing. Wired both new classes into `Baum2Client.java`'s
+  registration block, mirroring Spider Queen's existing entry exactly. `./gradlew build` confirmed
+  passing after these changes.
+- **2026-07-05** — Reworked the Spider Queen **entity's own texture** (Section 17.3) after
+  direct playtest feedback: the boss should look "more green and more like a mutant spider,"
+  matching its already-implemented green witch-smoke aura particle effect (Java-side, not a
+  texture concern). Replaced `assets/baum2/textures/entity/spider_queen.png` in place (same
+  64x32 canvas, same exact vanilla-spider UV layout as before — only fill colors/details
+  changed, no geometry/UV change). Retired "Royal Carapace" as the *entity's* palette name and
+  introduced a new "Mutant Ichor" palette (sickly gray-teal green `#4C6B5A` family, near-black
+  plum "Necrotic Vein" crack/joint accents, sickly yellow-green "Bile Blotch" pustule accents,
+  irregular/asymmetrical blotch and vein placement for a diseased-mutant read rather than a
+  flat green recolor). Also painted a small bright "Toxic Eye" (`#E8FF6B`) glow cluster directly
+  into the head UV region for the first time, because `SpiderQueenEntityRenderer` doesn't attach
+  vanilla's `SpiderEyesFeatureRenderer` (incompatible with the entity's custom render-state type,
+  needed for the leap-attack crouch pose) — there is no automatic eye-glow overlay to rely on
+  anymore, unlike ordinary vanilla spiders. **"Royal Carapace" now refers only to the Queen
+  Spider Set armor** (Section 17.4, item icons + worn-equipment layers) — per explicit user
+  direction, the armor was confirmed to already look correct and was **not** touched in this
+  pass; the boss and her armor drop now deliberately use two different, unrelated palettes (see
+  the flagged note at the top of Section 17) rather than one shared identity. Generated via
+  PowerShell + `System.Drawing`, same technique as every prior placeholder pass in this document.
+- **2026-07-05** — Added Section 17 (boss visual identity: "Spider Queen", `baum2:spider_queen`
+  — the mod's first true **mobile** boss, as opposed to Sections 13/15's stationary
+  mini-bosses — and its "Queen Spider Set" drop, the mod's first genuine boss-tier armor set).
+  Spider Queen reuses vanilla's own `SpiderEntityModel` geometry unchanged (scaled 3x at the
+  model-transform level, same mechanism as vanilla's Giant/Zombie), so only a re-themed texture
+  was needed; its 64x32 canvas and exact per-part UV regions were verified against
+  `SpiderEntityModel.getTexturedModelData()` in the decompiled client-sources jar rather than
+  assumed. Established a new "Royal Carapace" violet/gold palette, distinct from every other
+  palette in this document. Produced 4 boss-armor item icons (16x16) and, for the first time in
+  this document, the mod's first **worn-on-player equipment-layer textures**
+  (`textures/entity/equipment/humanoid/queen_spider.png` +
+  `.../humanoid_leggings/queen_spider.png`) — their 64x32 canvas and UV layout (identical to the
+  pre-1.21.11 `armor/diamond_layer_1.png`/`_layer_2.png` convention) were likewise verified
+  against decompiled `BipedEntityModel.getModelData()` rather than assumed, per this project's
+  standing rule to verify vanilla dimensions/UV layouts against ground truth rather than guess.
+  All 7 files generated via PowerShell + `System.Drawing`, same technique as every prior
+  placeholder pass. Existing item/model/equipment JSON were checked against the new texture
+  identifiers and needed no changes. Updated Section 6's folder listing.
+- **2026-07-05** — Added Section 15 (monster visual identity: "Stone of Zombies",
+  `baum2:stone_of_zombies` — the mod's second custom hostile mob) and Section 16 (weapon
+  visual identity: "Poison Dagger", `baum2:poison_dagger` — the mod's second custom item).
+  Stone of Zombies **reuses Section 13.2's 7-cuboid geometry and Section 13.4's UV layout
+  exactly, unchanged** (same shared Java model class, `HulkingCocoonStoneEntityModel`) — only a
+  new "Toxic Bloom" green/toxic palette (`Blight Stone`/`Plague Husk`/`Toxic Ooze`/`Plague
+  Glow` family) and retextured placeholder PNG were produced; no model/Java changes were
+  needed. Poison Dagger follows Gold Sword's exact item conventions (same model/item-definition
+  JSON schema) with a new original green-tinged-steel palette and a shorter, stubbier
+  dagger-specific silhouette (roughly two-thirds of Gold Sword's full-canvas diagonal) so it
+  reads as a distinct archetype rather than a small sword. Both placeholder PNGs generated via
+  PowerShell + `System.Drawing`. Updated Section 6's folder listing with the two new files.
+- **2026-07-05** — Added Section 13 (monster visual identity: "Stone of Spiders",
+  `baum2:stone_of_spiders` — the mod's first custom hostile mob) and Section 14 (weapon visual
+  identity: "Gold Sword", `baum2:gold_sword` — the mod's first custom item). Section 13
+  establishes a 7-cuboid breakdown (base/body/cap + 2 web-strand accents + 2 glow-vein bumps)
+  and an original stone/shell/silk/glow-vein palette, distinct from both the UI chrome palette
+  (Section 1) and the Vitals HUD palette (Section 11); produced a placeholder 176x176 box-UV
+  entity texture. Section 14 establishes the mod's first item-icon convention (diagonal blade,
+  16x16) reusing Aged Brass for the pommel for cross-system cohesion; produced a placeholder
+  16x16 texture plus the real (verified against the decompiled vanilla client jar, not guessed)
+  1.21.11 model/item-definition JSON pair. No Python/ImageMagick available in this environment
+  — both placeholder PNGs were generated via PowerShell + `System.Drawing` instead. Updated
+  Section 6's folder listing with the new `textures/entity/`, `models/item/`, and `items/`
+  paths now in use.
 - **2026-07-04** — Merged two independently-written versions of this document (one from each
   contributor's branch) into one. No content was removed; Sections 1-10 are the original
   Class-System-side framework, Sections 11-12 are the Vitals/Character-Stats-side specs

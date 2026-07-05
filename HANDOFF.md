@@ -660,37 +660,135 @@ apparent mismatch by accident.
   140-tick cooldown, same 4-12 block range as already reviewed); the 15-tick wind-up is new but
   is a telegraph-timing/animation detail, not a damage/cost/reward number.
 
+#### Leap trajectory rework — physics-simulated, not guessed (second follow-up round)
+
+User gave an exact spec after the first fix round: the leap should cover "2 Y-blocks high and
+12 X-blocks wide" normally, or "12 Y-blocks high and 5 blocks wide" when reaching an elevated
+target, and should read as fast/threatening. Rather than hand-tune velocity constants by feel
+(as the original `1.1`/`0.4` values were), **this session derived the actual launch velocities
+by simulating this game's real per-tick entity physics in a standalone Node script** (not
+guessed, not run in-game since no GUI-automation exists here): confirmed via decompiled
+`LivingEntity.travelMidAir()`/`getEffectiveGravity()`/`EntityAttributes.GRAVITY` that an
+airborne, non-flying `LivingEntity` with no AI movement input decays as `vy = (vy - 0.08) *
+0.98` and `vx = vx * 0.91` every tick, position updating with the *pre-decay* velocity each
+tick (semi-implicit Euler). Binary-searched that model for the two requested trajectories:
+
+| Profile | Peak height | Reference horizontal distance | Launch vy0 | Reference vx0 | Flight time |
+|---|---|---|---|---|---|
+| Horizontal (default) | 2 blocks | 12 blocks | 0.545 | 1.427 | 15 ticks (0.75s) |
+| Vertical (elevated target) | 12 blocks | 5 blocks | 1.4905 | 0.4672 | 35 ticks (1.75s) |
+
+`LeapAttackGoal.launch()` now picks the vertical profile specifically when the target is more
+than 3 blocks above her (up to a 12-block reach, matching the requested max), otherwise uses
+the horizontal one (targets below her fall into this case too, since gravity making her
+overshoot downward is physically fine, not a bug). The reference `vx0` is then scaled linearly
+by the target's *actual* horizontal distance divided by the profile's reference distance —
+correct under this drag model, since total horizontal distance for a fixed flight duration is a
+linear function of the initial horizontal speed, confirmed in the same simulation, so the leap
+isn't only accurate at exactly 12 or exactly 5 blocks, it scales to whatever distance she
+actually is from the target within each profile's valid range.
+
+This also forced a design change to the mid-flight re-aim added in the previous round: the old
+version fully recomputed velocity (both axes) partway through flight, which would have wrecked
+these newly-tuned arcs (a fresh `vy0` injected mid-air reads as a sudden re-ascension, not a
+correction). `reaimHorizontally()` now only redirects whichever horizontal speed remains toward
+the target's current position, leaving vertical velocity's natural decay completely alone -
+still solves the original "beaten by one sidestep" problem without breaking the arc shape.
+
+Also added, directly for the "players should be scared by this creature" part of the brief: a
+low-pitched `SoundEvents.ENTITY_SPIDER_AMBIENT` growl (volume 1.5, pitch 0.5 - noticeably lower/
+larger-sounding than a normal spider) played once at wind-up start, alongside the existing
+crouch-pose telegraph and green toxic aura.
+
+Verified: `./gradlew build` passes clean. **Still not independently verified against a live
+client** — same limitation as every mob in this project; next playtest should specifically
+confirm both trajectory profiles feel like what was asked (a fast ~0.75s horizontal snap most
+of the time, a slower but dramatic ~1.75s vertical lunge when she needs to reach upward), that
+the mid-flight horizontal-only re-aim doesn't look janky, and that the growl actually plays
+audibly at wind-up start.
+
+#### Leap rewritten again — direct position control, not velocity (third follow-up round)
+
+The physics-simulated velocity approach above still didn't work: user reported "the jump looks
+still tiny... the spider nearly gains no distance" and, more importantly, "I don't feel this
+spider is a boss because I can kite it easily." Two rounds of velocity-based fixes (explicit
+`navigation.stop()` calls, then physics-accurate `vy0`/`vx0` launch values) apparently still
+didn't reliably translate into real in-game distance - most likely some residual vanilla AI/
+movement-control interference that couldn't be conclusively isolated without a live client to
+test against (no GUI-automation tool exists in this environment, see "Current state"
+throughout this doc). Rather than attempt a third velocity-based patch on the same uncertain
+foundation, **the leap no longer uses `setVelocity()`/vanilla gravity at all**:
+
+- `SpiderQueenEntity` now overrides `travel(Vec3d)` directly. During an active leap, it skips
+  `super.travel()` (and therefore all of vanilla's velocity/gravity/drag integration) entirely
+  and instead calls `this.move(MovementType.SELF, delta)` itself every tick, using a
+  precomputed per-tick delta read off two static tables (`HORIZONTAL_HEIGHTS`/
+  `HORIZONTAL_FRACTIONS`, `VERTICAL_HEIGHTS`/`VERTICAL_FRACTIONS` - the same simulated arc
+  shapes from the previous round, just consumed as position deltas rather than converted into
+  a single launch velocity). This guarantees the exact intended trajectory shape regardless of
+  any AI/pathfinding state, since nothing else in the entity's normal movement pipeline runs
+  during those ticks - there's no longer anything for it to fight.
+- **This also directly fixes "I can kite it easily"**: the leap now **continuously re-aims
+  every single tick** of its flight (not once at launch, not once more mid-flight like the
+  previous round - every tick, reading `getTarget()`'s live position each time), so a player
+  who changes direction mid-leap gets tracked the whole way, not just half-corrected once.
+  Additional numeric changes aimed squarely at the kiting complaint: movement speed raised from
+  vanilla spider's inherited 0.3 to an explicit 0.4 (she was previously exactly as slow as a
+  regular spider between leaps); leap trigger range widened from 12 to 20 blocks (so a player
+  standing just past the old 12-block edge can no longer wait out the cooldown in false
+  safety - the leap covers whatever the actual distance is, it was never really capped at the
+  profile's 12/5-block *reference* distances, that number was only ever the physics-simulation
+  reference point); cooldown shortened from 140 to 90 ticks (7s → 4.5s) so leaps recur more
+  often instead of giving a kiting player a long safe window between them.
+- Also added: `handleFallDamage()` overridden to always return `false` - a directly-driven leap
+  landing hard (especially the 12-block-high vertical profile) would otherwise deal her real
+  fall damage from her own signature attack, which would have been a silly self-inflicted
+  side effect of a mechanic meant to threaten the player, not her.
+- The mid-flight `reaimHorizontally()`/velocity-splitting logic from the previous round is
+  gone entirely - the goal (`LeapAttackGoal`) now only decides *when* to leap and *which*
+  profile (horizontal vs. vertical) to use; `SpiderQueenEntity.travel()` owns all actual motion
+  during flight. The per-tick height/fraction tables themselves are unchanged from the
+  physics simulation in the previous round (still real gravity/drag-derived shapes, just
+  executed by direct position control instead of trusted to vanilla integration).
+
+Verified: `./gradlew build` passes clean. **Still not independently verified against a live
+client, for the third time on this same feature** — this is now the most load-bearing thing to
+confirm on the next playtest, since "does the leap actually cover real distance now" has been
+wrong twice already despite passing build checks both times. Next playtest should specifically
+confirm: the leap visibly covers real ground (not "tiny"); continuous re-aim reads as
+threatening tracking, not a jittery snap; she isn't trivially kitable anymore at the new 20-block
+range/90-tick cooldown/0.4 speed; she doesn't take fall damage from her own landings.
+
 ## Last change (on `fischey_workbranch`, based on the merged commit above)
 
-Fixed three real problems the user found by actually playing the Spider Queen boss (implemented
-in the previous session) — see "Spider Queen" above, "Playtest fixes" subsection, for full
-detail. This is the first time in the project actual gameplay (not just `./gradlew build`)
-caught bugs, worth remembering going forward. User reports: (1) "the jump did not work" —
-`LeapAttackGoal` now explicitly stops navigation at wind-up start and every wind-up tick, and
-again immediately before the launch impulse, closing off the most likely way residual vanilla
-pathing could have been fighting the velocity set at `start()`; (2) "I want a real jump
-animation, spider prepare to jump and jump to me" — rebuilt the goal as an actual two-phase
-wind-up-then-launch state machine, synced to the client via a new `TrackedData<Integer>`
-(mirroring vanilla `SpiderEntity`'s own wall-climbing-flag sync pattern) and rendered through a
-new `SpiderQueenEntityModel`/`SpiderQueenRenderState` pair that plays a real crouch/coil pose as
-the countdown reaches zero — required a dedicated render pipeline since Java generics don't let
-a custom render-state type reuse vanilla `SpiderEntityModel`'s `setAngles()`, which cost
-compatibility with vanilla's `SpiderEyesFeatureRenderer` (dropped, noted as a real trade-off);
-(3) "the armor set requires images for the inventar" — found and fixed a real bug, not a
-missing-asset problem: all four armor item model JSONs referenced `"minecraft:item/generic"`,
-which isn't an actual vanilla model (confirmed against decompiled `Models.java` — the real
-constant is `GENERATED`), so an unresolvable parent reference is what kept the icons from
-rendering despite the icon PNGs themselves being fine. Also reworked the entity's own texture
-to a new "Mutant Ichor" green palette and added a continuous green toxic-aura particle effect
-(`ParticleTypes.WITCH`) per separate user feedback ("more green, more like a mutant spider") —
-the armor's own violet/gold palette was deliberately left untouched per the user's explicit
-"the rest looks fine." Verified: `./gradlew build` passes clean with zero warnings after all of
-the above. **Still not independently re-verified in an actual game session by this session** —
-these were fixes made in response to the user's own playtest report, not confirmed working
-again afterward; next playtest should specifically confirm the leap now actually launches, the
-wind-up pose reads correctly, the icons now render, and the new green look/aura look right.
-Not re-run: `ip-naming-compliance-checker`/`balance-reviewer` — no new names, no changed
-numeric balance values, just bug fixes and a visual rework.
+Rewrote the Spider Queen leap attack a third time, this time abandoning velocity-based movement
+entirely — see "Spider Queen" above, "Leap rewritten again" subsection, for full detail. User
+report after the previous (physics-simulated velocity) round: "the jump looks still tiny... the
+spider nearly gains no distance" and "I don't feel this spider is a boss because I can kite it
+easily." Two rounds of velocity-based attempts (explicit navigation-stop calls, then
+physics-accurate launch velocities derived from a real gravity/drag simulation) still weren't
+translating into real in-game distance, most likely due to some residual vanilla AI/movement
+interference that couldn't be conclusively isolated without a live client to test against.
+Rather than attempt a third patch on that same uncertain foundation, `SpiderQueenEntity` now
+overrides `travel(Vec3d)` directly and, during an active leap, bypasses vanilla's velocity/
+gravity pipeline entirely - `this.move(MovementType.SELF, delta)` is called directly every
+tick using a precomputed per-tick position-delta table (the same simulated arc shapes from the
+previous round, now consumed as position deltas instead of a single launch velocity), which
+guarantees the exact intended distance regardless of any AI state, since nothing else in her
+normal movement pipeline runs during those ticks. This also directly fixes the kiting complaint:
+the leap now re-aims toward the target's live position on *every* tick of flight (previously
+only once or twice), plus movement speed raised 0.3→0.4, leap trigger range widened 12→20
+blocks, and cooldown shortened 140→90 ticks - all aimed at making her meaningfully harder to
+outrun and less exploitable via a safe waiting distance. Also made her immune to fall damage
+from her own leap landings (`handleFallDamage` overridden to always return false), since a
+directly-driven 12-block-high vertical leap would otherwise self-damage her on landing.
+Verified: `./gradlew build` passes clean. **Still not independently verified against a live
+client, for the third time on this same feature** — this is the most load-bearing thing to
+confirm on the next playtest, since "does the leap work" has been wrong twice already despite
+passing build checks both times. Not re-run: `ip-naming-compliance-checker`/`balance-reviewer`
+— same 75 leap damage as already reviewed; the speed/range/cooldown changes are numeric but
+squarely a direct response to "not a boss, too easy to kite," not a fresh balance concern to
+flag, so treated as part of this same fix rather than a new item needing review.
 
 ## Last change (on `jonas_workbranch`)
 

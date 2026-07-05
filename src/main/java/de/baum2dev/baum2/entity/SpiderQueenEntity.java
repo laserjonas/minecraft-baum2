@@ -4,6 +4,7 @@ import java.util.EnumSet;
 
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.MovementType;
 import net.minecraft.entity.ai.goal.ActiveTargetGoal;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.ai.goal.LookAroundGoal;
@@ -23,6 +24,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import de.baum2dev.baum2.registry.ModItems;
@@ -46,10 +48,48 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
      *  client-side model so its crouch pose interpolates over the exact same window. */
     public static final int LEAP_WINDUP_DURATION_TICKS = 15;
 
+    // Precomputed per-tick trajectory tables (see LeapAttackGoal's javadoc for how these were
+    // derived) - index 0 is the first flight tick, last index is the tick she lands on.
+    // HEIGHTS are absolute Y offsets in blocks; FRACTIONS are cumulative horizontal progress,
+    // normalized so the final entry is always 1.0 (100% of that leap's actual horizontal
+    // distance, whatever it is at launch time - see performLeapFlightStep()).
+    private static final double[] HORIZONTAL_HEIGHTS = {
+            0.5450, 1.0007, 1.3689, 1.6513, 1.8497, 1.9657, 2.0010, 1.9572,
+            1.8358, 1.6385, 1.3667, 1.0220, 0.6058, 0.1194, -0.4356
+    };
+    private static final double[] HORIZONTAL_FRACTIONS = {
+            0.1189, 0.2271, 0.3255, 0.4151, 0.4967, 0.5709, 0.6384, 0.6998,
+            0.7557, 0.8066, 0.8529, 0.8950, 0.9334, 0.9683, 1.0000
+    };
+    private static final double[] VERTICAL_HEIGHTS = {
+            1.4905, 2.8728, 4.1490, 5.3214, 6.3918, 7.3625, 8.2353, 9.0123,
+            9.6954, 10.2864, 10.7872, 11.1995, 11.5252, 11.7660, 11.9236, 11.9996,
+            11.9957, 11.9135, 11.7545, 11.5204, 11.2124, 10.8323, 10.3814, 9.8610,
+            9.2727, 8.6177, 7.8975, 7.1132, 6.2663, 5.3579, 4.3892, 3.3615,
+            2.2760, 1.1338, -0.0640
+    };
+    private static final double[] VERTICAL_FRACTIONS = {
+            0.0934, 0.1785, 0.2559, 0.3263, 0.3904, 0.4487, 0.5017, 0.5500,
+            0.5940, 0.6339, 0.6703, 0.7034, 0.7336, 0.7610, 0.7860, 0.8087,
+            0.8293, 0.8481, 0.8652, 0.8808, 0.8950, 0.9079, 0.9196, 0.9303,
+            0.9400, 0.9489, 0.9569, 0.9642, 0.9709, 0.9769, 0.9825, 0.9875,
+            0.9921, 0.9962, 1.0000
+    };
+
     private static final TrackedData<Integer> LEAP_WINDUP_TICKS =
             DataTracker.registerData(SpiderQueenEntity.class, TrackedDataHandlerRegistry.INTEGER);
 
     private int leapCooldownTicks = 0;
+
+    // Leap flight state - owned by the entity (not the goal) because it's driven from an
+    // override of travel() itself, see the class javadoc on LeapAttackGoal for why.
+    private int leapFlightTicksRemaining = 0;
+    private int leapFlightTotalTicks = 0;
+    private double leapFlightHorizontalDistance = 0.0;
+    private boolean leapFlightVerticalProfile = false;
+    private double leapFlightPrevFraction = 0.0;
+    private double leapFlightPrevHeight = 0.0;
+    private Vec3d leapFlightDirection = Vec3d.ZERO;
 
     public SpiderQueenEntity(EntityType<? extends SpiderEntity> entityType, World world) {
         super(entityType, world);
@@ -58,7 +98,8 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
     public static DefaultAttributeContainer.Builder createSpiderQueenAttributes() {
         return SpiderEntity.createSpiderAttributes()
                 .add(EntityAttributes.MAX_HEALTH, 350.0)
-                .add(EntityAttributes.ATTACK_DAMAGE, 10.0);
+                .add(EntityAttributes.ATTACK_DAMAGE, 10.0)
+                .add(EntityAttributes.MOVEMENT_SPEED, 0.4);
     }
 
     @Override
@@ -87,6 +128,85 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
 
     private void setLeapWindupTicks(int ticks) {
         this.dataTracker.set(LEAP_WINDUP_TICKS, ticks);
+    }
+
+    /**
+     * Starts a directly-driven leap: exact horizontal distance and height come from a
+     * precomputed per-tick table (see the static arrays above), applied via {@link #travel}
+     * every tick for as long as the flight lasts. This bypasses vanilla's velocity+gravity
+     * integration entirely during the leap - a prior version set velocity once via
+     * {@code setVelocity()} and trusted vanilla physics to carry her the rest of the way, but
+     * in practice the leap barely covered any distance (most likely residual AI/navigation
+     * state fighting the impulse in ways that were hard to pin down without a live client to
+     * test against). Directly driving position tick-by-tick removes that uncertainty: whatever
+     * this table says the offset should be at tick N is exactly what she moves, full stop.
+     */
+    void startLeapFlight(boolean verticalProfile, double horizontalDistance, Vec3d initialDirection) {
+        this.leapFlightVerticalProfile = verticalProfile;
+        this.leapFlightTotalTicks = verticalProfile ? VERTICAL_FRACTIONS.length : HORIZONTAL_FRACTIONS.length;
+        this.leapFlightTicksRemaining = this.leapFlightTotalTicks;
+        this.leapFlightHorizontalDistance = horizontalDistance;
+        this.leapFlightPrevFraction = 0.0;
+        this.leapFlightPrevHeight = 0.0;
+        this.leapFlightDirection = initialDirection;
+    }
+
+    void stopLeapFlight() {
+        this.leapFlightTicksRemaining = 0;
+    }
+
+    int getLeapFlightTicksRemaining() {
+        return this.leapFlightTicksRemaining;
+    }
+
+    @Override
+    public void travel(Vec3d movementInput) {
+        if (!getEntityWorld().isClient() && leapFlightTicksRemaining > 0) {
+            performLeapFlightStep();
+            return;
+        }
+        super.travel(movementInput);
+    }
+
+    /** One tick of the directly-driven leap - see {@link #startLeapFlight} for why this exists
+     *  instead of just setting velocity once. Continuously re-aims toward the target's current
+     *  position every tick (not just once or twice), which is deliberate: a boss that's meant
+     *  to make "escape is impossible" - and this session's whole reason for existing is a user
+     *  report that she was trivially easy to kite - so the leap now actively tracks the player
+     *  through its entire flight rather than committing to a single stale direction. */
+    private void performLeapFlightStep() {
+        int index = leapFlightTotalTicks - leapFlightTicksRemaining;
+        double[] heights = leapFlightVerticalProfile ? VERTICAL_HEIGHTS : HORIZONTAL_HEIGHTS;
+        double[] fractions = leapFlightVerticalProfile ? VERTICAL_FRACTIONS : HORIZONTAL_FRACTIONS;
+
+        double heightNow = heights[index];
+        double fractionNow = fractions[index];
+        double deltaHeight = heightNow - leapFlightPrevHeight;
+        double deltaFraction = fractionNow - leapFlightPrevFraction;
+        leapFlightPrevHeight = heightNow;
+        leapFlightPrevFraction = fractionNow;
+
+        LivingEntity target = this.getTarget();
+        if (target != null) {
+            Vec3d toTarget = new Vec3d(target.getX() - getX(), 0.0, target.getZ() - getZ());
+            if (toTarget.lengthSquared() > 1.0E-7) {
+                leapFlightDirection = toTarget.normalize();
+            }
+        }
+
+        double horizontalStep = leapFlightHorizontalDistance * deltaFraction;
+        Vec3d delta = new Vec3d(
+                leapFlightDirection.x * horizontalStep, deltaHeight, leapFlightDirection.z * horizontalStep);
+        this.move(MovementType.SELF, delta);
+        this.velocityDirty = true;
+
+        leapFlightTicksRemaining--;
+    }
+
+    /** She shouldn't take fall damage from landing her own signature attack. */
+    @Override
+    public boolean handleFallDamage(double fallDistance, float damageMultiplier, DamageSource damageSource) {
+        return false;
     }
 
     @Override
@@ -163,32 +283,41 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
     }
 
     /**
-     * The signature "prepare, then jump 12 blocks fast, 7s cooldown, 75 damage on hit" attack.
-     * Two phases: a telegraphed wind-up (movement/pathing frozen, synced to the client via
-     * {@link #LEAP_WINDUP_TICKS} so SpiderQueenEntityModel can play a real crouch/coil pose -
-     * "prepare to jump" - instead of just standing there), then the leap itself. Triggers when
-     * the target is out of melee range but within leap range and off cooldown.
+     * The signature "prepare, then jump fast and threatening" attack. Two phases: a telegraphed
+     * wind-up (movement/pathing frozen, synced to the client via {@link #LEAP_WINDUP_TICKS} so
+     * SpiderQueenEntityModel can play a real crouch/coil pose - "prepare to jump" - instead of
+     * just standing there, plus a low ambient-sound growl for threat), then the leap itself.
+     * Triggers when the target is out of melee range but within leap range and off cooldown.
      *
-     * Two real bugs from the first pass are fixed here: (1) the leap only ever aimed once at
-     * launch, so a single sidestep beat it every time - now re-aims once more mid-flight, and
-     * the whole wind-up phase keeps re-orienting toward the target too; (2) residual vanilla AI
-     * movement (pathfinding toward the target, still active from whichever lower-priority goal
-     * was running the instant before this one preempts it) could fight the velocity impulse -
-     * navigation is now explicitly stopped both at wind-up start and every wind-up tick.
+     * Two trajectory profiles, chosen by how elevated the target is:
+     * - HORIZONTAL: target roughly level with her (or below) - peaks 2 blocks high, ~15 ticks
+     *   (0.75s) flight. This is the common case and the fast, threatening one.
+     * - VERTICAL: target significantly elevated (e.g. standing on a ledge) - peaks 12 blocks
+     *   high, ~35 ticks (1.75s) flight. Slower by necessity (a 12-block-high arc takes longer
+     *   under any real gravity model) but lets her reach up to a player who tried to escape by
+     *   climbing.
+     * Both profiles' *shapes* (the per-tick height/fraction tables on the entity) were derived
+     * by simulating this game's actual per-tick entity physics (gravity 0.08/tick, 0.98
+     * vertical / 0.91 horizontal drag per tick while airborne, confirmed against decompiled
+     * LivingEntity.travelMidAir/getEffectiveGravity/EntityAttributes.GRAVITY) rather than
+     * guessed - see SpiderQueenEntity's table javadoc. The actual leap execution, however, no
+     * longer trusts vanilla's velocity+gravity pipeline to reproduce that shape at runtime -
+     * see startLeapFlight()'s javadoc for why (the previous velocity-based version barely
+     * covered any distance in practice). This goal only decides *when* to leap and *which*
+     * profile to use; SpiderQueenEntity.travel() actually drives the motion every tick.
      */
     private static class LeapAttackGoal extends Goal {
         private static final double MIN_RANGE = 4.0;
-        private static final double MAX_RANGE = 12.0;
-        private static final double MAX_VERTICAL_GAP = 4.0;
-        private static final int COOLDOWN_TICKS = 140;
-        private static final int LEAP_DURATION_TICKS = 20;
+        private static final double MAX_RANGE = 20.0;
+        private static final double LEVEL_VERTICAL_GAP = 3.0;
+        private static final double MAX_VERTICAL_REACH = 12.0;
+        private static final double VERTICAL_CASE_MIN_HORIZONTAL = 1.0;
+        private static final double VERTICAL_CASE_MAX_HORIZONTAL = 8.0;
+        private static final int COOLDOWN_TICKS = 90;
         private static final float LEAP_DAMAGE = 75.0F;
-        private static final double LEAP_HORIZONTAL_SPEED = 1.1;
-        private static final double LEAP_VERTICAL_SPEED = 0.4;
 
         private final SpiderQueenEntity queen;
         private int windupTicksRemaining;
-        private int leapTicksRemaining;
         private boolean hasDealtDamageThisLeap;
 
         LeapAttackGoal(SpiderQueenEntity queen) {
@@ -205,35 +334,46 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
             if (target == null || !target.isAlive()) {
                 return false;
             }
-            // Horizontal/vertical checked separately, not raw 3D distance - an elevated target
-            // 10 blocks up should not burn the cooldown on a leap that can't physically reach
-            // them (the leap's own vertical speed only covers a few blocks of height).
             double horizontalDistance = horizontalDistanceTo(target);
-            double verticalDistance = Math.abs(target.getY() - queen.getY());
-            return horizontalDistance >= MIN_RANGE && horizontalDistance <= MAX_RANGE
-                    && verticalDistance <= MAX_VERTICAL_GAP;
+            double verticalGap = target.getY() - queen.getY();
+            if (verticalGap > LEVEL_VERTICAL_GAP) {
+                // Elevated target - only the steeper vertical profile can reach them, and only
+                // within its own realistic horizontal/height envelope.
+                return verticalGap <= MAX_VERTICAL_REACH
+                        && horizontalDistance >= VERTICAL_CASE_MIN_HORIZONTAL
+                        && horizontalDistance <= VERTICAL_CASE_MAX_HORIZONTAL;
+            }
+            // Roughly level, or target below her (falling the extra distance is easy) - the
+            // standard fast horizontal leap. Range widened to 20 blocks (beyond the 12-block
+            // trajectory the horizontal profile was originally tuned around) specifically so
+            // she can still launch at a player who's kiting at range - the leap covers whatever
+            // the actual distance is, it isn't capped to 12.
+            return horizontalDistance >= MIN_RANGE && horizontalDistance <= MAX_RANGE;
         }
 
         @Override
         public boolean shouldContinue() {
             LivingEntity target = queen.getTarget();
-            return (windupTicksRemaining > 0 || leapTicksRemaining > 0) && target != null && target.isAlive();
+            return (windupTicksRemaining > 0 || queen.getLeapFlightTicksRemaining() > 0)
+                    && target != null && target.isAlive();
         }
 
         @Override
         public void start() {
             queen.getNavigation().stop();
             windupTicksRemaining = LEAP_WINDUP_DURATION_TICKS;
-            leapTicksRemaining = 0;
             hasDealtDamageThisLeap = false;
             queen.setLeapWindupTicks(windupTicksRemaining);
+            // Low-pitched growl during the telegraph - a deliberate threat cue, not just a
+            // cosmetic pose, per the "players should be scared by this creature" brief.
+            queen.playSound(SoundEvents.ENTITY_SPIDER_AMBIENT, 1.5F, 0.5F);
         }
 
         @Override
         public void stop() {
             windupTicksRemaining = 0;
-            leapTicksRemaining = 0;
             queen.setLeapWindupTicks(0);
+            queen.stopLeapFlight();
         }
 
         @Override
@@ -256,11 +396,8 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
                 return;
             }
 
-            leapTicksRemaining--;
-            if (leapTicksRemaining == LEAP_DURATION_TICKS / 2 && target.isAlive()) {
-                aimAt(target);
-            }
-            if (!hasDealtDamageThisLeap && target.isAlive()
+            if (queen.getLeapFlightTicksRemaining() > 0
+                    && !hasDealtDamageThisLeap && target.isAlive()
                     && queen.getBoundingBox().expand(0.3).intersects(target.getBoundingBox())) {
                 target.damage(getServerWorld(queen), queen.getDamageSources().mobAttack(queen), LEAP_DAMAGE);
                 hasDealtDamageThisLeap = true;
@@ -269,18 +406,13 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
 
         private void launch(LivingEntity target) {
             queen.getNavigation().stop();
-            aimAt(target);
-            leapTicksRemaining = LEAP_DURATION_TICKS;
-            queen.leapCooldownTicks = COOLDOWN_TICKS;
-        }
-
-        private void aimAt(LivingEntity target) {
+            double horizontalDistance = horizontalDistanceTo(target);
+            double verticalGap = target.getY() - queen.getY();
+            boolean verticalLeap = verticalGap > LEVEL_VERTICAL_GAP;
             Vec3d direction = new Vec3d(target.getX() - queen.getX(), 0.0, target.getZ() - queen.getZ());
-            if (direction.lengthSquared() > 1.0E-7) {
-                direction = direction.normalize().multiply(LEAP_HORIZONTAL_SPEED);
-            }
-            queen.setVelocity(direction.x, LEAP_VERTICAL_SPEED, direction.z);
-            queen.velocityDirty = true;
+            direction = direction.lengthSquared() > 1.0E-7 ? direction.normalize() : queen.getRotationVec(1.0F);
+            queen.startLeapFlight(verticalLeap, horizontalDistance, direction);
+            queen.leapCooldownTicks = COOLDOWN_TICKS;
         }
 
         private double horizontalDistanceTo(LivingEntity target) {

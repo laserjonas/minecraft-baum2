@@ -6,22 +6,25 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Current state
 
-This reflects `jonas_workbranch` after merging `origin/master` twice this session (Fischey's
-Vitals/Attribute/Character-Stats work, then his Combat System v1 + four mini-boss mobs), adding
-a Skill System + Class Sub-specializations on top, then a "Class Overhaul v2" pass (spell
-scaling, Mana costs, sub-spec spell forks, respec cooldowns), and a same-session GUI follow-up
-(sub-specs and spells added to the Class tab) — see "Last change" below for detail on the
-merges and each feature pass.
+This reflects `jonas_workbranch` (fast-forwarded into `master` too, both branches at the same
+commit) after merging `origin/master` twice this session (Fischey's Vitals/Attribute/
+Character-Stats work, then his Combat System v1 + four mini-boss mobs), adding a Skill System +
+Class Sub-specializations on top, then a "Class Overhaul v2" pass (spell scaling, Mana costs,
+sub-spec spell forks, respec cooldowns), a same-session GUI follow-up (sub-specs and spells
+added to the Class tab), and a Visual/Art Pass (8 sub-spec icons, two long-open palette
+decisions resolved) — see "Last change" below for detail on the merges and each feature pass.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
-  (verified clean boot 3 times this session, no Mixin/payload/HUD-registration
+  (verified clean boot 4 times this session, no Mixin/payload/HUD-registration
   errors/exceptions in the log). **Both the Class Overhaul v2 feature set (spell scaling, Mana
   costs, sub-spec forks, respec cooldowns) and its GUI follow-up (Class tab sub-spec/spell
   cards) are user-confirmed working in-game** ("worked fine" / "works"). Not itemized back
   against every line of the original playtest checklist (see "Next recommended step" item 0,
   kept as a reference in case any specific sub-item still needs a closer look), so treat this
-  as "no reported breakage from real play," not an exhaustive per-mechanic sign-off.
+  as "no reported breakage from real play," not an exhaustive per-mechanic sign-off. **The
+  Visual/Art Pass's sub-spec icons have not yet been manually confirmed rendering correctly
+  in-game** — build passes and boot is clean, but see "Next recommended step".
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 
@@ -403,8 +406,8 @@ despite the Class tab already existing for base-class selection.
   class, so it can only happen for a stale client render, not a real user action).
 - **`CharacterStatsScreen.java`'s "Class" tab** now has 2 new sections below the existing class
   card list: **Sub-specializations** (2 clickable cards, same visual language as the class
-  cards minus the icon — no per-sub-spec icon art exists yet — sends `SubspecSelectPayload` on
-  click) and **Spells** (2 clickable cards showing name/Mana cost/cooldown, sends
+  cards — now including a 16x16 icon, see "Visual/Art Pass" below — sends `SubspecSelectPayload`
+  on click) and **Spells** (2 clickable cards showing name/Mana cost/cooldown, sends
   `CastSpellPayload(slot)` on click — **identical payload the V/B keybinds already send**, so a
   GUI click and a keypress are indistinguishable to the server, no parallel cast path to keep
   in sync). Both sections show a placeholder message instead when no class is selected yet.
@@ -430,11 +433,61 @@ despite the Class tab already existing for base-class selection.
   words, not names; no new item/skill/mob/boss/faction names were introduced.
 - **User-confirmed working in-game** ("works") — build passes, client boots cleanly, and the
   new Class tab sections were manually tested.
-- **Deferred, not done**: per-sub-spec icon art (cards are text-only, unlike class cards which
-  have a 16x16 icon) — `graphics-designer` would need to produce 8 more icons; live
-  cooldown-remaining display on spell cards (currently shows the *static* cooldown length, not
-  time-until-ready, since no client-side cooldown-sync payload exists — `SkillCooldownManager`
+- **Sub-spec icon art was the deferred item here — now done, see "Visual/Art Pass" below.**
+  Still deferred: live cooldown-remaining display on spell cards (currently shows the *static*
+  cooldown length, not time-until-ready, since no client-side cooldown-sync payload exists — `SkillCooldownManager`
   is server-only in-memory).
+
+### Visual/Art Pass — 8 sub-spec icons, two long-open palette decisions resolved
+
+User asked to "plan the next steps" after the above shipped; offered a choice of tracks
+(balance decision, mini-boss playtest, new Priority-1 content, visual/art) and the user picked
+**visual/art pass**. Planned via Plan Mode, then dispatched `graphics-designer` for the actual
+asset/doc work (its job per `CLAUDE.md`; Java UI wiring is not, so that part was done directly
+afterward). **Scoping note carried through the whole pass**: `graphics-designer` is text-based
+with no image-generation tool — it can produce specs and simple flat-fill placeholder textures,
+not genuinely hand-painted art. "Real" (non-placeholder) art for the class icons/mini-bosses/
+items still needs a human artist or an external image tool; not attempted here.
+
+- **8 new sub-spec icons** (`assets/baum2/textures/gui/subspec/*.png`, one per `ClassSubspec`) —
+  each is its parent class's *exact* existing 16x16 icon (same pixel mask, same fill/outline
+  hex, Section 3.3) plus one small overlay detail reflecting that sub-spec's own bonus/flavor
+  text (e.g. Bollwerk = a second armor-plate seam; Stahlfaust = a diagonal impact-crack; full
+  table in `docs/visual-style-guide.md` Section 9.1). No new colors introduced anywhere.
+- **Verified before trusting the deliverable** — the dispatching agent's own completion note
+  flagged that the safety classifier was unavailable to review the subagent's work, so a manual
+  check was done rather than taking the summary at face value: confirmed all 8 PNGs exist,
+  16x16 RGBA, exactly 3 colors per file (transparent/fill/outline matching the parent), and ran
+  a pixel-level diff confirming every sub-spec icon is genuinely different from its parent (1-10
+  differing pixels) *and* from its sibling sub-spec (4-14 differing pixels) — not a copy-paste
+  fabrication. Schattenpirscher/Sturmklinge's 4-pixel sibling difference is the most subtle of
+  the four pairs; acceptable for a placeholder tier, worth a closer look if this ever gets a
+  real-art pass.
+- **Wired into the UI**: new `ui/SubspecIcons.java` (mirrors `ClassIcons.of(PlayerClass)`).
+  `SubspecCardWidget` in `CharacterStatsScreen.java` now draws the icon at the same position/
+  size `ClassCardWidget` uses (`x+6,y+4`, 32x32 on-screen from the 16x16 source) — required
+  bumping `SubspecCardWidget.CARD_HEIGHT` 34→40 to match `ClassCardWidget` exactly so the icon
+  doesn't overflow the card, and shifting text start x from `x+6` to `x+46` to make room.
+- **Two long-open palette questions resolved as firm decisions, not further deferrals**
+  (documentation-only — no Java/hex constants touched), both in `docs/visual-style-guide.md`:
+  - **Section 1.1**: the "Deepwood & Verdigris" menu-chrome palette and the independently-
+    designed "Vitals & Attributes" combat-HUD/Stats-screen palette (open since an earlier
+    merge) are **kept formally separate**, not unified — with an explicit rule for which
+    governs which future UI element (structure/chrome/identity → Deepwood & Verdigris; live
+    resource bars/attribute-family stat coding → Vitals & Attributes). Reskinning was judged a
+    large cosmetic rework of already-shipped, user-approved UI for a coherence gain the current
+    neutral-frame/vivid-data split already delivers — flagged as a legitimate future choice if
+    ever wanted, just not executed here.
+  - **Section 1.2**: the "one bespoke palette per mini-boss" pattern (`HANDOFF.md` had flagged
+    this as "keeps deferring") is **ratified as the deliberate rule going forward**, not
+    replaced — every boss-tier mob gets its own new, cross-checked palette even when reusing
+    another boss's model (as Stone of Zombies already does); a boss's own item drops decide
+    their palette per-item, not by automatic inheritance. **New forward guidance for the actual
+    gap**: future *common/trash* mobs (none exist yet) should default to reusing palettes/
+    vanilla textures instead, so the pattern doesn't spiral once regular mob variety grows.
+- Build passes; client boots cleanly. **Icon rendering itself needs the same manual in-game
+  confirmation every other UI change in this project has needed** (no GUI-automation tool
+  exists) — see "Next recommended step".
 
 ### Custom UI v1 — Class tab merged into Character Stats Screen, top-left HUD removed
 
@@ -465,15 +518,14 @@ despite the Class tab already existing for base-class selection.
 - Dead code removed earlier this session (during the first master-merge): a duplicate,
   never-registered `Baum2Client` (in a `client` subpackage), and the old unwired
   `ui/ProgressionHud.java` prototype.
-- **The visual-style-guide "which palette" question has grown, not converged, since it was
-  first logged** (per `merge-integration-reviewer`, found while merging in the mini-boss
-  work): what started as a two-palette question (Deepwood & Verdigris menu chrome vs.
-  Vitals/Combat-HUD coral-ember/azure) is now trending toward "every new mob/item gets its own
-  bespoke palette by design" — Spider Queen's "Royal Carapace", Stone of Zombies'/Poison
-  Dagger's "Toxic Bloom", Zombie Colossus' "Ashen Brute" are each declared in the doc as
-  "distinct from every other palette in the mod." The doc's own open-decisions list already
-  flags this (#3) but keeps deferring it. Worth resolving deliberately before a fourth or
-  fifth bespoke palette exists, rather than after.
+- **Both visual-style-guide palette questions below are now resolved — see "Visual/Art Pass"
+  further down for the decisions.** (Kept this note for the historical framing of how the
+  question grew.) What started as a two-palette question (Deepwood & Verdigris menu chrome vs.
+  Vitals/Combat-HUD coral-ember/azure) grew into "every new mob/item gets its own bespoke
+  palette by design" — Spider Queen's "Royal Carapace", Stone of Zombies'/Poison Dagger's
+  "Toxic Bloom", Zombie Colossus' "Ashen Brute" were each declared "distinct from every other
+  palette in the mod." Both were resolved as firm decisions (kept separate; bosses keep getting
+  new palettes, future common mobs should reuse) rather than a unification or a cap.
 
 ### Stone of Spiders — first custom mob, first custom item, first custom entity model/renderer
 
@@ -694,9 +746,21 @@ a ground AoE, and a 3-hit burst combo.
   boot are necessary but not sufficient checks. All four new mini-bosses in this update are
   explicitly **not yet verified in an actual game session** for exactly this reason.
 
-## Last change (on `jonas_workbranch`)
+## Last change (on `jonas_workbranch`, fast-forwarded into `master`)
 
-**Added sub-specs and spells to the Class tab GUI**, immediate follow-up to Class Overhaul v2
+**Visual/Art Pass**: fast-forwarded `master` to match `jonas_workbranch` (pure fast-forward,
+zero conflicts — `master` had no commits `jonas_workbranch` didn't already have from this
+session's earlier merges), then did a visual/art pass per the user's "plan the next steps"
+request. Dispatched `graphics-designer` for 8 new sub-spec icons (`assets/baum2/textures/gui/
+subspec/*.png`) and firm resolutions to 2 long-open palette questions (both doc-only, no
+Java/hex changes) — full detail in "Current state" above under "Visual/Art Pass". **Verified
+the agent's own deliverable manually** (its completion note flagged the safety classifier was
+unavailable during review) via a pixel-level diff confirming genuine per-icon uniqueness, not a
+fabrication. Wired the icons into `SubspecCardWidget` myself (asset/doc work is
+`graphics-designer`'s job, Java UI wiring is not) via a new `ui/SubspecIcons.java`.
+
+Earlier, still on `jonas_workbranch`: **added sub-specs and spells to the Class tab GUI**,
+immediate follow-up to Class Overhaul v2
 after the user confirmed it worked in-game and asked for sub-classes/spells to be wired into
 the 'C'-key Class tab rather than staying command-only — full detail in "Current state" above
 under "Class Overhaul v2 follow-up". New `SubspecSelectPayload` C2S packet; 2 mutable sub-spec
@@ -913,9 +977,16 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-0. **Class Overhaul v2 + its GUI follow-up are both user-confirmed working** — kept here only
-   as a reference checklist in case a specific sub-item needs closer verification later, not as
-   an open task: cast each of the 8 spells and confirm Mana drops by its listed cost and a
+0. **Manually confirm the 8 new sub-spec icons render correctly** (highest priority — not yet
+   playtested): open the Class tab ('C' key), select each of the 4 classes in turn, and check
+   both of that class's sub-spec cards show a recognizable variant of the parent class's icon
+   (same shape/color) with a visibly distinguishing detail between the two siblings. Flagged in
+   code review: Schattenpirscher vs. Sturmklinge is the most subtle pair (4 of 256 pixels
+   differ) — worth a specific look to confirm it's actually readable at real GUI Scale, not
+   just non-identical in the file. **Class Overhaul v2 + its GUI follow-up are already
+   user-confirmed working** — kept here only as a reference checklist in case a specific
+   sub-item needs closer verification later, not as an open task: cast each of the 8 spells and
+   confirm Mana drops by its listed cost and a
    rejection message appears at 0 Mana; invest attribute points and confirm scaled spells hit
    harder / utility spells last longer; select each of the 8 sub-specs in turn (now doable via
    the Class tab GUI, not just the command) and confirm its specific forked behavior fires
@@ -962,17 +1033,20 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 6. **A conversation with Fischey about the unilateral `ClassScreen`/`CharacterStatsScreen`
    merge** (see "Custom UI v1" above) — not urgent, but a previously-logged "needs a joint
    decision" item was resolved without one.
-7. **The visual-style-guide's growing "one bespoke palette per mob/item" pattern** (see "Custom
-   UI v1" above) — worth a deliberate decision before a fourth or fifth palette exists.
-8. **Done**: sub-spec selection and spell casting now have a GUI (Class tab) — see "Class
-   Overhaul v2 follow-up" above. Remaining gaps in that GUI: no per-sub-spec icon art (text-only
-   cards), and spell cards show static cooldown length, not live time-remaining (no
+7. **Done**: the visual-style-guide's palette-unification question and the "one bespoke palette
+   per mob/item" pattern are both resolved — see "Visual/Art Pass" above.
+8. **Done**: sub-spec selection and spell casting now have a GUI (Class tab), and sub-spec cards
+   now have icon art too (see "Class Overhaul v2 follow-up" and "Visual/Art Pass" above).
+   Remaining gap: spell cards show static cooldown length, not live time-remaining (no
    client-side cooldown-sync payload exists yet).
 9. No natural spawn path exists for any of the four mini-bosses yet (`/summon`-only) — decide
    when/how this mob family should actually appear in the world (a structure? a `dungeons/`-
    package encounter? natural biome spawn?).
-10. Get real (non-placeholder) art for the 4 class icons and the four new mini-bosses/items —
-    see `docs/visual-style-guide.md` section 9 and each mob's own section above.
+10. Get real (non-placeholder) art for the 4 class icons, 8 sub-spec icons, and the four
+    mini-bosses/items — see `docs/visual-style-guide.md` sections 9/9.1 and each mob's own
+    section above. Confirmed this session: this needs an actual human artist or an external
+    image-generation tool — `graphics-designer` cannot produce it itself (text-based agent, no
+    image-generation capability).
 11. Remaining Priority 1 items per `CLAUDE.md`: first world-event block (item, weapon, and
     first active skill are now all done — see Stone of Spiders/Skill System v1 above). Consult
     `fabric-docs-researcher` / `docs/fabric-modding.md` before implementing if the relevant

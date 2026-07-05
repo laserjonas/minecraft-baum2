@@ -14,9 +14,10 @@ two branches (`jonas_workbranch`'s Class System UI, `fischey_workbranch`'s Vital
 Stats System UI) that were merged together after both were already written. Sections 1-10
 below are the original Class-System-side framework (art direction, base palette, panel
 conventions, HUD/Class-Screen specs). Sections 11-12 are the Vitals/Character-Stats-side
-specs, folded in as-is at merge time. **The two sides used independently-invented colors that
-are not yet unified** (see the reconciliation note after Section 1) — that's a deliberate,
-flagged follow-up, not an oversight.
+specs, folded in as-is at merge time. **The two sides used independently-invented colors,
+which was originally left as an open reconciliation question — resolved 2026-07-05 as a
+deliberate two-system split, not a unification.** See Section 1.1 for the decision and the
+rule for which system governs which future UI element.
 
 ---
 
@@ -91,12 +92,91 @@ against, and use their own hex palette (warm coral-ember/garnet life, azure/sapp
 plus a per-attribute-family amber/violet/jade-green/gold system on the Stats screen) rather
 than this section's Deepwood/Verdigris/Rune-Cyan palette. Neither palette copies any existing
 game's specific branding (each section argues this independently), so there's no IP concern —
-but the mod now has two parallel, un-unified UI color systems rather than one. Whether to
-reskin Sections 11-12 onto this section's palette, or to keep vitals/combat-stat colors as
-their own deliberately-separate "combat HUD" identity distinct from the "menu chrome" identity
-here, is an open decision for a future pass — not resolved as part of this merge. Don't treat
-either palette as more "correct" than the other in the meantime; both are documented in full
-below.
+but the mod ended up with two parallel, un-unified UI color systems rather than one. This was
+left open at merge time; **see Section 1.1 immediately below for the resolution.**
+
+### 1.1 Resolved: menu-chrome vs. combat-HUD palette relationship (2026-07-05)
+
+**Decision: keep the two palettes formally separate as two named systems, rather than unify
+them into one.** This is a firm decision, not a further deferral — restated here so it stops
+being re-litigated:
+
+- **"Deepwood & Verdigris"** (Sections 1-2, established first) governs all **UI chrome and
+  identity coding**: panel backgrounds/borders on every screen and HUD element, header/body/
+  muted text colors, the universal "+value = Rune Cyan" bonus-number convention, rarity-tier
+  colors (Section 2.4), and class-accent colors/icon motifs (Section 3.3). Use this palette for
+  anything that is *structure* or *stable identity* — the frame, not the data inside it.
+- **"Vitals & Attributes"** (Sections 11-12, established independently) governs all **live
+  resource bars and attribute-family stat coding**: the Life/Mana bars' banded-fill structure
+  and hues (Section 11), and the Character Stats Screen's per-attribute-family color system
+  (Section 12 - the amber/violet/jade/gold-per-Unspent-Points scheme). Use this palette for
+  anything that is a *live numeric gameplay value* the player is meant to read at a glance and
+  mentally group by source stat.
+- **Rule for future UI elements**: ask "is this frame/structure/stable-identity, or is it a
+  live resource/stat value the player reads moment-to-moment?" Chrome, borders, headers, rarity,
+  and class identity -> Deepwood & Verdigris. Any new resource bar (e.g. a future stamina bar or
+  a boss health bar) -> extend Section 11's exact banded-bar structure with its own new hue pair,
+  the same way Life and Mana already share one structure with two hues. Any new derived combat
+  stat added to the Character Stats Screen -> join an existing attribute family's hex (Section
+  12) if it's driven by that attribute, or take a new hex only if it doesn't fit any existing
+  family (mirrors how Dexterity's stats got a new jade-green rather than 3 separate hues).
+- **Rationale**: a neutral/cool chrome frame paired with vivid, higher-saturation functional
+  data colors *inside* that frame is itself a normal, deliberate UI pattern (structure recedes,
+  data pops) — not an inconsistency needing to be sanded away. Sections 11-12 are extensively
+  implemented, tested, and user-confirmed working, with real design intent behind their specific
+  hexes (e.g. Section 12's "one hex per attribute family" system, which teaches which attribute
+  drives which derived stat purely through color proximity). Reskinning that onto Deepwood &
+  Verdigris would be a large, purely-cosmetic rework of already-shipped, approved UI for a
+  coherence gain that a neutral-frame/vivid-data split already delivers without one. If a future
+  session still wants a full reskin, that's a legitimate follow-up choice to make deliberately —
+  but it is a separate, larger task (touching `VitalsHud.java` and `CharacterStatsScreen.java`
+  hex constants), not something this pass executes; no Java files or hex constants were changed
+  as part of recording this decision.
+
+### 1.2 Resolved: palette-reuse rule for hostile mobs/bosses and their item drops (2026-07-05)
+
+Separate from 1.1: by the time this was written, four hostile mini-bosses existed (Stone of
+Spiders, Stone of Zombies, Spider Queen, Zombie Colossus — Sections 13/15/17/18), and each one
+(plus, in Spider Queen's case, her own armor drop) had been given its own bespoke palette name
+("Fused Stone/Cocoon Husk/Spun Silk/Larval Glow", "Toxic Bloom", "Mutant Ichor" + "Royal
+Carapace", "Ashen Brute") with no written rule for when a *new* palette is warranted versus
+reusing an existing one. `HANDOFF.md` had flagged this as a question that "keeps deferring."
+
+**Decision: ratify the pattern already being followed in practice, rather than invent a
+different one, and extend it with explicit forward guidance for mob types that haven't been
+built yet.**
+
+- **Every boss-tier mini-boss gets its own original, bespoke palette family — even when it
+  reuses another boss's model/geometry.** This is already exactly what happened: Stone of
+  Zombies shares Stone of Spiders' 7-cuboid model verbatim (Section 15.1) but still got a wholly
+  new "Toxic Bloom" palette rather than a recolor-in-name-only. This is deliberate, not
+  palette-economy-by-accident: bosses are memorable, low-frequency, set-piece encounters, where
+  a player immediately recognizing "this is a different boss" matters more than reusing hexes
+  would save. **Keep doing this** for every future boss-tier mob.
+- **Before finalizing a new boss palette, check it against every existing palette already in
+  this document** (hue family, saturation, brightness) and write a compliance note explaining
+  the distinction — exactly the pattern Sections 15.2, 17.3, and 18.3 already each do (e.g.
+  18.3 explicitly checks its browns/reds against both existing greens). This is what actually
+  prevents "keeps inventing palettes" from silently drifting into "several near-duplicate
+  palettes nobody checked against each other" — the rule was never "never reuse," it was
+  "never reuse *without checking*," which just wasn't written down as a rule until now.
+  Continue this discipline for every future boss palette.
+- **A boss's own item drops (weapons/armor) are not required to reuse that boss's own palette
+  — decide per item, subject to the same distinctness check.** Precedent already goes both
+  ways on purpose: Poison Dagger's blade reuses Stone of Zombies' own Toxic Bloom green family
+  (Section 16), while Spider Queen's "Royal Carapace" armor was deliberately kept on its own
+  violet/gold palette distinct from her body's "Mutant Ichor" green per explicit user direction
+  (Section 17, "Deliberate two-palette split"). Both are valid outcomes of the same underlying
+  choice: whatever best fits that specific item's own concept, not an automatic inheritance
+  rule from the parent mob.
+- **New forward guidance for mob types not yet built (this is the actual gap, not a change to
+  existing practice): common/"trash" mobs should default to the opposite pattern.** Every
+  hostile mob built so far has been boss-tier (unique, named, low-spawn-count). Once ordinary,
+  frequently-spawned mob variety is added, giving each one its own bespoke palette the way
+  bosses get one would not scale and would dilute what makes boss palettes feel special.
+  Default for future common mobs: reuse vanilla textures where a mob is a mechanical reskin of
+  a vanilla type, or share a small number of established "common enemy" palettes across similar
+  mobs, and reserve new bespoke palette families for boss-tier content as defined above.
 
 ---
 
@@ -273,8 +353,8 @@ possible.
   color it Rune Cyan (`#7FD8E0`), regardless of which class/item/system it comes from. This is
   the one color-to-meaning mapping every future numeric-bonus display (upgrade screen, skill
   tooltips, etc.) should reuse rather than reinvent. (Section 11-12's Vitals/Stats-screen work
-  uses its own, separate per-attribute-family color system instead — see the reconciliation
-  note in Section 1.)
+  uses its own, separate per-attribute-family color system instead — this is by design, not an
+  unresolved gap; see Section 1.1, the "Vitals & Attributes" system.)
 - **"Aktiv" tag = current selection, always text + border, never color alone.** Established in
   Section 9.4; reuse for any future "this is your current X" UI (e.g. an equipped item, an
   active skill loadout slot).
@@ -294,6 +374,15 @@ assets/baum2/
         schattenlaeufer.png
         runenwirker.png
         wesenswahrer.png
+      subspec/
+        bollwerk.png             (16x16, sub-spec icon - see Section 9.1)
+        stahlfaust.png
+        schattenpirscher.png
+        sturmklinge.png
+        splitterrune.png
+        gluecksrune.png
+        wurzelwall.png
+        wesensfuelle.png
     item/
       gold_sword.png           (16x16, item icon - see Section 14)
       poison_dagger.png        (16x16, item icon - see Section 16)
@@ -335,9 +424,13 @@ Conventions:
   directly from the enum without a separate lookup table.
 - GUI-only chrome (icons/sprites drawn directly by custom HUD/Screen Java code, not bound to
   an item/block) lives under `textures/gui/`, subdivided by concept (`gui/class/` for
-  class icons; a future `gui/rarity/` if rarity ever gets icon badges instead of just text
-  color, etc.) - mirrors vanilla's own `textures/gui/sprites/...` convention of grouping
-  UI-only textures separately from in-world item/block textures.
+  class icons, `gui/subspec/` for sub-spec icons; a future `gui/rarity/` if rarity ever gets
+  icon badges instead of just text color, etc.) - mirrors vanilla's own
+  `textures/gui/sprites/...` convention of grouping UI-only textures separately from in-world
+  item/block textures.
+- Sub-spec file/folder names: lowercase, ASCII only, matching the `ClassSubspec` enum's
+  `name()` in lowercase (`BOLLWERK` -> `bollwerk.png`) - same derivation rule as the class
+  icons above, so both can be looked up directly from their respective enums.
 - Every placeholder texture file must be called out as a placeholder in the commit/PR that
   adds it and in this document (Section 9) - per `MASTERPROMPT.md`'s asset rule ("Kennzeichne
   Platzhalter klar als eigene temporäre Platzhalter"). Placeholders are fine to ship
@@ -521,6 +614,51 @@ this table if regeneration is ever needed).
 
 ---
 
+## 9.1 Placeholder sub-spec icons (produced 2026-07-05)
+
+**These are explicitly temporary placeholders**, per `MASTERPROMPT.md`'s asset rule
+("Kennzeichne Platzhalter klar als eigene temporäre Platzhalter") - same technical treatment as
+Section 9's 4 class icons (flat-color, no anti-aliasing, generated programmatically via
+Python/Pillow, not hand-drawn final art). Covers the 8 `ClassSubspec` cards added to the
+Character Stats Screen's "Class" tab (`SubspecCardWidget` in `CharacterStatsScreen.java`),
+which shipped with no icon at all - see `HANDOFF.md`'s "Class Overhaul v2 follow-up" section.
+
+**Design system**: each sub-spec icon is a *visual variant of its parent class's existing
+icon* (Section 3.3/Section 9), not a new motif. Every sub-spec reuses its parent class's exact
+16x16 pixel mask, fill hex, and outline hex unchanged, then adds one small overlay detail (drawn
+using only that same fill/outline pair - no third color introduced) that reflects the sub-spec's
+own mechanical bonus and flavor text (`SubspecRegistry.java`). This directly extends Section
+3.3's own stated per-class icon system rather than inventing a new convention: a player should
+recognize "this belongs to my class" at a glance from the shared shape/color, and "this is the
+[X] sub-spec" from the added detail.
+
+| File | Sub-spec | Parent class | Shape/motif | Fill | Outline |
+|---|---|---|---|---|---|
+| `assets/baum2/textures/gui/subspec/bollwerk.png` | Bollwerk | Eisenwächter | Pentagon shield + seam line, **plus a second horizontal plate seam** splitting the body into two reinforced bands (extra armor plating, for the Armor+2 defensive spec) | `#8FA3B3` | `#4A5A66` |
+| `assets/baum2/textures/gui/subspec/stahlfaust.png` | Stahlfaust | Eisenwächter | Pentagon shield + seam line, **plus a diagonal impact-crack slash** across the shield face (a struck/dented blow mark, for the Attack Damage+1.5 offensive spec) | `#8FA3B3` | `#4A5A66` |
+| `assets/baum2/textures/gui/subspec/schattenpirscher.png` | Schattenpirscher | Schattenläufer | Double-chevron, **plus the front chevron's vertex extended one pixel further forward** into a needle point (a single decisive blade-tip strike from hiding, for the Attack Damage+1.5 ambush spec) | `#7C5CA0` | `#3E2E52` |
+| `assets/baum2/textures/gui/subspec/sturmklinge.png` | Sturmklinge | Schattenläufer | Double-chevron, **plus 3 staggered trailing dashes** behind the shape (motion/speed-lines from a continuous flurry, for the Attack Speed+10% tempo spec) | `#7C5CA0` | `#3E2E52` |
+| `assets/baum2/textures/gui/subspec/splitterrune.png` | Splitterrune | Runenwirker | Diamond + rune-cross, **plus 4 small shard/crack ticks** radiating from the cross's diagonal quadrants (the rune shattering outward with force, for the Attack Damage+1.5 spec) | `#66C4C2` | `#2E5C5A` |
+| `assets/baum2/textures/gui/subspec/gluecksrune.png` | Glücksrune | Runenwirker | Diamond + rune-cross, **plus a small detached sparkle/glint mark** beside the rune (a shimmer of fortune, for the Luck+1 spec) | `#66C4C2` | `#2E5C5A` |
+| `assets/baum2/textures/gui/subspec/wurzelwall.png` | Wurzelwall | Wesenswahrer | Leaf/teardrop + center vein, **plus small root ticks flanking and widening the base** across 3 rows (roots spreading into the ground for a firm stance, for the Knockback Resistance+10% spec) | `#7FA65C` | `#3F5A2E` |
+| `assets/baum2/textures/gui/subspec/wesensfuelle.png` | Wesensfülle | Wesenswahrer | Leaf/teardrop + center vein, **plus a tiny budding leaflet** branching off the main vein near the top (new growth, for the Max Health+4 spec) | `#7FA65C` | `#3F5A2E` |
+
+All eight: 16x16, RGBA with transparent background, no anti-aliasing (flat pixel-art edges),
+exactly 3 colors per file (transparent/fill/outline, verified programmatically) - generated by
+a one-off script (not checked into the repo - reproducible from the specs in this table plus
+the base class icon each row derives from, if regeneration is ever needed). No traced,
+extracted, or downloaded source material was used - every overlay is original basic geometry
+(a line, a diagonal, a handful of single-pixel ticks) laid over the existing class icon's own
+already-original mask.
+
+*Compliance note:* the same 4 class hues/motifs already cleared in Section 3.3's compliance
+caveat are reused unchanged here (no new colors), and the 8 overlay details are generic,
+abstract pixel-art marks (a seam line, a crack, a chevron tip, dashes, ticks, a sparkle, root
+flares, a bud) - not iconography borrowed from any specific existing game's spec/talent-tree
+icon set.
+
+---
+
 ## 10. Open items for the implementer
 
 Non-visual details this spec deliberately leaves open (implementation choices, not design
@@ -530,12 +668,17 @@ choices) - listed here so they aren't lost:
    e.g. mapping `EntityAttributes.MOVEMENT_SPEED` + `ADD_MULTIPLIED_BASE` + `0.10` to
    `"+10% Lauftempo"` - was resolved ad hoc in `ClassScreen`'s implementation; if a 5th class
    or a new attribute type is added later, extend that mapping rather than inventing a new one.
-2. **Real (non-placeholder) art for the 4 class icons** is still outstanding — see Section 9.
-3. **Unify or deliberately keep-separate the Section 1 vs. Section 11/12 color palettes** — see
-   the reconciliation note in Section 1. Not blocking, but shouldn't be forgotten.
+2. **Real (non-placeholder) art for the 4 class icons and 8 sub-spec icons** is still
+   outstanding — see Section 9 and Section 9.1.
+3. ~~Unify or deliberately keep-separate the Section 1 vs. Section 11/12 color palettes~~ —
+   **RESOLVED 2026-07-05: kept formally separate.** See Section 1.1 for the decision, the
+   governing rule for future UI elements, and the rationale.
 4. **Whether `ClassScreen` (Section 8) should become a tab inside the Character Stats Screen
    (Section 12)** rather than a fully separate screen — see the note at the end of Section 12.
    A product decision, not inferable from the code alone.
+5. ~~No stated rule for when a new mini-boss/item palette is warranted vs. reusing an existing
+   one~~ — **RESOLVED 2026-07-05.** See Section 1.2 for the rule (bosses always get their own
+   new, cross-checked palette; drops decide per-item; future common mobs default to reuse).
 
 ---
 
@@ -1563,6 +1706,23 @@ raise the ceiling here.
 
 ## Changelog
 
+- **2026-07-05** — Added Section 9.1 (8 placeholder sub-spec icons for the Character Stats
+  Screen's Class-tab `SubspecCardWidget` cards, which shipped with no icon art at all — see
+  `HANDOFF.md`'s "Class Overhaul v2 follow-up"). Each icon is its parent class's exact existing
+  16x16 icon (Section 9) plus one small overlay detail using only that class's own fill/outline
+  hex pair, reflecting the sub-spec's own bonus/flavor text (`SubspecRegistry.java`) — no new
+  colors or motifs introduced, a direct extension of Section 3.3's per-class icon system.
+  Generated programmatically (Python/Pillow), verified 16x16 RGBA with exactly 3 colors
+  (transparent/fill/outline) per file, no anti-aliasing. Updated Section 6's folder listing.
+  Also resolved two long-open palette questions as firm decisions rather than further deferrals
+  (both documentation-only — no Java files or hex constants touched): **Section 1.1** keeps the
+  "Deepwood & Verdigris" menu-chrome palette and the "Vitals & Attributes" combat-HUD palette
+  formally separate (not unified), with an explicit rule for which governs which future UI
+  element — closes Section 10 item 3. **Section 1.2** ratifies the pattern already followed by
+  the 4 existing mini-bosses (every boss-tier mob gets its own new, cross-checked palette, even
+  when reusing another boss's model; drops decide per-item; future *common* mobs should default
+  to reusing palettes instead) — closes the "keeps deferring" item `HANDOFF.md`'s "Custom UI v1"
+  section flagged and adds Section 10 item 5.
 - **2026-07-05** — Added Section 18 (boss visual identity: "Zombie Colossus",
   `baum2:zombie_colossus` — the mod's **second** true mobile boss, joining Spider Queen — and its
   "Colossal Warclub" drop, `baum2:colossal_warclub`, renamed from the originally-drafted "Colossus

@@ -554,7 +554,7 @@ public class CharacterStatsScreen extends Screen {
      */
     private static class SubspecCardWidget extends ClickableWidget {
         private static final int CARD_WIDTH = 204;
-        private static final int CARD_HEIGHT = 34;
+        private static final int CARD_HEIGHT = 40;
 
         private static final int CARD_BACKGROUND = 0xF01F2622;
         private static final int CARD_BORDER = 0xFF33443B;
@@ -591,26 +591,30 @@ public class CharacterStatsScreen extends Screen {
                 context.fill(x + borderWidth, y + borderWidth, x + CARD_WIDTH - borderWidth, y + CARD_HEIGHT - borderWidth, SELECTED_WASH);
             }
 
+            ClassSubspec subspec = this.definition.subspec();
             TextRenderer textRenderer = MinecraftClient.getInstance().textRenderer;
-            int accent = ClassIcons.accentColor(this.definition.subspec().parentClass());
-            int textX = x + 6;
-            int textWidth = CARD_WIDTH - 12;
+            int accent = ClassIcons.accentColor(subspec.parentClass());
+            Identifier icon = SubspecIcons.of(subspec);
+            context.drawTexture(RenderPipelines.GUI_TEXTURED, icon, x + 6, y + 4, 0.0F, 0.0F, 32, 32, 16, 16);
+
+            int textX = x + 46;
+            int textWidth = CARD_WIDTH - 46 - 6;
 
             Text nameText = Text.literal(this.definition.displayName()).formatted(Formatting.BOLD);
-            context.drawText(textRenderer, nameText, textX, y + 4, accent, true);
+            context.drawText(textRenderer, nameText, textX, y + 6, accent, true);
 
             String description = textRenderer.trimToWidth(this.definition.description(), textWidth);
-            context.drawText(textRenderer, Text.literal(description), textX, y + 14, BODY_COLOR, true);
+            context.drawText(textRenderer, Text.literal(description), textX, y + 17, BODY_COLOR, true);
 
             Text bonusText = Text.literal(ClassCardWidget.formatBonus(
                 this.definition.bonusAttribute(), this.definition.bonusOperation(), this.definition.bonusAmount()
             ));
-            context.drawText(textRenderer, bonusText, textX, y + 24, BONUS_COLOR, true);
+            context.drawText(textRenderer, bonusText, textX, y + 28, BONUS_COLOR, true);
 
             if (this.selected) {
                 Text activeTag = Text.literal("Aktiv").formatted(Formatting.BOLD);
                 int tagWidth = textRenderer.getWidth(activeTag);
-                context.drawText(textRenderer, activeTag, x + CARD_WIDTH - 6 - tagWidth, y + 4, SELECTED_BORDER, true);
+                context.drawText(textRenderer, activeTag, x + CARD_WIDTH - 6 - tagWidth, y + 6, SELECTED_BORDER, true);
             }
         }
 

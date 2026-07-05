@@ -323,26 +323,132 @@ targeted living entity.
   direct "it worked" / "it's broken" report), not by build/boot verification. Expect the same
   for any future UI work: build passing and clean boot are necessary but not sufficient checks.
 
+### Stone of Spiders — first custom mob, first custom item, first custom entity model/renderer
+
+`baum2:stone_of_spiders` (level 10, 200 HP, 3x3-block immobile mini-boss) and `baum2:gold_sword`
+(its guaranteed drop) — this project's first custom `EntityType`, first custom `Item`, and
+first custom `EntityModel`/`EntityRenderer`. New `registry/` package (`ModEntities`, `ModItems`)
+and `entity/` package (split main/client the same way `networking/` already is: `entity.
+StoneOfSpidersEntity` + `entity.MonsterLevelProvider` in `main`, `entity.
+StoneOfSpidersEntityModel` + `entity.StoneOfSpidersEntityRenderer` in `client`, same package
+name, different source sets — an established pattern in this codebase, not a new convention).
+
+- **Mechanics** (`entity/StoneOfSpidersEntity.java`): extends `HostileEntity`. Immobile via an
+  empty `travel(Vec3d)` override (confirmed this alone stops walking, gravity, and knockback
+  drift — see `docs/fabric-modding.md`'s new rendering section) plus `MOVEMENT_SPEED=0`/
+  `KNOCKBACK_RESISTANCE=1.0` attributes and `isPushable()→false`; never despawns
+  (`canImmediatelyDespawn→false`). No goals registered at all (not even a look/attack goal) —
+  **the stone itself cannot attack the player directly**, confirmed by `balance-reviewer`; all
+  encounter danger comes from the spider waves it spawns, not the stone's own damage output.
+  This reads as an intentional "objective/totem" boss pattern (destroy the core while adds
+  spawn) matching the brief (no attack behavior was requested, only HP/spawn/drop mechanics) —
+  flagging here in case a future session wants to add real offense to the stone instead of
+  assuming this was an oversight.
+  - **Spider waves**: overrides `LivingEntity.damage(ServerWorld, DamageSource, float)`
+    (confirmed this is the correct 1.21.11 signature — `ServerWorld` is now the first param);
+    after each successful hit, checks cumulative missing-health ratio against a monotonic
+    `spiderWavesTriggered` counter and spawns one wave of 3 vanilla `EntityType.SPIDER` per
+    full 10%-of-max-HP increment lost, cumulative and one-shot per threshold (never re-fires,
+    confirmed not exploitable via repeated damage/heal cycling since the stone has no
+    regen). Worst case (full depletion, no healing) is exactly 30 spiders total — bounded,
+    confirmed by `balance-reviewer`.
+  - **Death cascade**: spawned spiders' UUIDs are tracked in an in-memory `Set<UUID>` (not
+    NBT-persisted — acceptable simplification since this is a single-sitting boss encounter,
+    not something expected to survive a server restart mid-fight); `onDeath` force-kills every
+    still-alive tracked spider via `LivingEntity.kill(ServerWorld)`.
+  - **Drop**: overrides the 3-arg `dropLoot(ServerWorld, DamageSource, boolean)` directly
+    (confirmed this is the current guaranteed-drop hook — no loot-table JSON needed, bypasses
+    the default loot-table path entirely) to drop exactly one `baum2:gold_sword`.
+  - **XP**: no special-casing needed — `MobDeathHandler`'s existing `instanceof HostileEntity`
+    check already grants `10 + maxHealth/2 = 110 XP` per kill automatically.
+  - **Level display**: new `entity.MonsterLevelProvider` interface (single `getMonsterLevel()`
+    method) — `MobNameplateHud.getMonsterLevelText()` (previously hardcoded `"Lvl. 1"` for
+    every mob, a known placeholder from the last session) now checks for this interface first.
+    First real per-mob level in the codebase; every other mob still shows "Lvl. 1" until they
+    also implement it.
+  - **Not yet done**: no natural spawn path (biome spawn entry, structure, or spawner) —
+    `/summon baum2:stone_of_spiders` is the only way to place one right now. Confirmed by
+    `balance-reviewer` this makes the current 30-spider/650-XP ceiling a non-issue in practice
+    (nothing to farm repeatedly yet) — worth reconsidering once this mob gets wired into an
+    actual world-placement system (`dungeons/` package exists per `CLAUDE.md` architecture,
+    unused so far).
+- **Gold Sword** (`registry/ModItems.java`): plain `Item` (not a `SwordItem` subclass —
+  **confirmed `SwordItem`/`ToolItem` classes no longer exist in 1.21.11**, vanilla's tool/weapon
+  construction moved to a component-based `Item.Settings.sword(ToolMaterial, attackDamage,
+  attackSpeed)` builder method — see `docs/fabric-modding.md`'s new "Custom `Item`s in 1.21.11"
+  section), built on `ToolMaterial.GOLD` with `.sword(ToolMaterial.GOLD, 5.0F, -2.2F)`.
+  **`balance-reviewer` finding, not acted on, flagged for a human call**: because
+  `ToolMaterial.GOLD`'s own `attackDamageBonus` is 0.0 (vs Iron's 2.0), this sword's *effective*
+  total damage nets out **identical to vanilla Iron** (6.0 total either way) despite the "+5.0"
+  argument looking higher than vanilla gold's own "+3.0" — the real effect of this specific
+  tuning is a flat +12.5% attack speed over every vanilla sword tier (faster than Diamond/
+  Netherite too) plus Gold's higher enchantability, with only Gold's low durability (32, cheap
+  to repair) as a soft tradeoff. Net: reads as "Iron-equivalent damage, faster than everything,
+  easier to enchant, weak durability tradeoff" rather than vanilla Gold's actual "fast but weak"
+  identity — plausibly fine for a boss-reward weapon that's supposed to feel like an upgrade,
+  but a deliberate departure from Gold's usual fast-weak identity, not something this session
+  silently corrected. Confirmed this is a rounding error next to the already-logged ~46x
+  DPS-compounding issue from Combat System v1, not a new compounding factor of its own.
+- **`ip-naming-compliance-checker` result: Clear.** Neither name resembles any specific existing
+  MMORPG's IP; "giant stationary egg-sac boss that spawns adds" is a generic, widely-used genre
+  archetype (checked against WoW/RuneScape-style brood/summoner encounters, no specific match).
+  One non-blocking style note: "Gold Sword" is just vanilla's own material name + a type
+  descriptor, less "original fantasy naming" than the rest of the mod's items (e.g.
+  Rissobelisk/Runenkern) — not an IP risk (no game owns "Gold Sword"), but worth a naming pass
+  later if this item becomes permanent rather than a placeholder-named first drop. Kept as
+  "Gold Sword" since the user explicitly requested that exact name.
+- **Visual identity** (`docs/visual-style-guide.md` Sections 13-14): first monster and first
+  weapon visual identity in the project, sets precedent for future stationary/boss-type mobs.
+  Stone built from 7 overlapping cuboids (fused rock base + egg-sac body + off-center upper
+  lump + 2 web-strand accents + 2 glow-vein bumps) rather than a standard creature skeleton —
+  deliberately asymmetric per the design brief ("monster nest," not a creature). Original
+  palette (Fused Stone / Cocoon Husk / Spun Silk / Larval Glow families), distinct from every
+  other palette already in the mod. Both textures are explicit placeholders (flat programmatic
+  fills, no hand-drawn surface detail yet) — real art is a future pass, not blocking.
+- **Rendering research, new and real** (`docs/fabric-modding.md`): confirmed
+  `net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry` is now `@Deprecated` in
+  this Fabric API version (`fabric-rendering-v1` 16.2.10) — the correct current API is vanilla's
+  own `net.minecraft.client.render.entity.EntityRendererFactories.register(...)`, same call
+  shape. Also confirmed and documented the model-space "Y=24 is always ground level" convention
+  (traced to a fixed `-1.501F` translate constant inside every `LivingEntityRenderer`, not a
+  per-mob thing) — reusable for any future stationary/ground-fused custom mob model.
+- Verified: `./gradlew build` passes clean, no warnings (confirmed via a temporary
+  `-Xlint:deprecation` pass, reverted after use, that caught and fixed the
+  `EntityRendererRegistry` deprecation above before it could linger unnoticed). **Not yet
+  verified in an actual game session** — same no-GUI-automation limitation noted throughout this
+  project; next person should `/summon baum2:stone_of_spiders`, confirm the model/texture render
+  without errors, damage it past a few 10%-thresholds and confirm spider waves spawn, kill it
+  and confirm all spiders die + Gold Sword drops + nameplate shows "Lvl. 10".
+- **Environment note**: this session's custom `.claude/agents/*` subagents (`fabric-docs-
+  researcher`, `graphics-designer`, `ip-naming-compliance-checker`, `balance-reviewer`) again
+  did not resolve via the `Agent` tool in this environment (same known limitation logged in an
+  earlier session) — each was reproduced via a `general-purpose` agent given that agent's own
+  `.md` instructions verbatim, per the documented workaround. Worth re-testing whether custom
+  agent types resolve in a fresh session before assuming this workaround is still needed.
+
 ## Last change (on `fischey_workbranch`, based on the merged commit above)
 
-Wired Physical Attack/Attack Speed/Crit Chance into real combat, and added a target
-nameplate HUD element — see "Combat System v1" and "Target nameplate" above for full detail.
-User report: "Physical Attack, Critical Hit and Attack Speed had no effect when I attack a
-monster" (correct — they were display-only) plus a request to show a targeted mob's name and
-current life at top-center. Researched the exact 1.21.11 APIs before implementing (persisted
-to `docs/fabric-modding.md`'s new "Combat / Damage" and "Target nameplate" sections): confirmed
-no Fabric API event can modify a melee attack's final damage float (checked both plausible
-candidates), confirmed the exact `EntityAttributeModifier.Operation.ADD_MULTIPLIED_TOTAL`
-semantics via `EntityAttributeInstance.computeValue()`'s real decompiled body rather than
-assuming, and confirmed mob health is ordinarily tracked-data-synced client-side with no
-special-casing (no networking needed for the nameplate). A `balance-reviewer` pass on the
-newly-wired combat effects found a real, non-blocking issue — Base Attack/Attack Speed/Crit
-Chance compound multiplicatively into ~46x baseline DPS at max investment, trivializing most
-mob fights well before max level — flagged clearly in "Combat System v1" above rather than
-silently rebalancing formulas that were already approved in an earlier session for their own
-sake. Verified: `./gradlew build` passes, `runClient` boots with the new Mixin applying
-cleanly (no target-resolution errors). Not verified in an actual fight or by looking at a mob
-in-game — same no-GUI-automation limitation as every UI/gameplay-feel check this session.
+Implemented the "Stone of Spiders" mini-boss mob + its "Gold Sword" drop — see "Stone of
+Spiders" above for full detail. User request: a stationary level-10, 200-HP, 3x3 mob that
+spawns 3 spiders per 10%-of-max-HP lost, kills all its spawned spiders when it dies, and drops
+a Gold Sword. This is the project's first custom mob, first custom item, and first custom
+entity model/renderer, so most of the work was original-ground research rather than following
+an existing local pattern: confirmed via decompiled 1.21.11 sources that `SwordItem`/`ToolItem`
+no longer exist (swords are now a plain `Item` built via `Item.Settings.sword(...)`), that
+`LivingEntity.damage(...)` now takes `ServerWorld` first, that an empty `travel(Vec3d)`
+override is sufficient to fully immobilize a mob, and that
+`EntityRendererRegistry` (used in an initial draft) is `@Deprecated` in favor of vanilla's own
+`EntityRendererFactories.register(...)` — caught via a temporary `-Xlint:deprecation` build
+pass, not missed. `graphics-designer` produced the mob's 7-cuboid shape spec + palette + both
+placeholder textures/models; `ip-naming-compliance-checker` returned Clear; `balance-reviewer`
+found the encounter numerically bounded and non-exploitable but flagged two judgment calls for
+a human (the stone has no direct attack of its own — likely intentional "adds fight" design,
+not confirmed as a bug; the Gold Sword's tuning nets out to Iron-equivalent damage with a
+faster-than-every-vanilla-tier attack speed, a deliberate departure from Gold's usual
+fast-but-weak identity) — both logged in "Stone of Spiders" above rather than silently
+adjusted. Verified: `./gradlew build` passes clean with zero warnings. **Not yet verified
+in an actual game session** — same no-GUI-automation limitation as every gameplay-feel check
+in this project; next step is a human `/summon`-ing one and fighting it.
 
 ## Last change (on `jonas_workbranch`)
 
@@ -533,6 +639,16 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
+0. **In-game verification of the Stone of Spiders + Gold Sword** (this session's change, see
+   "Stone of Spiders" above) — `/summon baum2:stone_of_spiders`, confirm the model/texture
+   render with no errors, confirm damaging it past 10%-HP thresholds spawns spider waves,
+   confirm killing it kills all its spiders and drops a Gold Sword, confirm the nameplate shows
+   "Lvl. 10". Two judgment calls logged, not yet decided: (a) should the stone deal any direct
+   damage itself, or is "adds-only danger" the intended design; (b) is the Gold Sword's
+   Iron-equivalent-damage-but-faster-than-everything tuning the intended reward feel, or should
+   it lean into Gold's usual fast-but-weak identity instead. Also no natural spawn path exists
+   yet (summon-only) — decide when/how this mob should actually appear in the world (a
+   structure? a `dungeons/`-package encounter? natural biome spawn?).
 1. **In-game verification of everything merged this session** — no GUI-automation tool exists
    here (see "Current state"), so this needs a human: confirm the Class Screen ('K') and
    Character Stats Screen ('C') both still open correctly and don't visually collide with each

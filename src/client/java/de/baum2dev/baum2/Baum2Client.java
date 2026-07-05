@@ -3,13 +3,18 @@ package de.baum2dev.baum2;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.render.entity.EntityRendererFactories;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
+import de.baum2dev.baum2.entity.StoneOfSpidersEntityModel;
+import de.baum2dev.baum2.entity.StoneOfSpidersEntityRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
+import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.ui.Baum2KeyBindings;
 import de.baum2dev.baum2.ui.ClassScreen;
 import de.baum2dev.baum2.ui.MobNameplateHud;
@@ -43,5 +48,9 @@ public class Baum2Client implements ClientModInitializer {
         VitalsHud.register();
         Baum2KeyBindings.register();
         MobNameplateHud.register();
+
+        EntityModelLayerRegistry.registerModelLayer(
+                StoneOfSpidersEntityModel.LAYER, StoneOfSpidersEntityModel::getTexturedModelData);
+        EntityRendererFactories.register(ModEntities.STONE_OF_SPIDERS, StoneOfSpidersEntityRenderer::new);
     }
 }

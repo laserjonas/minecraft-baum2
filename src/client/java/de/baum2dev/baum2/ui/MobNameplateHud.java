@@ -14,6 +14,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.MathHelper;
+import de.baum2dev.baum2.entity.MonsterLevelProvider;
 
 /**
  * Shows the name, level, and current/max health of the entity the player most recently
@@ -116,11 +117,11 @@ public class MobNameplateHud {
     }
 
     /**
-     * No mob-leveling system exists yet - every monster defaults to "Lvl. 1" until one does.
-     * Single point to extend once real monster levels exist.
+     * No general mob-leveling system exists yet - defaults to "Lvl. 1" unless the entity
+     * implements MonsterLevelProvider (see StoneOfSpidersEntity for the first real example).
      */
     private static String getMonsterLevelText(LivingEntity entity) {
-        int level = 1;
+        int level = entity instanceof MonsterLevelProvider leveled ? leveled.getMonsterLevel() : 1;
         return "Lvl. " + level;
     }
 }

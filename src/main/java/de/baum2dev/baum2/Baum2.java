@@ -12,6 +12,8 @@ import de.baum2dev.baum2.events.VitalsTickHandler;
 import de.baum2dev.baum2.networking.Baum2Networking;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.VitalsManager;
+import de.baum2dev.baum2.registry.ModEntities;
+import de.baum2dev.baum2.registry.ModItems;
 
 public class Baum2 implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("baum2");
@@ -27,6 +29,11 @@ public class Baum2 implements ModInitializer {
         // Must run before any player can join: widens vanilla's max-health clamp so the Life
         // formula (up to 1500 at level 100) isn't silently capped at vanilla's default 1024.
         VitalsManager.widenMaxHealthCeiling();
+
+        ModEntities.bootstrap();
+        ModEntities.registerAttributes();
+        ModItems.bootstrap();
+        ModItems.registerItemGroups();
 
         Baum2Commands.registerCommands();
         Baum2Networking.registerServerPayloads();

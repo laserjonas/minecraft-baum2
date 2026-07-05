@@ -294,11 +294,17 @@ assets/baum2/
         schattenlaeufer.png
         runenwirker.png
         wesenswahrer.png
-    item/        (future: item icons, 16x16 unless an item type calls for otherwise)
+    item/
+      gold_sword.png           (16x16, item icon - see Section 14)
     block/       (future: block textures)
+    entity/
+      stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
   models/
-    item/        (future)
+    item/
+      gold_sword.json          (see Section 14)
     block/       (future)
+  items/
+    gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
   blockstates/   (future)
 ```
 
@@ -799,8 +805,209 @@ blocking for either screen to keep working as-is in the meantime.
 
 ---
 
+## 13. Monster visual identity: "Stone of Spiders" (`baum2:stone_of_spiders`)
+
+The mod's first custom hostile mob — a stationary, level-10 mini-boss: an immobile cocoon/
+egg-sac fused into the ground, roughly 3x3x3 blocks (`ModEntities.STONE_OF_SPIDERS` is
+registered `.dimensions(3.0F, 3.0F)`), that spawns a wave of 3 spiders per 10%-of-max-health
+lost and drops a Gold Sword (Section 14) on death. Full mechanical detail lives in
+`entity/StoneOfSpidersEntity.java`; this section covers the visual identity only.
+
+### 13.1 Why this shape
+
+Deliberately **not** a standard biped/quadruped mob silhouette — no legs, arms, or face. The
+brief calls for it to read as an ominous "monster nest" object fused with rock, not a creature.
+This is also the mod's first monster, so the approach here (organic-mass-as-geometric-volumes,
+described below) sets precedent for future stationary/boss-type mobs — reuse this method
+(a few overlapping simple cuboids at deliberately asymmetric offsets, rather than a symmetrical
+"correct" creature skeleton) rather than reinventing per-mob.
+
+*Compliance note:* "giant stationary egg-sac boss that spawns adds" is a generic, widely-used
+monster archetype (bosses with summon mechanics exist across countless unrelated games) —
+genre convention, not any specific game's IP. The shape (fused organic-mass-and-rock, cracked/
+webbed shell, sickly glow-veins) and the exact palette below are original and were not modeled
+on any specific existing creature's actual design.
+
+### 13.2 Cuboid breakdown (for `ModelPartBuilder.cuboid(...)` translation)
+
+Seven cuboids total: three main volumes (base, body, cap) plus four small accent cuboids
+(2 web-strand/crack accents, 2 glow-vein bumps). All sizes in model units (16 units = 1 block,
+matching the registered 3x3x3 bounding box). Positions below are described in "blocks from the
+entity's horizontal center / from the ground up" for conceptual clarity — translating that into
+whatever pivot/origin convention the actual `ModelPartBuilder` calls end up using (Minecraft's
+own model-part Y axis conventionally increases *downward* from a part's pivot) is an
+implementation detail for whoever writes `StoneOfSpidersEntityModel`, not fixed by this spec.
+
+| # | Part | Size (blocks, X x Y x Z) | Size (px, sx x sy x sz) | Position | Role |
+|---|---|---|---|---|---|
+| A | Fused Rock Base | 2.75 x 0.75 x 2.75 | 44 x 12 x 44 | Centered at (0,0,0), flush on the ground, nearly filling the full 3x3 footprint (slightly inset from the edge) | Hardened stone the sac has fused into — the "monster nest" reads as grown out of the ground, not placed on it |
+| B | Egg-Sac Body | 2.125 x 1.5 x 2.125 | 34 x 24 x 34 | Centered horizontally, sunk ~2px into the base (top of base to ~y=2.1 blocks) so the join reads fused, not stacked | The dominant visual mass — most of the mob's silhouette and hit-detection volume |
+| C | Upper Lump | 1.25 x 1.0 x 1.25 | 20 x 16 x 20 | Offset **off-center** — shifted toward one side (e.g. +0.5 block X, +0.3 block Z from the body's center), sitting on top of the body around y=1.9-2.9 blocks, slightly embedded into the body's top the same way B embeds into A | The secondary lump that breaks perfect symmetry — this asymmetric offset is what reads as "lumpy organic mass," not a clean 3-tier snowman stack. Total height stays within the 3-block bounding box. |
+| D | Web-Strand/Crack Accent 1 | 1.625 x 0.125 x 0.125 | 26 x 2 x 2 | Flush against the body's surface (~0.5px standoff to avoid z-fighting), rotated off-axis (e.g. ~25° around Y, ~-15° around Z) | A jagged crack/silk-strand running diagonally across the shell — not axis-aligned, that's the important part, exact degrees are the implementer's taste |
+| E | Web-Strand/Crack Accent 2 | 1.25 x 0.125 x 0.125 | 20 x 2 x 2 | Same treatment as D, different position/rotation (e.g. ~-20° around Y, ~20° around X) for visual variety | Same role as D, second strand so the surface doesn't read as having only one crack |
+| F | Glow-Vein Bump 1 | 0.375 x 0.1875 x 0.375 | 6 x 3 x 6 | Flush on the body's front-upper face, poking out ~1-2px | A visible glowing egg-vein bulging through the shell |
+| G | Glow-Vein Bump 2 | 0.3125 x 0.1875 x 0.3125 | 5 x 3 x 5 | Flush on the cap's front face, poking out ~1-2px | Second glow-vein, on the cap rather than the body, so the glow reads across the whole silhouette rather than one spot |
+
+### 13.3 Color palette (original, distinct from the UI chrome palette in Section 2)
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Rock shadow | Fused Stone Shadow | `#3A362E` | Base cuboid's bottom/back faces |
+| Rock mid-tone | Fused Stone | `#5C574A` | Base cuboid's main faces |
+| Rock highlight | Fused Stone Pale | `#7A7566` | Reserved for a future non-placeholder pass — not used in the current placeholder texture |
+| Shell shadow | Cocoon Husk Shadow | `#6E6850` | Body/cap bottom+back faces |
+| Shell mid-tone | Cocoon Husk | `#9C9478` | Body/cap side+front faces |
+| Shell highlight | Cocoon Husk Pale | `#BDB495` | Body/cap top faces |
+| Web/silk accent | Spun Silk | `#D8D2BE` | Web-strand accent cuboids (D, E) |
+| Crack/fissure accent | Fissure Dark | `#2A251C` | Crack-line detail painted onto the shell's front faces, and the underside of the web-strand cuboids |
+| Glow-vein core | Larval Glow | `#C4E064` | Bright chartreuse-lime — the glow-vein bumps' visible faces and the small glow blotches painted onto the body/cap |
+| Glow-vein edge | Larval Glow Dim | `#6E8A2E` | Darker vein-edge tone, glow bump's hidden/side faces |
+
+*Compliance note:* chosen to be clearly distinct from both the UI chrome palette (Section 1's
+verdigris/rune-cyan) and the Vitals HUD reds/blues (Section 11) — no reused hues across
+systems. The chartreuse glow-vein color is a genre-generic "eerie bioluminescent organic
+monster" cue (seen across many unrelated games/media), not copied from any specific existing
+game's exact creature-glow branding.
+
+### 13.4 Placeholder texture (produced this pass)
+
+**Explicitly a temporary placeholder**, per `MASTERPROMPT.md`'s asset rule — flat-color box-UV
+fills generated programmatically (PowerShell + `System.Drawing`, no Python/ImageMagick
+available in this environment), not hand-drawn final art. No traced, extracted, or downloaded
+source material was used.
+
+- **File:** `assets/baum2/textures/entity/stone_of_spiders.png` — matches the registered entity
+  id `baum2:stone_of_spiders` (Section 6 naming convention: texture file name mirrors the
+  registry id, not a sub-folder-per-mob layout, since this is a single-texture mob with no
+  animation-frame variants).
+- **Canvas:** 176 x 176 px, RGBA with transparent background outside the seven cuboids' UV
+  regions. Size is dictated by the standard Minecraft "box UV" unwrap of the seven cuboids
+  above (each cuboid needs `2*sizeX + 2*sizeZ` px wide by `sizeY + sizeZ` px tall of texture
+  space) stacked in a single column — not a fixed/conventional size like 16x16 item textures,
+  since entity texture sheets are sized to fit whatever cuboids the model actually uses.
+- **Exact UV offsets used** (top-left corner of each cuboid's box-UV region on the sheet;
+  reproduce these exactly via `.uv(u, v)` before each `.cuboid(...)` call so the placeholder
+  texture lines up with the model without further adjustment):
+
+  | Part | UV (u, v) | Box size (w x h) |
+  |---|---|---|
+  | A - Base | (0, 0) | 176 x 56 |
+  | B - Body | (0, 56) | 136 x 58 |
+  | C - Cap | (0, 114) | 80 x 36 |
+  | D - Web-strand 1 | (0, 150) | 56 x 4 |
+  | E - Web-strand 2 | (0, 154) | 44 x 4 |
+  | F - Glow bump 1 | (0, 158) | 24 x 9 |
+  | G - Glow bump 2 | (0, 167) | 20 x 8 |
+
+- Each volume's faces are flat-filled per Section 13.3 (top=highlight, bottom=shadow, sides/
+  front=mid-tone for A/B/C; web-strand cuboids filled solid Spun Silk with a Fissure Dark
+  underside; glow bumps filled Larval Glow/Glow Dim). A handful of hand-placed crack-line and
+  glow-blotch pixel clusters were painted directly onto the body's and cap's front-face UV
+  regions so the placeholder isn't just flat rectangles — still simple pixel-art, no
+  anti-aliasing, not final art.
+- **Not yet done, flagged for a future art pass**: real hand-drawn surface detail (organic
+  cracks, silk texture, glow gradients) across the full shell — the current texture only
+  proves the UV layout and gives *something* to look at in-game, per this agent's own scope
+  limits (a text-based agent doesn't fake detailed pixel art as final).
+
+---
+
+## 14. Weapon visual identity: "Gold Sword" (`baum2:gold_sword`)
+
+The mod's first custom item — a straightforward reward-drop sword (Section 13's Stone of
+Spiders drops it), built on vanilla's `ToolMaterial.GOLD` tier with custom attack numbers
+(`ModItems.GOLD_SWORD`, `.sword(ToolMaterial.GOLD, 5.0F, -2.2F)`), plain `Item`, no custom
+model class. This section also establishes this mod's first item-icon conventions, since it's
+the first custom item overall.
+
+### 14.1 Design direction
+
+Plain, not ornate (per the brief) — a simple, clean diagonal blade silhouette, original in
+color and shape, **not a recolor or clone of vanilla's actual golden sword texture**. Vanilla's
+own gold sword icon was not referenced pixel-for-pixel; only the generic "diagonal tool icon
+in a 16x16 canvas" convention (shared by every tool/weapon item in every version of Minecraft
+and most other block-grid games) was reused, which is a technical/genre convention, not IP.
+
+- **Silhouette:** standard diagonal orientation, blade tip at top-right, pommel at bottom-left
+  — matches the read-at-a-glance convention every Minecraft tool/weapon icon uses (a technical
+  necessity for a 16x16 hotbar icon, not a stylistic choice unique to any one game).
+- **Parts, bottom-left to top-right:** a small 2x2 pommel block, a short diagonal grip, a
+  perpendicular crossguard accent breaking the diagonal at the grip/blade junction, then a
+  tapering 2px-thick blade to a 1px point.
+- **Palette ties back to the mod's existing UI accent**: the pommel reuses **Aged Brass
+  (`#D9B36C`)** from Section 2.2 exactly — the UI palette's existing "gold-associated" accent
+  color — for cross-system cohesion between this weapon and the mod's established chrome,
+  rather than inventing an unrelated gold tone.
+
+### 14.2 Color palette
+
+| Role | Hex | Notes |
+|---|---|---|
+| Pommel | `#D9B36C` | Reuses UI "Aged Brass" (Section 2.2) exactly |
+| Grip | `#4A3728` | Dark brown, plain leather-style handle, deliberately unornamented |
+| Crossguard | `#8A6E2E` | Muted bronze-gold, distinct from both the pommel and blade tones so the three hilt parts read separately |
+| Blade fill | `#E8C25A` | Main blade body |
+| Blade shadow edge | `#8A6B1E` | Thickening/shadow pixel along the blade's lower edge |
+| Blade highlight | `#FFF0B0` | Single highlight pixel near the tip |
+
+*Compliance note:* this is an original 6-color diagonal-sword treatment; it does not reproduce
+vanilla's actual `golden_sword.png` pixel layout or any other specific game's exact sword icon.
+
+### 14.3 Files produced (placeholder texture, real model/item-definition JSON)
+
+- **Texture** (placeholder, per `MASTERPROMPT.md`'s asset rule — flat pixel art, no
+  anti-aliasing, generated via PowerShell + `System.Drawing`, not hand-drawn final art):
+  `assets/baum2/textures/item/gold_sword.png`, 16x16, RGBA, transparent background.
+- **Model JSON** (real, not a placeholder — this is the correct, verified 1.21.11 schema, not
+  guessed): `assets/baum2/models/item/gold_sword.json`:
+  ```json
+  {
+    "parent": "minecraft:item/handheld",
+    "textures": { "layer0": "baum2:item/gold_sword" }
+  }
+  ```
+  `minecraft:item/handheld` (not `minecraft:item/generated`) is vanilla's own parent for every
+  sword/tool item — confirmed by reading vanilla's actual `golden_sword.json` /
+  `iron_sword.json` directly out of the decompiled client jar
+  (`.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-clientOnly-...-1.21.11-...-v2.jar`,
+  `assets/minecraft/models/item/golden_sword.json`) — not assumed from possibly-stale training
+  data, per this agent's hard rule about not guessing schema.
+- **Item-model-definition entry point** (real, not a placeholder — **this file is new in
+  1.21.x and did not exist in older Minecraft versions**; confirmed by reading vanilla's own
+  `assets/minecraft/items/golden_sword.json` from the same jar): `assets/baum2/items/gold_sword.json`:
+  ```json
+  {
+    "model": {
+      "type": "minecraft:model",
+      "model": "baum2:item/gold_sword"
+    }
+  }
+  ```
+  **Both files are required in 1.21.11** — `assets/<ns>/items/<name>.json` is the entry point
+  the item's registered id actually resolves to; it in turn points at
+  `assets/<ns>/models/item/<name>.json` for the textures/parent. An item defined only under the
+  old `models/item/` path (no matching `items/` entry) will fail to resolve a model at all in
+  this version — this is the exact gotcha the graphics-designer brief asked to verify against
+  ground truth rather than guess, and it's now the confirmed, working shape for any future
+  item this mod adds.
+
+---
+
 ## Changelog
 
+- **2026-07-05** — Added Section 13 (monster visual identity: "Stone of Spiders",
+  `baum2:stone_of_spiders` — the mod's first custom hostile mob) and Section 14 (weapon visual
+  identity: "Gold Sword", `baum2:gold_sword` — the mod's first custom item). Section 13
+  establishes a 7-cuboid breakdown (base/body/cap + 2 web-strand accents + 2 glow-vein bumps)
+  and an original stone/shell/silk/glow-vein palette, distinct from both the UI chrome palette
+  (Section 1) and the Vitals HUD palette (Section 11); produced a placeholder 176x176 box-UV
+  entity texture. Section 14 establishes the mod's first item-icon convention (diagonal blade,
+  16x16) reusing Aged Brass for the pommel for cross-system cohesion; produced a placeholder
+  16x16 texture plus the real (verified against the decompiled vanilla client jar, not guessed)
+  1.21.11 model/item-definition JSON pair. No Python/ImageMagick available in this environment
+  — both placeholder PNGs were generated via PowerShell + `System.Drawing` instead. Updated
+  Section 6's folder listing with the new `textures/entity/`, `models/item/`, and `items/`
+  paths now in use.
 - **2026-07-04** — Merged two independently-written versions of this document (one from each
   contributor's branch) into one. No content was removed; Sections 1-10 are the original
   Class-System-side framework, Sections 11-12 are the Vitals/Character-Stats-side specs

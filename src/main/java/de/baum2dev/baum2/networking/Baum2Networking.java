@@ -47,6 +47,10 @@ public class Baum2Networking {
                 CastSpellPayload.TYPE,
                 CastSpellPayload.CODEC
         );
+        PayloadTypeRegistry.playC2S().register(
+                SubspecSelectPayload.TYPE,
+                SubspecSelectPayload.CODEC
+        );
     }
 
     /**
@@ -62,6 +66,19 @@ public class Baum2Networking {
                     "You can't change class yet (%.1f minutes remaining).", attempt.remainingCooldownTicks() / 20.0 / 60.0
                 )), true);
             }
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(SubspecSelectPayload.TYPE, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            ClassManager.SelectAttempt attempt = ClassManager.selectSubspec(player, payload.subspec());
+            if (attempt.result() == ClassManager.SelectResult.ON_COOLDOWN) {
+                player.sendMessage(Text.literal(String.format(
+                    "You can't change sub-specialization yet (%.1f minutes remaining).", attempt.remainingCooldownTicks() / 20.0 / 60.0
+                )), true);
+            }
+            // WRONG_CLASS is silently ignored, same as CastSpellPayload's stale-slot case below -
+            // the GUI only ever offers sub-specs belonging to the player's current class, so this
+            // only happens for a stale/out-of-date client render, not a real user action.
         });
 
         ServerPlayNetworking.registerGlobalReceiver(

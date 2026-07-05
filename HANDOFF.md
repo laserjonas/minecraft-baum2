@@ -8,18 +8,20 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 This reflects `jonas_workbranch` after merging `origin/master` twice this session (Fischey's
 Vitals/Attribute/Character-Stats work, then his Combat System v1 + four mini-boss mobs), adding
-a Skill System + Class Sub-specializations on top, and then a "Class Overhaul v2" pass (spell
-scaling, Mana costs, sub-spec spell forks, respec cooldowns) — see "Last change" below for
-detail on the merges and each feature pass.
+a Skill System + Class Sub-specializations on top, then a "Class Overhaul v2" pass (spell
+scaling, Mana costs, sub-spec spell forks, respec cooldowns), and a same-session GUI follow-up
+(sub-specs and spells added to the Class tab) — see "Last change" below for detail on the
+merges and each feature pass.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
-  (verified clean boot twice this session, no Mixin/payload/HUD-registration errors/exceptions
-  in the log). **The Class Overhaul v2 feature set below (spell scaling, Mana costs, sub-spec
-  forks, respec cooldowns) has NOT yet been manually playtested** — both `runClient` sessions
-  this pass were short (join + a few seconds, or an earlier unrelated session that leveled up
-  and summoned a mini-boss) and didn't exercise spell-casting/class commands. Build+clean-boot
-  is confirmed; feature-level behavior is not. See "Next recommended step".
+  (verified clean boot 3 times this session, no Mixin/payload/HUD-registration
+  errors/exceptions in the log). **Both the Class Overhaul v2 feature set (spell scaling, Mana
+  costs, sub-spec forks, respec cooldowns) and its GUI follow-up (Class tab sub-spec/spell
+  cards) are user-confirmed working in-game** ("worked fine" / "works"). Not itemized back
+  against every line of the original playtest checklist (see "Next recommended step" item 0,
+  kept as a reference in case any specific sub-item still needs a closer look), so treat this
+  as "no reported breakage from real play," not an exhaustive per-mechanic sign-off.
 - Package: `de.baum2dev.baum2` / Main: `Baum2` / Client: `Baum2Client`.
 - Minecraft 1.21.11 / Yarn 1.21.11+build.6 / Fabric API 0.141.4+1.21.11 / Fabric Loom 1.17.13 / Java 21.
 
@@ -382,10 +384,57 @@ original plan narrative if needed.
   uncapped-target-count AoE while melee is single-target, so "spells stay below melee's DPS
   ceiling" is only guaranteed per-target, not for total output against a large enough group —
   plausibly an intentional AoE-vs-single-target tradeoff, not verified as a deliberate one.
-- **Not yet manually playtested** — see "Current state" above and "Next recommended step"
-  below for the exact checklist. Build passes, client boots cleanly, but nobody has yet cast a
-  spell, watched Mana drop, selected a sub-spec fork, or tried to respec through this new code
-  in an actual play session.
+- **User-confirmed working in-game** ("worked fine") after this shipped — the exact
+  feature-level checklist that was pending (cast each spell, watch Mana drop, exercise the two
+  fixed bugs specifically) has not been itemized back point-by-point, so treat this as "no
+  reported breakage" rather than an exhaustive per-item confirmation.
+
+### Class Overhaul v2 follow-up — sub-specs and spells added to the Class tab GUI
+
+Immediate follow-up request after the above shipped: sub-spec selection and spell casting were
+still command-only (`/baum2 class subspec select`, `/baum2 cast`) with zero GUI presence,
+despite the Class tab already existing for base-class selection.
+
+- **New C2S payload** `networking/SubspecSelectPayload.java` — mirrors `ClassSelectPayload`
+  exactly (a `ClassSubspec` ordinal), registered in `Baum2Networking`; the server receiver
+  calls `ClassManager.selectSubspec` and reports an `ON_COOLDOWN` result the same way the
+  existing `ClassSelectPayload`/`CastSpellPayload` receivers already do (`WRONG_CLASS` is
+  silently ignored — the GUI only ever offers sub-specs belonging to the player's current
+  class, so it can only happen for a stale client render, not a real user action).
+- **`CharacterStatsScreen.java`'s "Class" tab** now has 2 new sections below the existing class
+  card list: **Sub-specializations** (2 clickable cards, same visual language as the class
+  cards minus the icon — no per-sub-spec icon art exists yet — sends `SubspecSelectPayload` on
+  click) and **Spells** (2 clickable cards showing name/Mana cost/cooldown, sends
+  `CastSpellPayload(slot)` on click — **identical payload the V/B keybinds already send**, so a
+  GUI click and a keypress are indistinguishable to the server, no parallel cast path to keep
+  in sync). Both sections show a placeholder message instead when no class is selected yet.
+- **Implementation choice**: rather than pre-building all 8 sub-spec cards / 8 spell cards and
+  toggling visibility (which would need the grid to reserve worst-case space, or dynamic
+  row insertion), exactly 2 sub-spec-card and 2 spell-card widgets exist and get *repointed* at
+  whichever definitions belong to the currently selected class every `refreshValues()` call —
+  `SubspecRegistry.forClass(...)` and `SpellCaster.spellForSlot(...)` (both pre-existing) supply
+  the 2-per-class data directly, no new registry/lookup needed.
+- **`ClassCardWidget`'s `formatBonus`/`attributeLabel` helpers were widened**, not duplicated —
+  changed from taking a whole `ClassDefinition` to taking the 3 raw fields
+  (`attribute, operation, amount`), since `SubspecDefinition` needed the identical formatting
+  logic. Also added 3 missing German attribute labels the sub-spec cards needed that the class
+  cards never exercised (`armor`→"Rüstung", `attack_damage`→"Angriffsschaden",
+  `attack_speed`→"Angriffstempo").
+- **`ClassTab` is now wrapped in a `ScrollableLayoutWidget`**, matching `StatsTab`'s own fix for
+  the exact same class of bug (see "Attribute System" above, "two real bugs" note) — the tab
+  now has enough rows (4 class + 2 sub-spec + 2 spell cards plus headers/spacers) to plausibly
+  overflow a single screen at high GUI Scale, so it gets the same treatment proactively instead
+  of waiting for another screenshot to prove it.
+- **`ip-naming-compliance-checker`: clear** — all new strings ("Sub-specializations", "Spells",
+  the placeholder sentence, the 3 new German attribute labels) are generic UI chrome/dictionary
+  words, not names; no new item/skill/mob/boss/faction names were introduced.
+- **User-confirmed working in-game** ("works") — build passes, client boots cleanly, and the
+  new Class tab sections were manually tested.
+- **Deferred, not done**: per-sub-spec icon art (cards are text-only, unlike class cards which
+  have a 16x16 icon) — `graphics-designer` would need to produce 8 more icons; live
+  cooldown-remaining display on spell cards (currently shows the *static* cooldown length, not
+  time-until-ready, since no client-side cooldown-sync payload exists — `SkillCooldownManager`
+  is server-only in-memory).
 
 ### Custom UI v1 — Class tab merged into Character Stats Screen, top-left HUD removed
 
@@ -647,16 +696,26 @@ a ground AoE, and a 3-hit burst combo.
 
 ## Last change (on `jonas_workbranch`)
 
-**Implemented "Class Overhaul v2"** (spell scaling, Mana costs, sub-spec spell forks, respec
-cooldowns) in response to direct feedback that the classes felt "lame" — full detail in
-"Current state" above under "Class Overhaul v2". Planned via Plan Mode (4 independently
-buildable steps, approved before implementation), built and verified (`./gradlew build`) after
-each step. Ran `balance-reviewer` on the final numbers, which found and both fixes were applied
-before this commit: Glücksrune's cooldown-skip fork was dead code (a cooldown-record ordering
-bug in `SpellCaster.attemptCast` overwrote it every time), and respec cooldowns were trivially
-bypassable via a singleplayer world restart (switched from an in-memory tick-based tracker to
-persistent wall-clock Attachments). Client boots cleanly (verified twice), but **the actual
-feature behavior has not yet been manually playtested** — see "Next recommended step".
+**Added sub-specs and spells to the Class tab GUI**, immediate follow-up to Class Overhaul v2
+after the user confirmed it worked in-game and asked for sub-classes/spells to be wired into
+the 'C'-key Class tab rather than staying command-only — full detail in "Current state" above
+under "Class Overhaul v2 follow-up". New `SubspecSelectPayload` C2S packet; 2 mutable sub-spec
+cards + 2 mutable spell cards in `CharacterStatsScreen`'s `ClassTab`, repointed at whichever
+definitions belong to the currently selected class; spell cards cast via the same
+`CastSpellPayload` the V/B keybinds already send. `ip-naming-compliance-checker` cleared the
+new UI strings (generic chrome text, no new names). **User-confirmed working in-game**
+("works").
+
+Earlier, still on `jonas_workbranch`: **implemented "Class Overhaul v2"** (spell scaling, Mana
+costs, sub-spec spell forks, respec cooldowns) in response to direct feedback that the classes
+felt "lame" — full detail in "Current state" above under "Class Overhaul v2". Planned via Plan
+Mode (4 independently buildable steps, approved before implementation), built and verified
+(`./gradlew build`) after each step. Ran `balance-reviewer` on the final numbers, which found
+and both fixes were applied before this commit: Glücksrune's cooldown-skip fork was dead code
+(a cooldown-record ordering bug in `SpellCaster.attemptCast` overwrote it every time), and
+respec cooldowns were trivially bypassable via a singleplayer world restart (switched from an
+in-memory tick-based tracker to persistent wall-clock Attachments). **User-confirmed working
+in-game** ("worked fine").
 
 Earlier, still on `jonas_workbranch`: **merged `origin/master` into `jonas_workbranch` a second
 time this session.** Master had
@@ -854,17 +913,17 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-0. **Manually playtest Class Overhaul v2** (highest priority — nobody has exercised this code
-   in an actual session yet, only build+clean-boot verified): cast each of the 8 spells and
-   confirm Mana drops by its listed cost and a rejection message appears at 0 Mana; invest
-   attribute points and confirm scaled spells hit harder / utility spells last longer; select
-   each of the 8 sub-specs in turn and confirm its specific forked behavior fires (this is
-   especially important for **Glücksrune**, whose cooldown-skip was just fixed - confirm
-   Runenfunke's cooldown actually skips roughly 1 in 5 casts now, not every time or never);
-   `/baum2 class select <class>` twice in a row and confirm the second is rejected with a
-   remaining-time message, then **fully quit and relaunch the client** and confirm the
-   cooldown message still shows correctly (this is the exact bypass that was just fixed - a
-   regression here means the fix didn't actually persist). Same for sub-spec respec.
+0. **Class Overhaul v2 + its GUI follow-up are both user-confirmed working** — kept here only
+   as a reference checklist in case a specific sub-item needs closer verification later, not as
+   an open task: cast each of the 8 spells and confirm Mana drops by its listed cost and a
+   rejection message appears at 0 Mana; invest attribute points and confirm scaled spells hit
+   harder / utility spells last longer; select each of the 8 sub-specs in turn (now doable via
+   the Class tab GUI, not just the command) and confirm its specific forked behavior fires
+   (especially **Glücksrune** — confirm Runenfunke's cooldown skips roughly 1 in 5 casts now,
+   not every time or never); try to respec twice in a row and confirm the second is rejected
+   with a remaining-time message, then fully quit and relaunch the client and confirm the
+   cooldown message still shows correctly rather than resetting (the exact bypass that was
+   fixed). Also confirm spell cards in the GUI actually cast (not just visually present).
 1. **Balance decision needed, now spanning three separate findings, not yet made**: Combat
    System v1's base ~46x baseline-DPS-at-max-investment issue has been escalated further by
    two consecutive boss-weapon drops — Gold Sword (+12.5%) and Poison Dagger (+145%, pushing
@@ -905,8 +964,10 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
    decision" item was resolved without one.
 7. **The visual-style-guide's growing "one bespoke palette per mob/item" pattern** (see "Custom
    UI v1" above) — worth a deliberate decision before a fourth or fifth palette exists.
-8. Sub-spec selection has no GUI yet (`/baum2 class subspec list|select` only) — the "Class"
-   tab shows/selects the base class but not sub-specs; a natural next step.
+8. **Done**: sub-spec selection and spell casting now have a GUI (Class tab) — see "Class
+   Overhaul v2 follow-up" above. Remaining gaps in that GUI: no per-sub-spec icon art (text-only
+   cards), and spell cards show static cooldown length, not live time-remaining (no
+   client-side cooldown-sync payload exists yet).
 9. No natural spawn path exists for any of the four mini-bosses yet (`/summon`-only) — decide
    when/how this mob family should actually appear in the world (a structure? a `dungeons/`-
    package encounter? natural biome spawn?).

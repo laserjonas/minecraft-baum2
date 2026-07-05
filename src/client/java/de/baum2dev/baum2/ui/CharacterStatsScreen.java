@@ -23,6 +23,7 @@ import net.minecraft.client.gui.widget.TabNavigationWidget;
 import net.minecraft.client.input.KeyInput;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.attribute.EntityAttribute;
+import net.minecraft.entity.attribute.EntityAttributeModifier;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
@@ -30,12 +31,19 @@ import net.minecraft.util.Identifier;
 import de.baum2dev.baum2.classes.ClassDefinition;
 import de.baum2dev.baum2.classes.ClassManager;
 import de.baum2dev.baum2.classes.ClassRegistry;
+import de.baum2dev.baum2.classes.ClassSubspec;
 import de.baum2dev.baum2.classes.PlayerClass;
+import de.baum2dev.baum2.classes.SubspecDefinition;
+import de.baum2dev.baum2.classes.SubspecRegistry;
+import de.baum2dev.baum2.networking.CastSpellPayload;
 import de.baum2dev.baum2.networking.ClassSelectPayload;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.networking.SpendAttributePointPayload;
+import de.baum2dev.baum2.networking.SubspecSelectPayload;
 import de.baum2dev.baum2.progression.AttributeType;
 import de.baum2dev.baum2.progression.VitalsCurve;
+import de.baum2dev.baum2.skills.Spell;
+import de.baum2dev.baum2.skills.SpellCaster;
 
 /**
  * Character stats screen, opened/closed by the 'C' keybinding (Baum2KeyBindings). Built on
@@ -329,29 +337,115 @@ public class CharacterStatsScreen extends Screen {
     /**
      * "Class" tab — moved here from the old standalone ClassScreen ('K' keybind, now removed)
      * so class selection lives alongside the rest of a player's build info. Lists all classes
-     * as clickable cards (one per row in a single-column grid); layout/colors follow the old
-     * ClassScreen spec in docs/visual-style-guide.md section 8.
+     * as clickable cards (one per row in a single-column grid), then the currently selected
+     * class's 2 sub-specializations (click to select) and 2 spells (click to cast, same
+     * CastSpellPayload/slot the V/B keybinds use) - added in Class Overhaul v2. Layout/colors
+     * follow the old ClassScreen spec in docs/visual-style-guide.md section 8, extended with
+     * the same card visual language for the new sections. Wrapped in a ScrollableLayoutWidget
+     * like StatsTab, for the same reason StatsTab needed it: this tab now has enough rows to
+     * overflow a single screen's worth of space at high GUI Scale.
      */
     private static class ClassTab extends GridScreenTab {
-        private final List<ClassCardWidget> cards;
+        private static final int TOP_PADDING = 8;
+        private static final int NO_CLASS_LABEL_COLOR = 0xFF9C9186;
+
+        private final ScrollableLayoutWidget scrollable;
+        private final List<ClassCardWidget> classCards;
+        private final SubspecCardWidget subspecCard0;
+        private final SubspecCardWidget subspecCard1;
+        private final SpellCardWidget spellCard0;
+        private final SpellCardWidget spellCard1;
+        private final TextWidget noClassLabel;
 
         ClassTab() {
             super(Text.literal("Class"));
             this.grid.setRowSpacing(6);
 
-            this.cards = ClassRegistry.all().stream().map(ClassCardWidget::new).toList();
+            this.classCards = ClassRegistry.all().stream().map(ClassCardWidget::new).toList();
             int row = 0;
-            for (ClassCardWidget card : this.cards) {
+            for (ClassCardWidget card : this.classCards) {
                 this.grid.add(card, row++, 0);
             }
+            row = spacer(row);
+
+            TextRenderer textRenderer = MinecraftClient.getInstance().textRenderer;
+            this.grid.add(sectionHeader("Sub-specializations", textRenderer), row++, 0);
+            this.subspecCard0 = new SubspecCardWidget();
+            this.subspecCard1 = new SubspecCardWidget();
+            this.grid.add(this.subspecCard0, row++, 0);
+            this.grid.add(this.subspecCard1, row++, 0);
+            row = spacer(row);
+
+            this.grid.add(sectionHeader("Spells", textRenderer), row++, 0);
+            this.spellCard0 = new SpellCardWidget(0);
+            this.spellCard1 = new SpellCardWidget(1);
+            this.grid.add(this.spellCard0, row++, 0);
+            this.grid.add(this.spellCard1, row++, 0);
+
+            this.noClassLabel = new TextWidget(
+                Text.literal("Select a class above to unlock sub-specializations and spells.")
+                    .styled(style -> style.withColor(NO_CLASS_LABEL_COLOR)),
+                textRenderer
+            );
+            this.grid.add(this.noClassLabel, row++, 0);
+
+            this.scrollable = new ScrollableLayoutWidget(MinecraftClient.getInstance(), this.grid, 200);
+        }
+
+        @Override
+        public void forEachChild(Consumer<ClickableWidget> consumer) {
+            this.scrollable.forEachChild(consumer);
+        }
+
+        @Override
+        public void refreshGrid(ScreenRect tabArea) {
+            ScreenRect paddedArea = new ScreenRect(
+                    tabArea.getLeft(), tabArea.getTop() + TOP_PADDING,
+                    tabArea.width(), Math.max(0, tabArea.height() - TOP_PADDING)
+            );
+            this.scrollable.setWidth(paddedArea.width());
+            this.scrollable.setHeight(paddedArea.height());
+            this.scrollable.refreshPositions();
+            SimplePositioningWidget.setPos(this.scrollable, paddedArea, 0.5F, 0.0F);
         }
 
         void refreshValues() {
             ClientPlayerEntity player = MinecraftClient.getInstance().player;
-            PlayerClass selected = player != null ? player.getAttached(ClassManager.SELECTED_CLASS) : null;
-            for (ClassCardWidget card : this.cards) {
-                card.setSelected(card.definition.playerClass() == selected);
+            PlayerClass selectedClass = player != null ? player.getAttached(ClassManager.SELECTED_CLASS) : null;
+            ClassSubspec selectedSubspec = player != null ? player.getAttached(ClassManager.SELECTED_SUBSPEC) : null;
+
+            for (ClassCardWidget card : this.classCards) {
+                card.setSelected(card.definition.playerClass() == selectedClass);
             }
+
+            boolean hasClass = selectedClass != null;
+            this.subspecCard0.visible = hasClass;
+            this.subspecCard1.visible = hasClass;
+            this.spellCard0.visible = hasClass;
+            this.spellCard1.visible = hasClass;
+            this.noClassLabel.visible = !hasClass;
+
+            if (hasClass) {
+                // SubspecRegistry.forClass always returns exactly 2 sub-specs, in a stable
+                // order (backed by an EnumMap, iterating in ClassSubspec's own declaration
+                // order) - safe to index directly rather than defensively checking size.
+                List<SubspecDefinition> subspecs = SubspecRegistry.forClass(selectedClass).stream().toList();
+                this.subspecCard0.update(subspecs.get(0), subspecs.get(0).subspec() == selectedSubspec);
+                this.subspecCard1.update(subspecs.get(1), subspecs.get(1).subspec() == selectedSubspec);
+
+                SpellCaster.spellForSlot(selectedClass, 0).ifPresent(this.spellCard0::update);
+                SpellCaster.spellForSlot(selectedClass, 1).ifPresent(this.spellCard1::update);
+            }
+        }
+
+        /** Extra-height spacer row, same as StatsTab's own. */
+        private int spacer(int row) {
+            this.grid.add(new TextWidget(0, 5, Text.empty(), MinecraftClient.getInstance().textRenderer), row, 0);
+            return row + 1;
+        }
+
+        private static TextWidget sectionHeader(String text, TextRenderer textRenderer) {
+            return new TextWidget(Text.literal(text).formatted(Formatting.BOLD), textRenderer);
         }
     }
 
@@ -407,7 +501,7 @@ public class CharacterStatsScreen extends Screen {
             String description = textRenderer.trimToWidth(this.definition.description(), textWidth);
             context.drawText(textRenderer, Text.literal(description), textX, y + 17, BODY_COLOR, true);
 
-            Text bonusText = Text.literal(formatBonus(this.definition));
+            Text bonusText = Text.literal(formatBonus(this.definition.bonusAttribute(), this.definition.bonusOperation(), this.definition.bonusAmount()));
             context.drawText(textRenderer, bonusText, textX, y + 28, BONUS_COLOR, true);
 
             if (this.selected) {
@@ -427,12 +521,13 @@ public class CharacterStatsScreen extends Screen {
             builder.put(NarrationPart.TITLE, this.getMessage());
         }
 
-        private static String formatBonus(ClassDefinition definition) {
-            String amount = switch (definition.bonusOperation()) {
-                case ADD_VALUE -> String.format("+%.0f", definition.bonusAmount());
-                case ADD_MULTIPLIED_BASE, ADD_MULTIPLIED_TOTAL -> String.format("+%.0f%%", definition.bonusAmount() * 100);
+        /** Shared with {@link SubspecCardWidget} - class and sub-spec bonuses use the same shape. */
+        static String formatBonus(RegistryEntry<EntityAttribute> attribute, EntityAttributeModifier.Operation operation, double amount) {
+            String formattedAmount = switch (operation) {
+                case ADD_VALUE -> String.format("+%.0f", amount);
+                case ADD_MULTIPLIED_BASE, ADD_MULTIPLIED_TOTAL -> String.format("+%.0f%%", amount * 100);
             };
-            return amount + " " + attributeLabel(definition.bonusAttribute());
+            return formattedAmount + " " + attributeLabel(attribute);
         }
 
         private static String attributeLabel(RegistryEntry<EntityAttribute> attribute) {
@@ -442,8 +537,150 @@ public class CharacterStatsScreen extends Screen {
                 case "movement_speed" -> "Lauftempo";
                 case "luck" -> "Glück";
                 case "knockback_resistance" -> "Rückstoßresistenz";
+                case "armor" -> "Rüstung";
+                case "attack_damage" -> "Angriffsschaden";
+                case "attack_speed" -> "Angriffstempo";
                 default -> path;
             };
+        }
+    }
+
+    /**
+     * One clickable sub-spec card - mutable (unlike ClassCardWidget) since only 2 of these
+     * widgets exist and get repointed at whichever 2 sub-specs belong to the currently selected
+     * class (see ClassTab.refreshValues), rather than pre-building all 8 and toggling
+     * visibility. Same visual language as ClassCardWidget, minus the icon (no per-sub-spec
+     * icon art exists yet).
+     */
+    private static class SubspecCardWidget extends ClickableWidget {
+        private static final int CARD_WIDTH = 204;
+        private static final int CARD_HEIGHT = 34;
+
+        private static final int CARD_BACKGROUND = 0xF01F2622;
+        private static final int CARD_BORDER = 0xFF33443B;
+        private static final int SELECTED_BORDER = 0xFF5FA98C;
+        private static final int SELECTED_WASH = 0x2E5FA98C;
+        private static final int HOVER_BORDER = 0x805FA98C;
+        private static final int BODY_COLOR = 0xFFB9C4BE;
+        private static final int BONUS_COLOR = 0xFF7FD8E0;
+
+        private SubspecDefinition definition;
+        private boolean selected;
+
+        SubspecCardWidget() {
+            super(0, 0, CARD_WIDTH, CARD_HEIGHT, Text.empty());
+            this.definition = SubspecRegistry.get(ClassSubspec.BOLLWERK);
+        }
+
+        void update(SubspecDefinition definition, boolean selected) {
+            this.definition = definition;
+            this.selected = selected;
+            this.setMessage(Text.literal(definition.displayName()));
+        }
+
+        @Override
+        protected void renderWidget(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+            int x = this.getX();
+            int y = this.getY();
+            int borderColor = this.selected ? SELECTED_BORDER : (this.isHovered() ? HOVER_BORDER : CARD_BORDER);
+            int borderWidth = this.selected ? 2 : 1;
+
+            context.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor);
+            context.fill(x + borderWidth, y + borderWidth, x + CARD_WIDTH - borderWidth, y + CARD_HEIGHT - borderWidth, CARD_BACKGROUND);
+            if (this.selected) {
+                context.fill(x + borderWidth, y + borderWidth, x + CARD_WIDTH - borderWidth, y + CARD_HEIGHT - borderWidth, SELECTED_WASH);
+            }
+
+            TextRenderer textRenderer = MinecraftClient.getInstance().textRenderer;
+            int accent = ClassIcons.accentColor(this.definition.subspec().parentClass());
+            int textX = x + 6;
+            int textWidth = CARD_WIDTH - 12;
+
+            Text nameText = Text.literal(this.definition.displayName()).formatted(Formatting.BOLD);
+            context.drawText(textRenderer, nameText, textX, y + 4, accent, true);
+
+            String description = textRenderer.trimToWidth(this.definition.description(), textWidth);
+            context.drawText(textRenderer, Text.literal(description), textX, y + 14, BODY_COLOR, true);
+
+            Text bonusText = Text.literal(ClassCardWidget.formatBonus(
+                this.definition.bonusAttribute(), this.definition.bonusOperation(), this.definition.bonusAmount()
+            ));
+            context.drawText(textRenderer, bonusText, textX, y + 24, BONUS_COLOR, true);
+
+            if (this.selected) {
+                Text activeTag = Text.literal("Aktiv").formatted(Formatting.BOLD);
+                int tagWidth = textRenderer.getWidth(activeTag);
+                context.drawText(textRenderer, activeTag, x + CARD_WIDTH - 6 - tagWidth, y + 4, SELECTED_BORDER, true);
+            }
+        }
+
+        @Override
+        public void onClick(Click click, boolean doubled) {
+            ClientPlayNetworking.send(new SubspecSelectPayload(this.definition.subspec()));
+        }
+
+        @Override
+        protected void appendClickableNarrations(NarrationMessageBuilder builder) {
+            builder.put(NarrationPart.TITLE, this.getMessage());
+        }
+    }
+
+    /**
+     * One clickable spell card - casts the spell on click via the exact same
+     * {@link CastSpellPayload}/slot the V/B keybinds send (SpellCastKeyBindings), so a click
+     * here and a keypress are indistinguishable to the server. Mutable like
+     * {@link SubspecCardWidget}: only 2 widgets exist, repointed at whichever spell currently
+     * occupies that slot for the selected class.
+     */
+    private static class SpellCardWidget extends ClickableWidget {
+        private static final int CARD_WIDTH = 204;
+        private static final int CARD_HEIGHT = 26;
+
+        private static final int CARD_BACKGROUND = 0xF01F2622;
+        private static final int CARD_BORDER = 0xFF33443B;
+        private static final int HOVER_BORDER = 0x805FA98C;
+        private static final int NAME_COLOR = 0xFF7FD8E0;
+        private static final int INFO_COLOR = 0xFF9C9186;
+
+        private final int slot;
+        private Spell spell;
+
+        SpellCardWidget(int slot) {
+            super(0, 0, CARD_WIDTH, CARD_HEIGHT, Text.empty());
+            this.slot = slot;
+            this.spell = Spell.values()[0];
+        }
+
+        void update(Spell spell) {
+            this.spell = spell;
+            this.setMessage(Text.literal(spell.displayName()));
+        }
+
+        @Override
+        protected void renderWidget(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+            int x = this.getX();
+            int y = this.getY();
+            int borderColor = this.isHovered() ? HOVER_BORDER : CARD_BORDER;
+
+            context.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor);
+            context.fill(x + 1, y + 1, x + CARD_WIDTH - 1, y + CARD_HEIGHT - 1, CARD_BACKGROUND);
+
+            TextRenderer textRenderer = MinecraftClient.getInstance().textRenderer;
+            Text nameText = Text.literal(this.spell.displayName()).formatted(Formatting.BOLD);
+            context.drawText(textRenderer, nameText, x + 6, y + 4, NAME_COLOR, true);
+
+            String info = String.format("Mana: %d | Cooldown: %.0fs", this.spell.manaCost(), this.spell.cooldownTicks() / 20.0);
+            context.drawText(textRenderer, Text.literal(info), x + 6, y + 14, INFO_COLOR, true);
+        }
+
+        @Override
+        public void onClick(Click click, boolean doubled) {
+            ClientPlayNetworking.send(new CastSpellPayload(this.slot));
+        }
+
+        @Override
+        protected void appendClickableNarrations(NarrationMessageBuilder builder) {
+            builder.put(NarrationPart.TITLE, this.getMessage());
         }
     }
 }

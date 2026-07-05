@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generic",
+  "textures": {
+    "layer0": "baum2:item/queen_spider_helmet"
+  }
+}

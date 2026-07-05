@@ -5,5 +5,10 @@
   "entity.baum2.stone_of_spiders": "Stone of Spiders",
   "item.baum2.gold_sword": "Gold Sword",
   "entity.baum2.stone_of_zombies": "Stone of Zombies",
-  "item.baum2.poison_dagger": "Poison Dagger"
+  "item.baum2.poison_dagger": "Poison Dagger",
+  "entity.baum2.spider_queen": "Spider Queen",
+  "item.baum2.queen_spider_helmet": "Queen Spider Helmet",
+  "item.baum2.queen_spider_chestplate": "Queen Spider Chestplate",
+  "item.baum2.queen_spider_leggings": "Queen Spider Leggings",
+  "item.baum2.queen_spider_boots": "Queen Spider Boots"
 }

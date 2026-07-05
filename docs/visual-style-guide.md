@@ -301,14 +301,26 @@ assets/baum2/
     entity/
       stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
       stone_of_zombies.png     (176x176 box-UV sheet, same layout as above - see Section 15)
+      spider_queen.png         (64x32, vanilla spider UV layout - see Section 17)
+      equipment/
+        humanoid/
+          queen_spider.png     (64x32, vanilla classic armor-layer UV - see Section 17.4)
+        humanoid_leggings/
+          queen_spider.png     (64x32, same UV convention - see Section 17.4)
   models/
     item/
       gold_sword.json          (see Section 14)
       poison_dagger.json       (see Section 16)
+      queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
+      queen_spider_boots.json  (see Section 17.4)
     block/       (future)
   items/
     gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
     poison_dagger.json         (1.21.11 item-model-definition entry point - see Section 16)
+    queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
+    queen_spider_boots.json    (1.21.11 item-model-definition entry points - see Section 17.4)
+  equipment/
+    queen_spider.json          (1.21.11 equipment-texture definition - see Section 17.4)
   blockstates/   (future)
 ```
 
@@ -1166,8 +1178,176 @@ any other specific game's exact dagger/knife icon.
 
 ---
 
+## 17. Boss visual identity: "Spider Queen" (`baum2:spider_queen`) and the "Queen Spider Set" armor
+
+The mod's **first true mobile boss** (level 15, 350 HP) — every prior hostile mob (Sections 13,
+15) was a stationary mini-boss fused to the ground. Spider Queen is a giant spider (literally
+3x a normal Minecraft spider) that fights with a fast bite and a long-range leaping lunge
+(`SpiderQueenEntity.java`), and drops the mod's **first genuine boss-tier armor set** — the
+4-piece "Queen Spider Set" — rather than a single mini-boss trinket (Sections 14, 16). Both of
+these are precedents, the same way Section 13 was the precedent for mini-boss visual identity:
+future mobile bosses and future armor sets should look to this section first.
+
+### 17.1 Why this shape/approach
+
+Unlike Stone of Spiders/Stone of Zombies (custom cuboid geometry, Section 13.2), Spider Queen
+**reuses vanilla's own `SpiderEntityModel` geometry unchanged**, scaled 3x via a
+`ModelTransformer` at model-layer registration (confirmed against decompiled `EntityModels`/
+`GiantEntityModel` — the same two-part "bigger dimensions + scaled shared model" mechanism
+vanilla's own Giant uses to look 6x a Zombie). Only the *texture* is original — this section's
+job is exclusively the re-theme, not new geometry.
+
+*Compliance note:* "giant reskinned version of a normal enemy, scaled up, as a boss" is a
+generic, widely-used monster-variant convention (colossal/elite versions of common enemies
+appear across countless unrelated games, and vanilla Minecraft does this exact thing with
+Giant/Zombie) — genre convention, not IP. The palette, markings, and armor design below are
+original and were not modeled on any specific existing creature or game's actual design.
+
+### 17.2 Entity texture: `spider_queen.png`
+
+- **File:** `assets/baum2/textures/entity/spider_queen.png`.
+- **Canvas:** **64x32 px, confirmed exactly matching vanilla's own UV layout** — verified by
+  reading `SpiderEntityModel.getTexturedModelData()` directly out of the decompiled
+  `minecraft-clientOnly-...-sources.jar` in `.gradle/loom-cache/minecraftMaven/` (not assumed):
+  `TexturedModelData.of(modelData, 64, 32)`. The Java model/renderer
+  (`SpiderQueenEntityRenderer.java`) reuses vanilla's `SpiderEntityModel` unmodified, so this
+  texture **must** fill the exact same UV regions vanilla's own spider texture uses — the model
+  was not redesigned, only re-themed, per the exact UV table below (derived directly from the
+  same source file's `ModelPartBuilder.cuboid(...)`/`.uv(...)` calls, not guessed):
+
+  | Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) |
+  |---|---|---|---|
+  | Legs (all 8, shared/mirrored) | (18, 0) | 16 x 2 x 2 | (18, 0, 36, 4) |
+  | Thorax (`body0`) | (0, 0) | 6 x 6 x 6 | (0, 0, 24, 12) |
+  | Head | (32, 4) | 8 x 8 x 8 | (32, 4, 32, 16) |
+  | Abdomen (`body1`) | (0, 12) | 10 x 8 x 12 | (0, 12, 44, 20) |
+
+### 17.3 Palette: "Royal Carapace" (original, distinct from every other palette in the mod)
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Carapace mid-tone | Royal Carapace | `#4B2170` | Main body/head/leg side+front faces |
+| Carapace highlight | Royal Carapace Pale | `#7A46A6` | Top faces (thorax, abdomen, head) |
+| Carapace shadow | Royal Carapace Dusk | `#2A0F3F` | Bottom/back faces |
+| Chitin void | Chitin Void | `#1C0E28` | Legs and other near-black joint/accent tones |
+| Regal trim | Regal Amber | `#D9A73A` | Markings, joint glints, the abdomen's insignia |
+| Regal trim, dark | Regal Amber Dusk | `#8C6A1E` | Shadow-side trim accents |
+| Regal trim, pale | Regal Amber Pale | `#F0C878` | Sparse gem/crest highlight pixels only |
+| Eye-socket base | Void Socket | `#0D0609` | Dark base under the head's eye cluster |
+
+*Compliance note:* deep violet/royal-purple with gold/amber trim is a widely-used genre
+convention for "regal/queen" enemy coding (seen across countless unrelated games and other
+media, plus real-world regalia associations) — not any specific existing game's exact
+creature-color branding. This palette is also checked distinct from every other palette already
+in this document: it does not reuse Section 13.3's warm brown/tan Fused Stone/Cocoon Husk, nor
+Section 15.2's cool toxic-green Toxic Bloom, nor the UI's verdigris/rune-cyan (Section 2), nor
+the Vitals HUD's coral/azure (Section 11), nor any of the amber/violet/jade/gold family used on
+the Character Stats Screen (Section 12) — this is a new, more saturated violet family paired
+with a warmer, more orange-leaning amber than the UI's Aged Brass (`#D9B36C`), chosen
+deliberately so the boss's own identity doesn't visually collide with existing UI meaning.
+
+**On the glowing eyes:** vanilla spiders (and Spider Queen, since `SpiderQueenEntityRenderer`
+adds `SpiderEyesFeatureRenderer` unmodified) get a glowing-eyes overlay from a **separate,
+fixed vanilla texture** (`spider_eyes.png`), rendered additively on top of this entity's own
+head geometry — that overlay's color is vanilla's own fixed red-orange and is not something
+this mod's texture can retint. `spider_queen.png`'s own head UV region was painted with a dark
+`Void Socket` base at the eye cluster so vanilla's fixed glow reads clearly against it (the same
+principle vanilla's own spider texture already relies on), rather than picking a genuinely new
+eye-glow color as if that were configurable — it isn't, for a mob built on the shared vanilla
+model/feature-renderer pair.
+
+### 17.4 Queen Spider Set armor — first boss-tier armor set
+
+4 pieces (`baum2:queen_spider_helmet/_chestplate/_leggings/_boots`), dropped as a full-set kill
+reward (`SpiderQueenEntity.dropLoot`). Two separate visual systems, per 1.21.11's equipment
+architecture:
+
+**Item icons** (`textures/item/queen_spider_<piece>.png`, 16x16 each) — standard flat inventory
+icons following the vanilla armor-icon silhouette convention (helmet dome, chestplate torso +
+pauldrons, leggings waistband + twin legs, boots twin ankle/foot shapes) in the Royal
+Carapace/Regal Amber palette above, each with a thin gold trim line and a small gem/accent so
+the set reads as one cohesive "boss reward" family at a glance in the inventory grid. Model/
+item-definition JSON (`assets/baum2/items/queen_spider_*.json` + `models/item/queen_spider_*.json`)
+already existed and were verified correct against these exact texture files — no changes needed.
+
+**Worn-on-player textures** (the "looks beautiful when worn" layer) — `assets/baum2/equipment/
+queen_spider.json` points at two texture files:
+- `assets/baum2/textures/entity/equipment/humanoid/queen_spider.png` (helmet, chestplate, boots)
+- `assets/baum2/textures/entity/equipment/humanoid_leggings/queen_spider.png` (leggings)
+
+**Canvas: 64x32 px each, confirmed exactly matching vanilla's own classic armor-layer
+convention** (the same UV layout as the pre-1.21.11 `armor/diamond_layer_1.png`/`_layer_2.png`
+files — only the file location/lookup mechanism changed in 1.21.11, not the biped model
+geometry) — verified by reading `BipedEntityModel.getModelData()` directly out of the
+decompiled sources jar (not assumed), which gives this exact UV table:
+
+| Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) |
+|---|---|---|---|
+| Head (inner) | (0, 0) | 8 x 8 x 8 | (0, 0, 32, 16) |
+| Hat (outer helmet shell) | (32, 0) | 8 x 8 x 8 | (32, 0, 32, 16) |
+| Body | (16, 16) | 8 x 12 x 4 | (16, 16, 24, 16) |
+| Arms (shared/mirrored) | (40, 16) | 4 x 12 x 4 | (40, 16, 16, 16) |
+| Legs (shared/mirrored) | (0, 16) | 4 x 12 x 4 | (0, 16, 16, 16) |
+
+Both files were painted at this exact layout: the `humanoid` (main) layer's head/hat regions
+carry the helmet's face-plate + visor slit + a small crest gem, the body/arm regions carry the
+chestplate with gold edge trim and a chest gem, and the leg region uses `Chitin Void` (dark
+boot-leather tone, distinct from the carapace-violet used elsewhere) with a gold sole trim so
+the boots read as their own distinct piece rather than a recolored leg segment. The
+`humanoid_leggings` layer's body region (hip band) and leg region (thigh plating) instead reuse
+the carapace-violet + a gold belt/knee band, so the leggings read as continuing the chestplate's
+plating rather than matching the boots' darker leather tone — the set is designed to look like
+one continuous suit of "queen-spider chitin plating" when all 4 pieces are worn together, per
+the brief's "should look beautiful" requirement, not four independently-themed pieces that
+happen to share a name.
+
+*Compliance note:* a violet-and-gold "regal insect/spider queen" armor identity is, again, a
+genre-generic association (does not require or reproduce any specific existing game's exact
+armor-set branding); the specific silhouette/trim/gem execution here is original.
+
+### 17.5 Files produced this pass (all explicitly temporary placeholders)
+
+Per `MASTERPROMPT.md`'s asset rule — flat-color pixel fills generated programmatically
+(PowerShell + `System.Drawing`, same technique as every prior placeholder in this document; no
+Python/ImageMagick available in this environment), not hand-drawn final art. No traced,
+extracted, or downloaded source material was used anywhere in this pass.
+
+- `assets/baum2/textures/entity/spider_queen.png` (64x32)
+- `assets/baum2/textures/item/queen_spider_helmet.png` (16x16)
+- `assets/baum2/textures/item/queen_spider_chestplate.png` (16x16)
+- `assets/baum2/textures/item/queen_spider_leggings.png` (16x16)
+- `assets/baum2/textures/item/queen_spider_boots.png` (16x16)
+- `assets/baum2/textures/entity/equipment/humanoid/queen_spider.png` (64x32)
+- `assets/baum2/textures/entity/equipment/humanoid_leggings/queen_spider.png` (64x32)
+
+**Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
+document): real hand-drawn surface detail (leg segmentation shading, carapace sheen, finer
+armor engraving) — this pass proves the UV layouts, establishes the palette, and gives the
+mod's first real boss and first armor set something considered to look at in-game, but a human
+artist pass would meaningfully raise the ceiling here given the "should look beautiful" bar.
+
+---
+
 ## Changelog
 
+- **2026-07-05** — Added Section 17 (boss visual identity: "Spider Queen", `baum2:spider_queen`
+  — the mod's first true **mobile** boss, as opposed to Sections 13/15's stationary
+  mini-bosses — and its "Queen Spider Set" drop, the mod's first genuine boss-tier armor set).
+  Spider Queen reuses vanilla's own `SpiderEntityModel` geometry unchanged (scaled 3x at the
+  model-transform level, same mechanism as vanilla's Giant/Zombie), so only a re-themed texture
+  was needed; its 64x32 canvas and exact per-part UV regions were verified against
+  `SpiderEntityModel.getTexturedModelData()` in the decompiled client-sources jar rather than
+  assumed. Established a new "Royal Carapace" violet/gold palette, distinct from every other
+  palette in this document. Produced 4 boss-armor item icons (16x16) and, for the first time in
+  this document, the mod's first **worn-on-player equipment-layer textures**
+  (`textures/entity/equipment/humanoid/queen_spider.png` +
+  `.../humanoid_leggings/queen_spider.png`) — their 64x32 canvas and UV layout (identical to the
+  pre-1.21.11 `armor/diamond_layer_1.png`/`_layer_2.png` convention) were likewise verified
+  against decompiled `BipedEntityModel.getModelData()` rather than assumed, per this project's
+  standing rule to verify vanilla dimensions/UV layouts against ground truth rather than guess.
+  All 7 files generated via PowerShell + `System.Drawing`, same technique as every prior
+  placeholder pass. Existing item/model/equipment JSON were checked against the new texture
+  identifiers and needed no changes. Updated Section 6's folder listing.
 - **2026-07-05** — Added Section 15 (monster visual identity: "Stone of Zombies",
   `baum2:stone_of_zombies` — the mod's second custom hostile mob) and Section 16 (weapon
   visual identity: "Poison Dagger", `baum2:poison_dagger` — the mod's second custom item).

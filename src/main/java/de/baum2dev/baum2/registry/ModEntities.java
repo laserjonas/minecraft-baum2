@@ -8,6 +8,7 @@ import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
+import de.baum2dev.baum2.entity.SpiderQueenEntity;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntity;
 import de.baum2dev.baum2.entity.StoneOfZombiesEntity;
 
@@ -35,9 +36,22 @@ public class ModEntities {
                     .build(STONE_OF_ZOMBIES_KEY)
     );
 
+    public static final RegistryKey<EntityType<?>> SPIDER_QUEEN_KEY =
+            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "spider_queen"));
+
+    public static final EntityType<SpiderQueenEntity> SPIDER_QUEEN = Registry.register(
+            Registries.ENTITY_TYPE,
+            SPIDER_QUEEN_KEY,
+            EntityType.Builder.create(SpiderQueenEntity::new, SpawnGroup.MONSTER)
+                    .dimensions(4.2F, 2.7F)
+                    .eyeHeight(1.95F)
+                    .build(SPIDER_QUEEN_KEY)
+    );
+
     public static void registerAttributes() {
         FabricDefaultAttributeRegistry.register(STONE_OF_SPIDERS, StoneOfSpidersEntity.createStoneOfSpidersAttributes());
         FabricDefaultAttributeRegistry.register(STONE_OF_ZOMBIES, StoneOfZombiesEntity.createStoneOfZombiesAttributes());
+        FabricDefaultAttributeRegistry.register(SPIDER_QUEEN, SpiderQueenEntity.createSpiderQueenAttributes());
     }
 
     /** No-op - calling this forces this class (and its static EntityType registrations) to load. */

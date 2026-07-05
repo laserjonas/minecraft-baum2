@@ -502,38 +502,137 @@ here mainly for what's *different*.
   zombie/baby-zombie waves spawn and die correctly with the stone, confirm Poison Dagger drops
   and actually poisons on hit.
 
+### Spider Queen — first mobile boss, first armor set (`baum2:spider_queen`)
+
+Level 15, 350 HP giant (3x-scale) spider boss with a fast melee bite (10 dmg, 2 attacks/sec)
+and a signature long-range leap attack (75 dmg, 4-12 block trigger range, 7s cooldown). Unlike
+the two stationary "Stone of" mini-bosses, this mob actually moves/chases/climbs — the first
+mobile boss in the mod. Drops a full 4-piece "Queen Spider Set" armor on death — this mod's
+first armor system.
+
+- **Built on vanilla `SpiderEntity` directly, not `HostileEntity`** (unlike every custom mob so
+  far) — inherits wall-climbing, `SpiderNavigation`, and the spider model/animation for free,
+  so only goals/attributes/drop needed overriding. `initGoals()` fully replaces the vanilla
+  spider's own goal list (removes the brightness-based deaggro from vanilla's inner
+  `AttackGoal`/`TargetGoal` — a boss shouldn't lose interest because of daylight — and swaps in
+  two custom goals, see below); `canHaveStatusEffect`'s vanilla spider-specific Poison immunity
+  is inherited unchanged (a spider immune to poison is thematically fine to keep).
+- **3x visual + hitbox scale**: confirmed via decompiled `EntityModels.java` that vanilla's own
+  Giant achieves its 6x-zombie look via `ModelTransformer.scaling(6.0F)` applied to the
+  zombie's `TexturedModelData` at model-layer registration time, **plus** a matching 6x
+  `EntityType.Builder.dimensions()` — not the newer `EntityAttributes.SCALE` attribute (which
+  exists but Giant doesn't use it). Spider Queen copies this exact two-part mechanism at 3x:
+  `EntityType.Builder.dimensions(4.2F, 2.7F)` (3x spider's 1.4x0.9) plus
+  `ModelTransformer.scaling(3.0F)` applied to `SpiderEntityModel.getTexturedModelData()`. Her
+  own renderer (`SpiderQueenEntityRenderer`) is written by hand rather than extending vanilla's
+  generic `SpiderEntityRenderer<T>`, because that class hardcodes a non-scaled `0.8F` shadow
+  radius with no constructor to override it.
+- **Custom melee cadence** (`QueenMeleeAttackGoal extends MeleeAttackGoal`): `MeleeAttackGoal`'s
+  cooldown field is `private` with no protected setter, so the vanilla 1-attack/sec pace can't
+  be retuned via a normal override — worked around by shadowing it with an independent counter;
+  `resetCooldown()`/`isCooledDown()` are still called polymorphically by the inherited
+  `attack()`/`canAttack()`, so this is a clean override, not a hack, just an awkward API.
+- **Leap attack** (`LeapAttackGoal extends Goal`, modeled loosely on vanilla's own
+  velocity-based `PounceAtTargetGoal`, also used by regular spiders): triggers on horizontal
+  distance (not raw 3D) so an elevated target can't trigger-and-waste the cooldown for free,
+  plus a max-vertical-gap gate for the same reason. **`balance-reviewer` found a real
+  mechanical gap, not a numeric one, and it was fixed in this same pass rather than deferred**:
+  the leap originally only aimed once at launch (a straight-line lob), so a player could beat
+  it with a single sidestep, and the cooldown was consumed even on a clean miss — directly
+  contradicting the user's explicit "escape is impossible" design brief. Fixed by re-aiming
+  once more, mid-flight, toward the target's then-current position (`aimAt()`, called at launch
+  and again at the flight's halfway point) — narrows the dodge window without turning it into
+  a homing missile. The cooldown-consumed-on-miss behavior itself was left as-is (a legitimate
+  "fully committed telegraphed attack" design, not obviously wrong) — this fix targeted the
+  literal contradiction with the stated brief, not a stat retune, so it wasn't deferred to the
+  "balance later" bucket the numeric findings below were.
+- **Queen Spider Set** (`registry/ModItems.java`): this mod's first armor material/items.
+  `Item.Settings.armor(ArmorMaterial, EquipmentType)` mirrors the `.sword(...)` pattern
+  discovered for Gold Sword. Confirmed via decompiled sources that the "worn armor" 3D look is
+  a **separate system from the item icon**: a client resource JSON at
+  `assets/baum2/equipment/queen_spider.json` (NOT a datapack/dynamic-registry entry, despite
+  `ArmorMaterial.assetId()` being typed `RegistryKey<EquipmentAsset>` — confirmed via
+  `EquipmentModelLoader`'s `ResourceFinder.json("equipment")` that this resolves from
+  `assets/<ns>/equipment/<name>.json`, a plain resource-pack asset) pointing at two textures
+  (`textures/entity/equipment/humanoid/queen_spider.png` for helmet/chestplate/boots,
+  `.../humanoid_leggings/queen_spider.png` for leggings) — both verified 64x32 against
+  decompiled `BipedEntityModel`'s actual cuboid/UV layout, not assumed. No custom Java
+  rendering code was needed for the worn look at all — vanilla's own `PlayerEntityRenderer`
+  picks this up automatically once the material + equipment JSON exist.
+- **`balance-reviewer` findings, numeric, logged not fixed per "balance later" direction**:
+  (a) HP/level ratio (350/15 ≈ 23.3) drifts ~17% from both prior Stone bosses' consistent 20
+  HP/level, and drifts in the "harder to farm" direction despite this boss *also* being harder
+  to fight than the stationary Stones (more mobility) — compounding rather than offsetting,
+  worth a conscious decision rather than leaving as drift; (b) the armor's toughness (1.0,
+  between Iron's 0 and Diamond's 2.0) makes **zero actual difference** against the boss's own
+  75-damage leap attack — computed via vanilla's real mitigation formula that the `armor × 0.2`
+  floor binds regardless of toughness value at that damage level, so the toughness stat only
+  matters against smaller hits; (c) defense-total (20) and enchantability (10) are
+  Diamond-*equal*, not Diamond-*adjacent*, despite only durability/toughness actually sitting
+  between Iron and Diamond — the "between Iron and Diamond" framing doesn't hold uniformly
+  across all four stats; (d) repairs via `ItemTags.REPAIRS_IRON_ARMOR` (cheapest ore tier) is a
+  real mismatch against Diamond-equal defense, already flagged as a placeholder in the code
+  comment (no dedicated repair material exists yet) — restated with the concrete gap attached;
+  (e) 75 flat leap damage is a real, fair threat at the mod's starting 500 HP (Endurance 5) but
+  fades toward irrelevant quickly as Endurance is invested, consistent with the
+  already-logged "high investment trivializes content" direction from Combat System v1, not a
+  new problem.
+- **`ip-naming-compliance-checker` result: Clear**, with one soft watch-item (not a required
+  fix): "Spider Queen" is confirmed genre-wide trope (independent unrelated games — Don't
+  Starve, Raid: Shadow Legends, Crimson Desert, Tarisland, Gauntlet — all ship their own
+  differently-executed "Spider Queen"/"Queen Spider" boss, exactly what a shared trope looks
+  like), but it's also the well-known D&D/Forgotten-Realms epithet for Lolth, Demon Queen of
+  Spiders. Nothing here pulls in Lolth-specific content (no drow, no "Demonweb," no
+  spider-deity lore) so it clears on its own — flagged only as a **future-content watch-item**:
+  if a later session pairs this boss with drow-style enemies, a "web pit" dungeon, or a
+  spider-goddess faction, that specific *bundle* would start reading as Lolth specifically, not
+  just the generic trope this boss currently is.
+- Visual identity: `docs/visual-style-guide.md` Section 17 — new "Royal Carapace"
+  violet/gold palette for both the boss and her armor, explicitly distinct from every other
+  palette in the mod. Note: vanilla's `SpiderEyesFeatureRenderer` (kept, unmodified) renders a
+  fixed vanilla red-orange glow overlay that isn't retintable from our texture — the entity
+  texture's eye-socket base was designed around that fixed color rather than fighting it.
+- Verified: `./gradlew build` passes clean, no warnings. **Not yet verified in an actual game
+  session** — same limitation as every mob added this project; next person should `/summon
+  baum2:spider_queen`, confirm the 3x-scaled model/texture renders correctly (including the
+  vanilla eye-glow overlay), confirm the melee cadence feels like 2/sec, confirm the leap
+  attack actually closes distance and its mid-flight re-aim works as intended, confirm all 4
+  armor pieces drop and both the inventory icons and the worn 3D look render correctly.
+
 ## Last change (on `fischey_workbranch`, based on the merged commit above)
 
-Implemented the "Stone of Zombies" mini-boss mob + its "Poison Dagger" drop — see "Stone of
-Zombies" above for full detail. User request: a second stone mini-boss, level-20/400-HP/same
-3x3 size as Stone of Spiders but green with smoke, spawning zombies + "mini zombies" and
-dropping a green poisonous dagger; user confirmed via clarifying questions that mini zombies
-= vanilla baby zombies, the poison should be a real on-hit status effect (not cosmetic), smoke
-should be continuous ambient particles, and wave composition should mirror Stone of Spiders'
-3-per-wave total. Refactored `StoneOfSpidersEntityModel` into a shared
-`HulkingCocoonStoneEntityModel` (both stone mini-bosses use identical geometry per the "same
-size" requirement, differing only by texture) rather than duplicating the 7-cuboid geometry.
-Confirmed via decompiled sources: the 6-arg `EntityType.spawn(...)` overload's `afterConsumer`
-callback is the correct way to spawn a pre-configured baby zombie; `World.addParticleClient`
-(renamed from `addParticle` in this Yarn build) is a no-op server-side stub whose real
-implementation lives client-side, so ticking on both sides and checking `isClient()` (the same
-pattern vanilla's own `EndermanEntity` uses for its portal particles) needs no networking;
-`ServerLivingEntityEvents.AFTER_DAMAGE` (already used for XP, now reused for poison) is
-sufficient for a pure-side-effect status application, no new Mixin needed unlike the Crit-Chance
-system. `graphics-designer` produced a new "Toxic Bloom" palette + both placeholder
-textures/models, explicitly reusing Stone of Spiders' exact UV layout since the geometry is
-shared; `ip-naming-compliance-checker` returned Clear; `balance-reviewer` confirmed HP/level
-scaling is consistent with the Stone of Spiders precedent (20 HP/level, both bosses), but found
-a real, escalating issue: Poison Dagger's attack-speed stat (2.5x vanilla, chosen for a
-fast-dagger identity) survives to max character investment essentially undiluted because
-Dexterity's Attack-Speed modifier multiplies the weapon's own base speed rather than adding a
-flat amount, pushing the already-logged ~46x baseline-DPS compounding ceiling (Combat System v1)
-to roughly ~110x for a Poison Dagger wielder — the second weapon in a row to make that same
-already-open issue worse, not a new isolated problem. Logged in "Stone of Zombies" above and
-folded into the existing "Balance decision needed" item below rather than silently retuning.
-Verified: `./gradlew build` passes clean with zero warnings. **Not yet verified in an actual
-game session** — same no-GUI-automation limitation as every gameplay-feel check in this
-project; next step is a human `/summon`-ing one and fighting it.
+Implemented the "Spider Queen" boss + "Queen Spider Set" armor drop — see "Spider Queen" above
+for full detail. User request: level-15/350-HP giant (3x) spider boss with a fast melee bite
+(10 dmg, 2/sec) and a 12-block fast leap attack (75 dmg, 7s cooldown, explicitly "so an escape
+is impossible"), dropping a full armor set described as should "look beautiful." This is the
+mod's first *mobile* boss (built on vanilla `SpiderEntity` directly rather than `HostileEntity`,
+inheriting wall-climbing/navigation/model for free) and first armor system. Researched
+extensively before implementing: confirmed via decompiled `EntityModels.java` that vanilla's
+own Giant achieves its 6x-zombie look via `ModelTransformer.scaling(...)` plus matching
+`EntityType` dimensions (not the newer `EntityAttributes.SCALE` attribute, which Giant doesn't
+use), applied the same two-part technique at 3x for Spider Queen; confirmed
+`Item.Settings.armor(ArmorMaterial, EquipmentType)` mirrors the `.sword(...)` pattern from Gold
+Sword; confirmed the "worn armor" 3D look is a separate resource-JSON system
+(`assets/<ns>/equipment/<name>.json`) from the item icon, and verified the worn-texture
+canvas/UV layout (64x32) against decompiled `BipedEntityModel` rather than assuming. Worked
+around `MeleeAttackGoal`'s private, unoverridable cooldown field by shadowing it with an
+independent counter for the boss's faster attack cadence. `graphics-designer` produced a new
+"Royal Carapace" violet/gold palette for both the boss and her armor (entity texture, 4 item
+icons, and both worn-armor layer textures); `ip-naming-compliance-checker` returned Clear (one
+soft future-content watch-item logged, not a fix - see "Spider Queen" above);
+`balance-reviewer` found several numeric findings (HP/level ratio drift, toughness being
+functionally inert against the boss's own leap damage, defense-total matching Diamond despite
+an "Iron-to-Diamond" framing) logged for the later balance pass per explicit user direction
+("we are in development phase, balance later"), plus one **non-numeric** finding acted on
+immediately rather than deferred: the leap attack's original fire-and-forget aim meant a single
+sidestep defeated it entirely and even a clean miss consumed the full cooldown, directly
+contradicting the stated "escape is impossible" design intent rather than being a tunable
+number — fixed by adding one mid-flight re-aim toward the target's current position, narrowing
+(not eliminating) the dodge window. Verified: `./gradlew build` passes clean with zero
+warnings. **Not yet verified in an actual game session** — same no-GUI-automation limitation as
+every gameplay-feel check in this project; next step is a human `/summon`-ing one and fighting
+it, specifically to confirm the leap actually reads as "hard to escape" now rather than just
+harder.
 
 ## Last change (on `jonas_workbranch`)
 
@@ -746,6 +845,24 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
    intended, or should add-pressure have scaled up too. Also no natural spawn path exists yet
    for either mob (summon-only) — decide when/how this mob family should actually appear in the
    world (a structure? a `dungeons/`-package encounter? natural biome spawn?).
+0a. **In-game verification of Spider Queen + Queen Spider Set** — `/summon baum2:spider_queen`,
+    confirm the 3x-scaled spider model/texture renders correctly (including vanilla's
+    fixed-color eye-glow overlay), confirm melee feels like ~2 attacks/sec, confirm the leap
+    attack (a) actually triggers around 4-12 blocks away, (b) its new mid-flight re-aim
+    actually helps land hits rather than looking janky, (c) doesn't waste its cooldown against
+    an elevated target it can't reach. Confirm all 4 armor pieces drop, their inventory icons
+    render, and — the part that most needs a human's eyes, since it can't be verified any other
+    way — the worn 3D look on a player actually displays the "Royal Carapace" texture instead
+    of missing/pink-and-black, since the equipment-asset resource JSON path was implemented
+    from decompiled-source research rather than an existing local example to copy. Balance
+    findings logged, not yet decided (see "Spider Queen" above for exact numbers): (a) 350
+    HP/level 15 drifts ~17% from both Stone bosses' consistent 20 HP/level, in the "harder to
+    farm" direction despite Spider Queen already being harder to fight via mobility alone; (b)
+    her armor's toughness stat (1.0) is measurably inert against her own 75-damage leap
+    specifically; (c) the armor's defense-total/enchantability match Diamond exactly while only
+    durability/toughness sit "between Iron and Diamond" as the code comment claims; (d) repairs
+    via iron ingots is a real mismatch against Diamond-equal defense, pending a dedicated repair
+    material that doesn't exist yet.
 1. **In-game verification of everything merged this session** — no GUI-automation tool exists
    here (see "Current state"), so this needs a human: confirm the Class Screen ('K') and
    Character Stats Screen ('C') both still open correctly and don't visually collide with each

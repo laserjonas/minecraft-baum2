@@ -9,11 +9,11 @@ import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.render.entity.EntityRendererFactories;
 import net.minecraft.client.render.entity.model.ModelTransformer;
-import net.minecraft.client.render.entity.model.SpiderEntityModel;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 import de.baum2dev.baum2.entity.HulkingCocoonStoneEntityModel;
+import de.baum2dev.baum2.entity.SpiderQueenEntityModel;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfZombiesEntityRenderer;
@@ -63,7 +63,7 @@ public class Baum2Client implements ClientModInitializer {
 
         EntityModelLayerRegistry.registerModelLayer(
                 SpiderQueenEntityRenderer.LAYER,
-                () -> SpiderEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
+                () -> SpiderQueenEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
         EntityRendererFactories.register(ModEntities.SPIDER_QUEEN, SpiderQueenEntityRenderer::new);
     }
 }

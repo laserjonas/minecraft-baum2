@@ -1188,6 +1188,16 @@ The mod's **first true mobile boss** (level 15, 350 HP) — every prior hostile 
 these are precedents, the same way Section 13 was the precedent for mini-boss visual identity:
 future mobile bosses and future armor sets should look to this section first.
 
+**Deliberate two-palette split (read this before "fixing" it):** as of 2026-07-05, the Spider
+Queen entity's own texture (Section 17.3, "Mutant Ichor" — sickly/toxic green) and the Queen
+Spider Set armor she drops (Section 17.4, "Royal Carapace" — violet/gold) intentionally use two
+*different*, unrelated palettes. This is not an oversight or a half-finished reskin — it's
+direct user feedback after playtesting: the boss's own look was asked to become "more green and
+more like a mutant spider" with a green smoke aura, while the armor drop was explicitly confirmed
+to already "look fine" and was asked to stay untouched. Do not unify these two palettes, and do
+not treat the mismatch as a bug to silently correct — if a future pass wants to reconcile them,
+that's a deliberate design decision to raise with the user first, not an assumed cleanup.
+
 ### 17.1 Why this shape/approach
 
 Unlike Stone of Spiders/Stone of Zombies (custom cuboid geometry, Section 13.2), Spider Queen
@@ -1222,45 +1232,84 @@ original and were not modeled on any specific existing creature or game's actual
   | Head | (32, 4) | 8 x 8 x 8 | (32, 4, 32, 16) |
   | Abdomen (`body1`) | (0, 12) | 10 x 8 x 12 | (0, 12, 44, 20) |
 
-### 17.3 Palette: "Royal Carapace" (original, distinct from every other palette in the mod)
+### 17.3 Entity palette: "Mutant Ichor" (boss's own texture — distinct from the armor's palette; see divergence note below)
+
+**Revised 2026-07-05 after playtesting.** The entity's own texture no longer uses "Royal
+Carapace" — that name and violet/gold palette now describes only the Queen Spider Set armor
+(Section 17.4, unchanged). Direct playtest feedback asked for the boss itself to read as "more
+green and more like a mutant spider," with a green smoke/aura (already implemented in Java via
+vanilla's `ParticleTypes.WITCH` swirl — not a texture concern). This section documents the new
+entity-only palette; Section 17.4 is untouched.
 
 | Role | Name | Hex | Notes |
 |---|---|---|---|
-| Carapace mid-tone | Royal Carapace | `#4B2170` | Main body/head/leg side+front faces |
-| Carapace highlight | Royal Carapace Pale | `#7A46A6` | Top faces (thorax, abdomen, head) |
-| Carapace shadow | Royal Carapace Dusk | `#2A0F3F` | Bottom/back faces |
-| Chitin void | Chitin Void | `#1C0E28` | Legs and other near-black joint/accent tones |
-| Regal trim | Regal Amber | `#D9A73A` | Markings, joint glints, the abdomen's insignia |
-| Regal trim, dark | Regal Amber Dusk | `#8C6A1E` | Shadow-side trim accents |
-| Regal trim, pale | Regal Amber Pale | `#F0C878` | Sparse gem/crest highlight pixels only |
-| Eye-socket base | Void Socket | `#0D0609` | Dark base under the head's eye cluster |
+| Carapace mid-tone | Mutant Ichor | `#4C6B5A` | Main body/head/leg front+side faces — a desaturated, sickly gray-teal green (not a clean/saturated "grass green") |
+| Carapace highlight | Mutant Ichor Pale | `#7FA893` | Top faces (thorax, abdomen, head) |
+| Carapace shadow | Mutant Ichor Dusk | `#263B30` | Bottom/back faces |
+| Joint/crack accent | Necrotic Vein | `#241626` | Near-black plum (not pure black) — leg joints and dark venous crack lines painted onto the carapace, the main "diseased" cue |
+| Vein accent, pale | Necrotic Vein Pale | `#4A2E4A` | Secondary/lighter vein-crack tone, used sparingly next to Necrotic Vein for a two-tone crack read |
+| Diseased blotch | Bile Blotch | `#B8C13A` | Sickly yellow-green pustule/blotch marks — irregular, asymmetrical placement (abdomen bulge, leg mottling) is what sells the "mutant" read over a flat green reskin |
+| Eye glow (painted, not vanilla overlay) | Toxic Eye | `#E8FF6B` | See eye note below |
+| Eye-socket base | Void Socket | `#100C14` | Dark base under the painted eye cluster |
 
-*Compliance note:* deep violet/royal-purple with gold/amber trim is a widely-used genre
-convention for "regal/queen" enemy coding (seen across countless unrelated games and other
-media, plus real-world regalia associations) — not any specific existing game's exact
-creature-color branding. This palette is also checked distinct from every other palette already
-in this document: it does not reuse Section 13.3's warm brown/tan Fused Stone/Cocoon Husk, nor
-Section 15.2's cool toxic-green Toxic Bloom, nor the UI's verdigris/rune-cyan (Section 2), nor
-the Vitals HUD's coral/azure (Section 11), nor any of the amber/violet/jade/gold family used on
-the Character Stats Screen (Section 12) — this is a new, more saturated violet family paired
-with a warmer, more orange-leaning amber than the UI's Aged Brass (`#D9B36C`), chosen
-deliberately so the boss's own identity doesn't visually collide with existing UI meaning.
+*Compliance note:* "sickly/mutant green monster" is a broad, unclaimed genre convention (used
+across countless unrelated games and other media for corrupted/diseased/mutated creatures), not
+IP tied to any one game. This specific palette is also checked distinct from every *other* green
+already in this document — Section 15.2's "Toxic Bloom" (Stone of Zombies: `Blight Stone
+#435930` / `Plague Husk #7C8F49` / `Toxic Ooze #B8D888` / `Plague Glow #3DFF7E`) is a warm,
+yellow-olive/lime-leaning green family. Mutant Ichor is deliberately cooler and grayer (its blue
+channel sits noticeably higher relative to red/green than Toxic Bloom's at every matching role —
+e.g. mid-tone `#4C6B5A` vs. Blight Stone `#435930`), reading as "diseased gray-flesh" rather than
+"toxic plant bloom," so the mod's two green palettes stay visually distinguishable rather than
+being near-duplicates. Bile Blotch's yellow-green does sit in a similar family to Toxic Bloom's
+accents (both draw on the same "toxic yellow-green highlight" genre convention) but is used only
+as a sparse blotch accent, not either palette's dominant tone, so the two identities as a whole
+remain distinct. Necrotic Vein's near-black-plum hue is a new addition not reused from any other
+palette in this document (distinct from Royal Carapace's saturated violet family and from
+Chitin Void's neutral near-black).
 
-**On the glowing eyes:** vanilla spiders (and Spider Queen, since `SpiderQueenEntityRenderer`
-adds `SpiderEyesFeatureRenderer` unmodified) get a glowing-eyes overlay from a **separate,
-fixed vanilla texture** (`spider_eyes.png`), rendered additively on top of this entity's own
-head geometry — that overlay's color is vanilla's own fixed red-orange and is not something
-this mod's texture can retint. `spider_queen.png`'s own head UV region was painted with a dark
-`Void Socket` base at the eye cluster so vanilla's fixed glow reads clearly against it (the same
-principle vanilla's own spider texture already relies on), rather than picking a genuinely new
-eye-glow color as if that were configurable — it isn't, for a mob built on the shared vanilla
-model/feature-renderer pair.
+**On the eyes — no vanilla glow overlay anymore:** vanilla spiders normally get a glowing-eyes
+overlay from `SpiderEyesFeatureRenderer`, a separate fixed vanilla texture rendered additively on
+top of the shared spider head geometry. `SpiderQueenEntityRenderer` no longer attaches that
+feature renderer — it's generically bound to vanilla's own `SpiderEntityModel`/render-state type
+and isn't compatible with `SpiderQueenEntityModel`/`SpiderQueenRenderState`'s custom pair (needed
+for the leap-attack crouch pose; see that renderer's own class javadoc), so it was dropped rather
+than forced. This means Spider Queen has **no automatic eye-glow overlay at all** — the eye read
+has to be painted directly into `spider_queen.png`'s head UV region instead of relying on the
+vanilla overlay the way the old "Royal Carapace" version did. The current texture paints a dark
+`Void Socket` patch on the head's front face with a small irregular cluster of bright `Toxic Eye`
+(`#E8FF6B`) dots on top — a static painted glow (no actual light emission/glowing-in-the-dark;
+Minecraft texture pixels don't emit light on their own), but bright/saturated enough against the
+darker carapace to read as eyes at normal render distance.
 
 ### 17.4 Queen Spider Set armor — first boss-tier armor set
 
 4 pieces (`baum2:queen_spider_helmet/_chestplate/_leggings/_boots`), dropped as a full-set kill
-reward (`SpiderQueenEntity.dropLoot`). Two separate visual systems, per 1.21.11's equipment
-architecture:
+reward (`SpiderQueenEntity.dropLoot`). **Unchanged in the 2026-07-05 mutant-green revision** —
+confirmed by the user to already "look fine" as-is; this armor is what "Royal Carapace" refers
+to from here on (the entity's own texture moved to "Mutant Ichor," Section 17.3, above). Two
+separate visual systems, per 1.21.11's equipment architecture:
+
+**Armor palette: "Royal Carapace"** (unchanged from the original pass; kept here for reference
+now that the entity texture has its own separate palette):
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Carapace mid-tone | Royal Carapace | `#4B2170` | Main body/head/leg side+front faces |
+| Carapace highlight | Royal Carapace Pale | `#7A46A6` | Top faces |
+| Carapace shadow | Royal Carapace Dusk | `#2A0F3F` | Bottom/back faces |
+| Chitin void | Chitin Void | `#1C0E28` | Legs and other near-black joint/accent tones, boot-leather tone |
+| Regal trim | Regal Amber | `#D9A73A` | Markings, joint glints, trim bands |
+| Regal trim, dark | Regal Amber Dusk | `#8C6A1E` | Shadow-side trim accents |
+| Regal trim, pale | Regal Amber Pale | `#F0C878` | Sparse gem/crest highlight pixels only |
+| Eye-socket base | Void Socket | `#0D0609` | Dark base under the helmet's visor slit — unrelated to the entity texture's own separate `Void Socket` `#100C14` (Section 17.3), a near-identical near-black role-name coincidence between the two now-separate palettes, not a shared value |
+
+*Compliance note (unchanged):* deep violet/royal-purple with gold/amber trim is a widely-used
+genre convention for "regal/queen" enemy/armor coding (seen across countless unrelated games and
+other media, plus real-world regalia associations) — not any specific existing game's exact
+branding. Distinct from every other palette in this document, including the entity's own new
+"Mutant Ichor" (Section 17.3) — that divergence is intentional, see the note at the top of
+Section 17.
 
 **Item icons** (`textures/item/queen_spider_<piece>.png`, 16x16 each) — standard flat inventory
 icons following the vanilla armor-icon silhouette convention (helmet dome, chestplate torso +
@@ -1330,6 +1379,25 @@ artist pass would meaningfully raise the ceiling here given the "should look bea
 
 ## Changelog
 
+- **2026-07-05** — Reworked the Spider Queen **entity's own texture** (Section 17.3) after
+  direct playtest feedback: the boss should look "more green and more like a mutant spider,"
+  matching its already-implemented green witch-smoke aura particle effect (Java-side, not a
+  texture concern). Replaced `assets/baum2/textures/entity/spider_queen.png` in place (same
+  64x32 canvas, same exact vanilla-spider UV layout as before — only fill colors/details
+  changed, no geometry/UV change). Retired "Royal Carapace" as the *entity's* palette name and
+  introduced a new "Mutant Ichor" palette (sickly gray-teal green `#4C6B5A` family, near-black
+  plum "Necrotic Vein" crack/joint accents, sickly yellow-green "Bile Blotch" pustule accents,
+  irregular/asymmetrical blotch and vein placement for a diseased-mutant read rather than a
+  flat green recolor). Also painted a small bright "Toxic Eye" (`#E8FF6B`) glow cluster directly
+  into the head UV region for the first time, because `SpiderQueenEntityRenderer` doesn't attach
+  vanilla's `SpiderEyesFeatureRenderer` (incompatible with the entity's custom render-state type,
+  needed for the leap-attack crouch pose) — there is no automatic eye-glow overlay to rely on
+  anymore, unlike ordinary vanilla spiders. **"Royal Carapace" now refers only to the Queen
+  Spider Set armor** (Section 17.4, item icons + worn-equipment layers) — per explicit user
+  direction, the armor was confirmed to already look correct and was **not** touched in this
+  pass; the boss and her armor drop now deliberately use two different, unrelated palettes (see
+  the flagged note at the top of Section 17) rather than one shared identity. Generated via
+  PowerShell + `System.Drawing`, same technique as every prior placeholder pass in this document.
 - **2026-07-05** — Added Section 17 (boss visual identity: "Spider Queen", `baum2:spider_queen`
   — the mod's first true **mobile** boss, as opposed to Sections 13/15's stationary
   mini-bosses — and its "Queen Spider Set" drop, the mod's first genuine boss-tier armor set).

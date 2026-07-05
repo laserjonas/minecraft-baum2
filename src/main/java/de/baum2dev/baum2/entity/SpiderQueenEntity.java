@@ -15,28 +15,39 @@ import net.minecraft.entity.ai.goal.WanderAroundFarGoal;
 import net.minecraft.entity.attribute.DefaultAttributeContainer;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.entity.data.DataTracker;
+import net.minecraft.entity.data.TrackedData;
+import net.minecraft.entity.data.TrackedDataHandlerRegistry;
 import net.minecraft.entity.mob.SpiderEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import de.baum2dev.baum2.registry.ModItems;
 
 /**
- * A mobile boss (unlike the stationary "Stone of" mini-bosses): a giant spider that fights
- * with a fast melee bite plus a long-range leap attack that closes almost any gap, making
- * kiting/fleeing far less effective than against a normal mob. Extends vanilla SpiderEntity
- * directly (not HostileEntity) to inherit wall-climbing, the spider model/animation, and
- * SpiderNavigation for free - only the goals, attributes, and drop are overridden. Visual size
- * (3x a normal spider) is baked into the registered EntityType's dimensions plus a
- * ModelTransformer.scaling(3.0F) applied to the shared vanilla spider model at model-layer
- * registration - the same two-part mechanism vanilla's own GiantEntity uses to look 6x a
- * zombie (confirmed via decompiled EntityModels.java - EntityAttributes.SCALE is a different,
- * newer per-instance mechanism, not what Giant/vanilla actually uses for this).
+ * A mobile boss (unlike the stationary "Stone of" mini-bosses): a giant, mutated spider that
+ * fights with a fast melee bite plus a long-range leap attack that closes almost any gap,
+ * making kiting/fleeing far less effective than against a normal mob. Extends vanilla
+ * SpiderEntity directly (not HostileEntity) to inherit wall-climbing, the spider model/
+ * animation, and SpiderNavigation for free - only the goals, attributes, and drop are
+ * overridden. Visual size (3x a normal spider) is baked into the registered EntityType's
+ * dimensions plus a ModelTransformer.scaling(3.0F) applied to the shared vanilla spider model
+ * at model-layer registration - the same two-part mechanism vanilla's own GiantEntity uses to
+ * look 6x a zombie (confirmed via decompiled EntityModels.java - EntityAttributes.SCALE is a
+ * different, newer per-instance mechanism, not what Giant/vanilla actually uses for this).
  */
 public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvider {
     private static final int LEVEL = 15;
+
+    /** How long the telegraphed wind-up before a leap lasts, in ticks - shared with the
+     *  client-side model so its crouch pose interpolates over the exact same window. */
+    public static final int LEAP_WINDUP_DURATION_TICKS = 15;
+
+    private static final TrackedData<Integer> LEAP_WINDUP_TICKS =
+            DataTracker.registerData(SpiderQueenEntity.class, TrackedDataHandlerRegistry.INTEGER);
 
     private int leapCooldownTicks = 0;
 
@@ -63,10 +74,38 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
     }
 
     @Override
+    protected void initDataTracker(DataTracker.Builder builder) {
+        super.initDataTracker(builder);
+        builder.add(LEAP_WINDUP_TICKS, 0);
+    }
+
+    /** How many wind-up ticks remain before her next leap launches (0 = not preparing one) -
+     *  read client-side to drive the crouch/coil pose in SpiderQueenEntityModel. */
+    public int getLeapWindupTicks() {
+        return this.dataTracker.get(LEAP_WINDUP_TICKS);
+    }
+
+    private void setLeapWindupTicks(int ticks) {
+        this.dataTracker.set(LEAP_WINDUP_TICKS, ticks);
+    }
+
+    @Override
     public void tick() {
         super.tick();
-        if (!getEntityWorld().isClient() && leapCooldownTicks > 0) {
+        if (getEntityWorld().isClient()) {
+            spawnMutantAuraParticles();
+        } else if (leapCooldownTicks > 0) {
             leapCooldownTicks--;
+        }
+    }
+
+    /** Continuous green toxic-smoke aura, purely cosmetic - reinforces the "mutant" look. */
+    private void spawnMutantAuraParticles() {
+        for (int i = 0; i < 2; i++) {
+            double x = getX() + (this.random.nextDouble() - 0.5) * getWidth();
+            double y = getY() + this.random.nextDouble() * getHeight();
+            double z = getZ() + (this.random.nextDouble() - 0.5) * getWidth();
+            getEntityWorld().addParticleClient(ParticleTypes.WITCH, x, y, z, 0.0, 0.02, 0.0);
         }
     }
 
@@ -124,13 +163,18 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
     }
 
     /**
-     * The signature "jump 12 blocks, fast, 7s cooldown, 75 damage on hit" attack. Triggers
-     * when the target is out of melee range but within leap range and off cooldown; deals its
-     * damage once via bounding-box contact during the leap's short flight window, not on a
-     * fixed landing point - closer to vanilla's own PounceAtTargetGoal (also velocity-based)
-     * than a teleport. Leap distance/speed are tuned empirically, not derived from an exact
-     * projectile-motion solve - expected to need a playtest pass like every other balance
-     * value in this mod so far.
+     * The signature "prepare, then jump 12 blocks fast, 7s cooldown, 75 damage on hit" attack.
+     * Two phases: a telegraphed wind-up (movement/pathing frozen, synced to the client via
+     * {@link #LEAP_WINDUP_TICKS} so SpiderQueenEntityModel can play a real crouch/coil pose -
+     * "prepare to jump" - instead of just standing there), then the leap itself. Triggers when
+     * the target is out of melee range but within leap range and off cooldown.
+     *
+     * Two real bugs from the first pass are fixed here: (1) the leap only ever aimed once at
+     * launch, so a single sidestep beat it every time - now re-aims once more mid-flight, and
+     * the whole wind-up phase keeps re-orienting toward the target too; (2) residual vanilla AI
+     * movement (pathfinding toward the target, still active from whichever lower-priority goal
+     * was running the instant before this one preempts it) could fight the velocity impulse -
+     * navigation is now explicitly stopped both at wind-up start and every wind-up tick.
      */
     private static class LeapAttackGoal extends Goal {
         private static final double MIN_RANGE = 4.0;
@@ -143,12 +187,13 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
         private static final double LEAP_VERTICAL_SPEED = 0.4;
 
         private final SpiderQueenEntity queen;
+        private int windupTicksRemaining;
         private int leapTicksRemaining;
         private boolean hasDealtDamageThisLeap;
 
         LeapAttackGoal(SpiderQueenEntity queen) {
             this.queen = queen;
-            this.setControls(EnumSet.of(Goal.Control.MOVE, Goal.Control.JUMP));
+            this.setControls(EnumSet.of(Goal.Control.MOVE, Goal.Control.JUMP, Goal.Control.LOOK));
         }
 
         @Override
@@ -171,39 +216,62 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
 
         @Override
         public boolean shouldContinue() {
-            return leapTicksRemaining > 0;
+            LivingEntity target = queen.getTarget();
+            return (windupTicksRemaining > 0 || leapTicksRemaining > 0) && target != null && target.isAlive();
         }
 
         @Override
         public void start() {
-            aimAt(queen.getTarget());
-            leapTicksRemaining = LEAP_DURATION_TICKS;
-            queen.leapCooldownTicks = COOLDOWN_TICKS;
+            queen.getNavigation().stop();
+            windupTicksRemaining = LEAP_WINDUP_DURATION_TICKS;
+            leapTicksRemaining = 0;
             hasDealtDamageThisLeap = false;
+            queen.setLeapWindupTicks(windupTicksRemaining);
         }
 
         @Override
         public void stop() {
+            windupTicksRemaining = 0;
             leapTicksRemaining = 0;
+            queen.setLeapWindupTicks(0);
         }
 
         @Override
         public void tick() {
-            leapTicksRemaining--;
             LivingEntity target = queen.getTarget();
-            // Re-aims once, mid-flight, toward the target's current position rather than only
-            // at launch - a pure fire-and-forget lob is trivially beaten by a single sidestep,
-            // which contradicts the "escape is impossible" brief this attack exists for. Still
-            // not a homing missile (only re-aims this one time), so a player has a real but
-            // narrow window to react, rather than a guaranteed dodge or a guaranteed hit.
-            if (leapTicksRemaining == LEAP_DURATION_TICKS / 2 && target != null && target.isAlive()) {
+            if (target == null) {
+                return;
+            }
+            queen.getLookControl().lookAt(target, 90.0F, 90.0F);
+
+            if (windupTicksRemaining > 0) {
+                // Keep her fully planted while telegraphing - no drifting toward the target
+                // during wind-up, the leap itself covers the distance.
+                queen.getNavigation().stop();
+                windupTicksRemaining--;
+                queen.setLeapWindupTicks(windupTicksRemaining);
+                if (windupTicksRemaining == 0) {
+                    launch(target);
+                }
+                return;
+            }
+
+            leapTicksRemaining--;
+            if (leapTicksRemaining == LEAP_DURATION_TICKS / 2 && target.isAlive()) {
                 aimAt(target);
             }
-            if (!hasDealtDamageThisLeap && target != null && target.isAlive()
+            if (!hasDealtDamageThisLeap && target.isAlive()
                     && queen.getBoundingBox().expand(0.3).intersects(target.getBoundingBox())) {
                 target.damage(getServerWorld(queen), queen.getDamageSources().mobAttack(queen), LEAP_DAMAGE);
                 hasDealtDamageThisLeap = true;
             }
+        }
+
+        private void launch(LivingEntity target) {
+            queen.getNavigation().stop();
+            aimAt(target);
+            leapTicksRemaining = LEAP_DURATION_TICKS;
+            queen.leapCooldownTicks = COOLDOWN_TICKS;
         }
 
         private void aimAt(LivingEntity target) {

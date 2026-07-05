@@ -1,5 +1,5 @@
 {
-  "parent": "minecraft:item/generic",
+  "parent": "minecraft:item/generated",
   "textures": {
     "layer0": "baum2:item/queen_spider_chestplate"
   }

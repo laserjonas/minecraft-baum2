@@ -587,52 +587,110 @@ first armor system.
   if a later session pairs this boss with drow-style enemies, a "web pit" dungeon, or a
   spider-goddess faction, that specific *bundle* would start reading as Lolth specifically, not
   just the generic trope this boss currently is.
-- Visual identity: `docs/visual-style-guide.md` Section 17 — new "Royal Carapace"
-  violet/gold palette for both the boss and her armor, explicitly distinct from every other
-  palette in the mod. Note: vanilla's `SpiderEyesFeatureRenderer` (kept, unmodified) renders a
-  fixed vanilla red-orange glow overlay that isn't retintable from our texture — the entity
-  texture's eye-socket base was designed around that fixed color rather than fighting it.
-- Verified: `./gradlew build` passes clean, no warnings. **Not yet verified in an actual game
-  session** — same limitation as every mob added this project; next person should `/summon
-  baum2:spider_queen`, confirm the 3x-scaled model/texture renders correctly (including the
-  vanilla eye-glow overlay), confirm the melee cadence feels like 2/sec, confirm the leap
-  attack actually closes distance and its mid-flight re-aim works as intended, confirm all 4
-  armor pieces drop and both the inventory icons and the worn 3D look render correctly.
+- Visual identity (as originally shipped): `docs/visual-style-guide.md` Section 17 — "Royal
+  Carapace" violet/gold palette for both the boss and her armor. **Superseded for the entity
+  only by the playtest fixes below** — the armor keeps this palette, the boss does not.
+
+#### Playtest fixes (real user testing, not just build/compile checks)
+
+The user actually summoned and fought this boss and reported three real problems — this is the
+first mob in the project where actual gameplay (not just `./gradlew build`) surfaced bugs, so
+treat this as a reminder that clean builds don't mean working features:
+
+1. **"The jump did not work" — a real bug, found and fixed.** The original `LeapAttackGoal`
+   set velocity once at `start()` and otherwise trusted vanilla's AI plumbing to leave it alone.
+   Root cause wasn't fully isolable without a live client to test against (no GUI-automation
+   tool exists in this environment - see "Current state" throughout this doc), so rather than
+   guess at one specific fix, the goal was rebuilt more defensively: `queen.getNavigation().
+   stop()` is now called explicitly at wind-up start **and every wind-up tick** (killing any
+   residual pathing command from whichever lower-priority goal — `QueenMeleeAttackGoal` or
+   `WanderAroundFarGoal` — was active the instant before this goal preempts it, rather than
+   trusting goal-control-conflict resolution to have already done so), and the launch itself
+   calls `stop()` again immediately before the velocity impulse. Still not independently
+   confirmed against a real client in this environment — next playtest should confirm the leap
+   now actually launches, not just that it compiles.
+2. **"I want a real jump animation. Spider prepare to jump and jump to me."** — implemented as
+   a genuine two-phase goal, not just a bigger number: a telegraphed **wind-up** (15 ticks,
+   `SpiderQueenEntity.LEAP_WINDUP_DURATION_TICKS`) where she plants, faces the target, and
+   visibly coils, *then* the launch. The wind-up state is synced to the client via a new
+   `TrackedData<Integer>` (`LEAP_WINDUP_TICKS`) — the same mechanism vanilla's own `SpiderEntity`
+   uses for its wall-climbing flag — read by a **new dedicated render pipeline**:
+   `SpiderQueenRenderState` (extends `LivingEntityRenderState`, adds the windup-ticks field) +
+   `SpiderQueenEntityModel` (extends `EntityModel<SpiderQueenRenderState>` directly, reusing
+   `SpiderEntityModel.getTexturedModelData()`'s exact geometry but with its own `setAngles()` -
+   duplicates vanilla's leg-swing math verbatim, since Java generics don't allow reusing a
+   `setAngles(LivingEntityRenderState)` method across a different `EntityModel<T>` type
+   parameter) that lowers her body/head and bends all 8 legs progressively as the countdown
+   reaches zero, then snaps back at launch. **Trade-off worth knowing**: this custom render
+   state broke compatibility with vanilla's `SpiderEyesFeatureRenderer` (generically bound to
+   `SpiderEntityModel` specifically) — it was dropped rather than forced, so Spider Queen no
+   longer gets the automatic glowing-eye overlay regular spiders have. The replacement texture
+   (see below) paints eye-glow directly into the texture instead.
+3. **"The Spider Armor set requires images for the inventar."** — a real, confirmed bug, not a
+   missing-asset problem (the actual icon PNGs already had visible non-transparent pixel
+   content, verified directly). All four `models/item/queen_spider_*.json` files had
+   `"parent": "minecraft:item/generic"` — **not a real vanilla model** (confirmed against
+   decompiled `net/minecraft/client/data/Models.java`: the actual constant is `GENERATED`
+   → `"minecraft:item/generated"`; there is no `GENERIC`). An unresolvable parent reference is
+   why the icons weren't rendering. Fixed by correcting all four to `"minecraft:item/generated"`
+   — the same parent vanilla's own plain (non-handheld) items use for a flat 2D icon.
+
+Additionally, per separate user feedback ("make it more green and make this looking more like
+mutant spider, probably also greenly smoke on its aura"): the entity texture was reworked to a
+new "Mutant Ichor" palette (cooler/grayer green than Stone of Zombies' existing "Toxic Bloom",
+kept deliberately distinct so the mod's two green palettes don't collide) with asymmetric
+blotches/vein-cracking for a diseased/mutated read, replacing the eye-glow the dropped feature
+renderer used to provide by painting eyes directly into the texture. A continuous green
+"toxic aura" was added via `ParticleTypes.WITCH` (vanilla's already-green witch-spell swirl,
+a natural fit, no new colorable-particle plumbing needed) spawned client-side each tick. **The
+armor's own "Royal Carapace" violet/gold palette was deliberately left unchanged** per explicit
+user direction ("the rest looks fine") — the boss and her drop now intentionally use two
+different palettes, flagged clearly in the style guide so a future session doesn't "fix" this
+apparent mismatch by accident.
+
+- Verified: `./gradlew build` passes clean, no warnings, after all of the above. **Still not
+  independently verified in an actual game session by this session** (no GUI-automation tool
+  exists in this environment) — the fixes above were driven by the user's own real playtest
+  report, but this session couldn't re-verify the fixes the same way. Next playtest should
+  specifically confirm: the leap now actually launches and closes distance; the wind-up
+  crouch/coil pose is visible and reads as "preparing," not glitchy; all 4 armor icons now
+  render in the inventory; the new green mutant texture and toxic aura look right in-game.
+- Not re-run for this fix pass: `ip-naming-compliance-checker`/`balance-reviewer` — nothing
+  here introduced new names or changed any numeric balance value (same 75 leap damage, same
+  140-tick cooldown, same 4-12 block range as already reviewed); the 15-tick wind-up is new but
+  is a telegraph-timing/animation detail, not a damage/cost/reward number.
 
 ## Last change (on `fischey_workbranch`, based on the merged commit above)
 
-Implemented the "Spider Queen" boss + "Queen Spider Set" armor drop — see "Spider Queen" above
-for full detail. User request: level-15/350-HP giant (3x) spider boss with a fast melee bite
-(10 dmg, 2/sec) and a 12-block fast leap attack (75 dmg, 7s cooldown, explicitly "so an escape
-is impossible"), dropping a full armor set described as should "look beautiful." This is the
-mod's first *mobile* boss (built on vanilla `SpiderEntity` directly rather than `HostileEntity`,
-inheriting wall-climbing/navigation/model for free) and first armor system. Researched
-extensively before implementing: confirmed via decompiled `EntityModels.java` that vanilla's
-own Giant achieves its 6x-zombie look via `ModelTransformer.scaling(...)` plus matching
-`EntityType` dimensions (not the newer `EntityAttributes.SCALE` attribute, which Giant doesn't
-use), applied the same two-part technique at 3x for Spider Queen; confirmed
-`Item.Settings.armor(ArmorMaterial, EquipmentType)` mirrors the `.sword(...)` pattern from Gold
-Sword; confirmed the "worn armor" 3D look is a separate resource-JSON system
-(`assets/<ns>/equipment/<name>.json`) from the item icon, and verified the worn-texture
-canvas/UV layout (64x32) against decompiled `BipedEntityModel` rather than assuming. Worked
-around `MeleeAttackGoal`'s private, unoverridable cooldown field by shadowing it with an
-independent counter for the boss's faster attack cadence. `graphics-designer` produced a new
-"Royal Carapace" violet/gold palette for both the boss and her armor (entity texture, 4 item
-icons, and both worn-armor layer textures); `ip-naming-compliance-checker` returned Clear (one
-soft future-content watch-item logged, not a fix - see "Spider Queen" above);
-`balance-reviewer` found several numeric findings (HP/level ratio drift, toughness being
-functionally inert against the boss's own leap damage, defense-total matching Diamond despite
-an "Iron-to-Diamond" framing) logged for the later balance pass per explicit user direction
-("we are in development phase, balance later"), plus one **non-numeric** finding acted on
-immediately rather than deferred: the leap attack's original fire-and-forget aim meant a single
-sidestep defeated it entirely and even a clean miss consumed the full cooldown, directly
-contradicting the stated "escape is impossible" design intent rather than being a tunable
-number — fixed by adding one mid-flight re-aim toward the target's current position, narrowing
-(not eliminating) the dodge window. Verified: `./gradlew build` passes clean with zero
-warnings. **Not yet verified in an actual game session** — same no-GUI-automation limitation as
-every gameplay-feel check in this project; next step is a human `/summon`-ing one and fighting
-it, specifically to confirm the leap actually reads as "hard to escape" now rather than just
-harder.
+Fixed three real problems the user found by actually playing the Spider Queen boss (implemented
+in the previous session) — see "Spider Queen" above, "Playtest fixes" subsection, for full
+detail. This is the first time in the project actual gameplay (not just `./gradlew build`)
+caught bugs, worth remembering going forward. User reports: (1) "the jump did not work" —
+`LeapAttackGoal` now explicitly stops navigation at wind-up start and every wind-up tick, and
+again immediately before the launch impulse, closing off the most likely way residual vanilla
+pathing could have been fighting the velocity set at `start()`; (2) "I want a real jump
+animation, spider prepare to jump and jump to me" — rebuilt the goal as an actual two-phase
+wind-up-then-launch state machine, synced to the client via a new `TrackedData<Integer>`
+(mirroring vanilla `SpiderEntity`'s own wall-climbing-flag sync pattern) and rendered through a
+new `SpiderQueenEntityModel`/`SpiderQueenRenderState` pair that plays a real crouch/coil pose as
+the countdown reaches zero — required a dedicated render pipeline since Java generics don't let
+a custom render-state type reuse vanilla `SpiderEntityModel`'s `setAngles()`, which cost
+compatibility with vanilla's `SpiderEyesFeatureRenderer` (dropped, noted as a real trade-off);
+(3) "the armor set requires images for the inventar" — found and fixed a real bug, not a
+missing-asset problem: all four armor item model JSONs referenced `"minecraft:item/generic"`,
+which isn't an actual vanilla model (confirmed against decompiled `Models.java` — the real
+constant is `GENERATED`), so an unresolvable parent reference is what kept the icons from
+rendering despite the icon PNGs themselves being fine. Also reworked the entity's own texture
+to a new "Mutant Ichor" green palette and added a continuous green toxic-aura particle effect
+(`ParticleTypes.WITCH`) per separate user feedback ("more green, more like a mutant spider") —
+the armor's own violet/gold palette was deliberately left untouched per the user's explicit
+"the rest looks fine." Verified: `./gradlew build` passes clean with zero warnings after all of
+the above. **Still not independently re-verified in an actual game session by this session** —
+these were fixes made in response to the user's own playtest report, not confirmed working
+again afterward; next playtest should specifically confirm the leap now actually launches, the
+wind-up pose reads correctly, the icons now render, and the new green look/aura look right.
+Not re-run: `ip-naming-compliance-checker`/`balance-reviewer` — no new names, no changed
+numeric balance values, just bug fixes and a visual rework.
 
 ## Last change (on `jonas_workbranch`)
 

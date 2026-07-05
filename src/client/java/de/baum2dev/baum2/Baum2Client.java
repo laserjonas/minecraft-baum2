@@ -11,8 +11,9 @@ import net.minecraft.client.render.entity.EntityRendererFactories;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
-import de.baum2dev.baum2.entity.StoneOfSpidersEntityModel;
+import de.baum2dev.baum2.entity.HulkingCocoonStoneEntityModel;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntityRenderer;
+import de.baum2dev.baum2.entity.StoneOfZombiesEntityRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.ui.Baum2KeyBindings;
@@ -50,7 +51,11 @@ public class Baum2Client implements ClientModInitializer {
         MobNameplateHud.register();
 
         EntityModelLayerRegistry.registerModelLayer(
-                StoneOfSpidersEntityModel.LAYER, StoneOfSpidersEntityModel::getTexturedModelData);
+                StoneOfSpidersEntityRenderer.LAYER, HulkingCocoonStoneEntityModel::getTexturedModelData);
         EntityRendererFactories.register(ModEntities.STONE_OF_SPIDERS, StoneOfSpidersEntityRenderer::new);
+
+        EntityModelLayerRegistry.registerModelLayer(
+                StoneOfZombiesEntityRenderer.LAYER, HulkingCocoonStoneEntityModel::getTexturedModelData);
+        EntityRendererFactories.register(ModEntities.STONE_OF_ZOMBIES, StoneOfZombiesEntityRenderer::new);
     }
 }

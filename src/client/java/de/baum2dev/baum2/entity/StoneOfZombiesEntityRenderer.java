@@ -6,13 +6,13 @@ import net.minecraft.client.render.entity.model.EntityModelLayer;
 import net.minecraft.client.render.entity.state.LivingEntityRenderState;
 import net.minecraft.util.Identifier;
 
-public class StoneOfSpidersEntityRenderer
-        extends MobEntityRenderer<StoneOfSpidersEntity, LivingEntityRenderState, HulkingCocoonStoneEntityModel> {
+public class StoneOfZombiesEntityRenderer
+        extends MobEntityRenderer<StoneOfZombiesEntity, LivingEntityRenderState, HulkingCocoonStoneEntityModel> {
     public static final EntityModelLayer LAYER =
-            new EntityModelLayer(Identifier.of("baum2", "stone_of_spiders"), "main");
-    private static final Identifier TEXTURE = Identifier.of("baum2", "textures/entity/stone_of_spiders.png");
+            new EntityModelLayer(Identifier.of("baum2", "stone_of_zombies"), "main");
+    private static final Identifier TEXTURE = Identifier.of("baum2", "textures/entity/stone_of_zombies.png");
 
-    public StoneOfSpidersEntityRenderer(EntityRendererFactory.Context context) {
+    public StoneOfZombiesEntityRenderer(EntityRendererFactory.Context context) {
         super(context, new HulkingCocoonStoneEntityModel(context.getPart(LAYER)), 0.9F);
     }
 

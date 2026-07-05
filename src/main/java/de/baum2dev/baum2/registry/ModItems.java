@@ -21,8 +21,20 @@ public class ModItems {
             new Item(new Item.Settings().registryKey(GOLD_SWORD_KEY).sword(ToolMaterial.GOLD, 5.0F, -2.2F))
     );
 
+    public static final RegistryKey<Item> POISON_DAGGER_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "poison_dagger"));
+
+    public static final Item POISON_DAGGER = Registry.register(
+            Registries.ITEM,
+            POISON_DAGGER_KEY,
+            new Item(new Item.Settings().registryKey(POISON_DAGGER_KEY).sword(ToolMaterial.IRON, 1.0F, 0.0F))
+    );
+
     public static void registerItemGroups() {
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> entries.add(GOLD_SWORD));
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
+            entries.add(GOLD_SWORD);
+            entries.add(POISON_DAGGER);
+        });
     }
 
     /** No-op - calling this forces this class (and its static Item registrations) to load. */

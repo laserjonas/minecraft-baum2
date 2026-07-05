@@ -3,5 +3,7 @@
   "key.baum2.class_screen": "Open Class Screen",
   "key.baum2.open_stats": "Open Character Stats",
   "entity.baum2.stone_of_spiders": "Stone of Spiders",
-  "item.baum2.gold_sword": "Gold Sword"
+  "item.baum2.gold_sword": "Gold Sword",
+  "entity.baum2.stone_of_zombies": "Stone of Zombies",
+  "item.baum2.poison_dagger": "Poison Dagger"
 }

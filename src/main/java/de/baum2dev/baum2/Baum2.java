@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import de.baum2dev.baum2.classes.ClassManager;
+import de.baum2dev.baum2.combat.PoisonDaggerHandler;
 import de.baum2dev.baum2.commands.Baum2Commands;
 import de.baum2dev.baum2.events.LevelUpHandler;
 import de.baum2dev.baum2.events.MobDeathHandler;
@@ -43,6 +44,7 @@ public class Baum2 implements ModInitializer {
         ProgressionTickHandler.registerEvents();
         ClassManager.registerEvents();
         VitalsTickHandler.registerEvents();
+        PoisonDaggerHandler.registerEvents();
 
         LOGGER.info("Baum2 progression system loaded");
     }

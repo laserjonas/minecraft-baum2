@@ -7,23 +7,22 @@ import net.minecraft.client.model.ModelPartData;
 import net.minecraft.client.model.ModelTransform;
 import net.minecraft.client.model.TexturedModelData;
 import net.minecraft.client.render.entity.model.EntityModel;
-import net.minecraft.client.render.entity.model.EntityModelLayer;
 import net.minecraft.client.render.entity.state.EntityRenderState;
-import net.minecraft.util.Identifier;
 
 /**
- * Seven overlapping cuboids (fused rock base, egg-sac body, off-center upper lump, two
- * web-strand/crack accents, two glow-vein bumps) - see docs/visual-style-guide.md Section 13.2
- * for the full shape rationale and exact measurements this class implements. Model space uses
- * Minecraft's standard mob-model convention (confirmed via LivingEntityRenderer's fixed
- * -1.501-block translate, applied identically to every vanilla mob) where Y=24 is ground level
- * and smaller Y values are higher up.
+ * Shared geometry for every stationary "cocoon stone" mini-boss (Stone of Spiders, Stone of
+ * Zombies, ...) - seven overlapping cuboids (fused rock base, egg-sac body, off-center upper
+ * lump, two web-strand/crack accents, two glow-vein bumps), see docs/visual-style-guide.md
+ * Section 13.2 for the full shape rationale and exact measurements this class implements.
+ * Every stone mini-boss shares this exact geometry (same size, same silhouette) and is
+ * distinguished only by its own texture - each gets its own EntityModelLayer/renderer/texture,
+ * but they all construct this same model class. Model space uses Minecraft's standard
+ * mob-model convention (confirmed via LivingEntityRenderer's fixed -1.501-block translate,
+ * applied identically to every vanilla mob) where Y=24 is ground level and smaller Y values are
+ * higher up.
  */
-public class StoneOfSpidersEntityModel extends EntityModel<EntityRenderState> {
-    public static final EntityModelLayer LAYER =
-            new EntityModelLayer(Identifier.of("baum2", "stone_of_spiders"), "main");
-
-    public StoneOfSpidersEntityModel(ModelPart root) {
+public class HulkingCocoonStoneEntityModel extends EntityModel<EntityRenderState> {
+    public HulkingCocoonStoneEntityModel(ModelPart root) {
         super(root);
     }
 

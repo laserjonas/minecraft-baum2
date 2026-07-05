@@ -426,29 +426,114 @@ name, different source sets — an established pattern in this codebase, not a n
   `.md` instructions verbatim, per the documented workaround. Worth re-testing whether custom
   agent types resolve in a fresh session before assuming this workaround is still needed.
 
+### Stone of Zombies — second mini-boss, shares Stone of Spiders' shape/model
+
+`baum2:stone_of_zombies` (level 20, 400 HP, same 3x3-block immobile cocoon-stone silhouette as
+Stone of Spiders, reskinned green with continuous toxic smoke) and `baum2:poison_dagger` (its
+guaranteed drop, applies Poison on hit). Mechanically and structurally a near-exact sibling of
+`StoneOfSpidersEntity` — same immobility pattern, same cumulative 10%-HP-threshold wave trigger,
+same death-cascades-to-spawned-mobs logic, same guaranteed-drop `dropLoot` override — reviewed
+here mainly for what's *different*.
+
+- **Shared geometry refactor**: `StoneOfSpidersEntityModel` was renamed to
+  `HulkingCocoonStoneEntityModel` (client, same package-split convention as `entity`/
+  `networking`) since both stone mini-bosses now use the exact same 7-cuboid geometry/`176x176`
+  UV layout — only the texture differs per mob. Each mob still gets its own `EntityModelLayer`
+  (now declared on each renderer class, e.g. `StoneOfSpidersEntityRenderer.LAYER`, rather than
+  on the shared model class) and its own texture path, but both construct
+  `HulkingCocoonStoneEntityModel` directly. Any future stone-shaped mini-boss should follow the
+  same pattern rather than duplicating the cuboid geometry.
+- **Zombie waves** (`StoneOfZombiesEntity.java`): identical trigger math to Stone of Spiders
+  (same `HEALTH_STEP_RATIO=0.10F`, same monotonic-counter loop), but each wave spawns 2 normal
+  zombies + 1 baby zombie (`EntityType.ZOMBIE.spawn(world, entity -> entity.setBaby(baby), ...,
+  SpawnReason.REINFORCEMENT, false, false)` — confirmed the 6-arg `spawn` overload's
+  `afterConsumer` callback is the correct way to configure an entity, here setting baby state,
+  before it's added to the world). Worst case is still 30 total adds (10 waves x 3), same as
+  Stone of Spiders, since per-wave count didn't scale with the level/HP doubling — flagged by
+  `balance-reviewer` as a judgment call (not a bug): HP-to-level ratio scaled consistently
+  (20 HP/level for both), but add-pressure-per-wave did not scale alongside it.
+- **Ambient smoke** (cosmetic only, no networking needed): overrides `tickMovement()`, guarded
+  by `getEntityWorld().isClient()`, calling `World.addParticleClient(ParticleTypes.LARGE_SMOKE,
+  ...)` each tick — confirmed via decompiled `EndermanEntity.tickMovement()` (its own portal-
+  particle ambient effect) that this is the standard vanilla pattern for a mob's idle particle
+  effect: the method itself is a no-op stub on the server (`World.addParticleClient`'s own
+  javadoc: "Does nothing on the server"), with the real implementation living in `ClientWorld`,
+  so ticking on both logical sides and checking `isClient()` is sufficient - no packet needed.
+- **Poison Dagger** (`registry/ModItems.java`): built on `ToolMaterial.IRON` (not `GOLD`, unlike
+  Gold Sword) via `.sword(ToolMaterial.IRON, 1.0F, 0.0F)` - low raw damage (4.0 total, actually
+  *less* than Gold Sword's 6.0) but very fast (4.0 total attack speed = 4 attacks/sec, 2.5x
+  vanilla's uniform 1.6). New `combat/PoisonDaggerHandler.java` (first use of the `combat/`
+  package from `CLAUDE.md`'s architecture list) listens to
+  `ServerLivingEntityEvents.AFTER_DAMAGE` (no Mixin needed here, unlike the Crit-Chance system -
+  applying a status effect is a pure side effect, not a damage-value modification, so the
+  existing Fabric event is sufficient) and applies `StatusEffectInstance(StatusEffects.POISON,
+  100, 0)` to whatever a player hits while holding it, skipping shield-blocked hits.
+- **`balance-reviewer` finding, real and escalating an already-open issue, not yet acted on**:
+  because Dexterity's Attack-Speed attribute modifier is `ADD_MULTIPLIED_TOTAL` (multiplies
+  whatever base attack-speed the weapon already has - see "Combat System v1" above), a weapon's
+  *speed* stat survives to max character investment essentially undiluted, while flat damage
+  differences between weapons get swamped by Strength's own large additive bonus. Net effect,
+  simulated: at max investment (104 Str/104 Dex), Poison Dagger reaches roughly **2.45x** a
+  vanilla iron sword's DPS and **2.18x** Gold Sword's DPS *at the same investment level* -
+  stacking on top of (not replacing) the already-logged ~46x baseline-DPS compounding ceiling
+  from Combat System v1, pushing the effective ceiling to roughly **~110x** baseline for a
+  Poison Dagger wielder. This is the second consecutive new weapon to push on this same
+  already-open issue (Gold Sword nudged it +12.5%, this one +145%) - worth folding into the
+  same still-pending "Balance decision needed" item (see "Next recommended step" below) rather
+  than treating as a separate new problem, but flagging clearly here since the trend across two
+  weapons in a row is the ceiling escalating, not just individual weapons being locally fine.
+  The Poison-on-hit effect itself is confirmed a non-issue on its own (vanilla's own
+  floor-at-1-HP rule prevents it from ever finishing a kill, and its fixed ~0.8 DPS is untouched
+  by Strength/Dexterity/Crit multipliers, so it *shrinks* to a rounding error as investment
+  rises rather than compounding further).
+- **`ip-naming-compliance-checker` result: Clear.** Both names are generic descriptive
+  compounds ("Stone of [creature]", weapon-type + effect-descriptor), not distinctive names
+  tied to any specific existing MMORPG. The reskin-the-same-boss-shape-per-element pattern
+  itself is also generic genre convention (elemental/thematic boss variants), not copied
+  content.
+- Visual identity: `docs/visual-style-guide.md` Sections 15 ("Stone of Zombies") and 16
+  ("Poison Dagger") - new original "Toxic Bloom" green/toxic palette, explicitly distinct from
+  Stone of Spiders' brown/tan palette and every other palette in the mod. Both textures are
+  explicit placeholders (flat programmatic fills), same as Stone of Spiders' - real art is a
+  future pass for both mobs together, not blocking.
+- Verified: `./gradlew build` passes clean, no warnings. **Not yet verified in an actual game
+  session** — same limitation as Stone of Spiders; next person should `/summon
+  baum2:stone_of_zombies`, confirm the green model/texture and ambient smoke render, confirm
+  zombie/baby-zombie waves spawn and die correctly with the stone, confirm Poison Dagger drops
+  and actually poisons on hit.
+
 ## Last change (on `fischey_workbranch`, based on the merged commit above)
 
-Implemented the "Stone of Spiders" mini-boss mob + its "Gold Sword" drop — see "Stone of
-Spiders" above for full detail. User request: a stationary level-10, 200-HP, 3x3 mob that
-spawns 3 spiders per 10%-of-max-HP lost, kills all its spawned spiders when it dies, and drops
-a Gold Sword. This is the project's first custom mob, first custom item, and first custom
-entity model/renderer, so most of the work was original-ground research rather than following
-an existing local pattern: confirmed via decompiled 1.21.11 sources that `SwordItem`/`ToolItem`
-no longer exist (swords are now a plain `Item` built via `Item.Settings.sword(...)`), that
-`LivingEntity.damage(...)` now takes `ServerWorld` first, that an empty `travel(Vec3d)`
-override is sufficient to fully immobilize a mob, and that
-`EntityRendererRegistry` (used in an initial draft) is `@Deprecated` in favor of vanilla's own
-`EntityRendererFactories.register(...)` — caught via a temporary `-Xlint:deprecation` build
-pass, not missed. `graphics-designer` produced the mob's 7-cuboid shape spec + palette + both
-placeholder textures/models; `ip-naming-compliance-checker` returned Clear; `balance-reviewer`
-found the encounter numerically bounded and non-exploitable but flagged two judgment calls for
-a human (the stone has no direct attack of its own — likely intentional "adds fight" design,
-not confirmed as a bug; the Gold Sword's tuning nets out to Iron-equivalent damage with a
-faster-than-every-vanilla-tier attack speed, a deliberate departure from Gold's usual
-fast-but-weak identity) — both logged in "Stone of Spiders" above rather than silently
-adjusted. Verified: `./gradlew build` passes clean with zero warnings. **Not yet verified
-in an actual game session** — same no-GUI-automation limitation as every gameplay-feel check
-in this project; next step is a human `/summon`-ing one and fighting it.
+Implemented the "Stone of Zombies" mini-boss mob + its "Poison Dagger" drop — see "Stone of
+Zombies" above for full detail. User request: a second stone mini-boss, level-20/400-HP/same
+3x3 size as Stone of Spiders but green with smoke, spawning zombies + "mini zombies" and
+dropping a green poisonous dagger; user confirmed via clarifying questions that mini zombies
+= vanilla baby zombies, the poison should be a real on-hit status effect (not cosmetic), smoke
+should be continuous ambient particles, and wave composition should mirror Stone of Spiders'
+3-per-wave total. Refactored `StoneOfSpidersEntityModel` into a shared
+`HulkingCocoonStoneEntityModel` (both stone mini-bosses use identical geometry per the "same
+size" requirement, differing only by texture) rather than duplicating the 7-cuboid geometry.
+Confirmed via decompiled sources: the 6-arg `EntityType.spawn(...)` overload's `afterConsumer`
+callback is the correct way to spawn a pre-configured baby zombie; `World.addParticleClient`
+(renamed from `addParticle` in this Yarn build) is a no-op server-side stub whose real
+implementation lives client-side, so ticking on both sides and checking `isClient()` (the same
+pattern vanilla's own `EndermanEntity` uses for its portal particles) needs no networking;
+`ServerLivingEntityEvents.AFTER_DAMAGE` (already used for XP, now reused for poison) is
+sufficient for a pure-side-effect status application, no new Mixin needed unlike the Crit-Chance
+system. `graphics-designer` produced a new "Toxic Bloom" palette + both placeholder
+textures/models, explicitly reusing Stone of Spiders' exact UV layout since the geometry is
+shared; `ip-naming-compliance-checker` returned Clear; `balance-reviewer` confirmed HP/level
+scaling is consistent with the Stone of Spiders precedent (20 HP/level, both bosses), but found
+a real, escalating issue: Poison Dagger's attack-speed stat (2.5x vanilla, chosen for a
+fast-dagger identity) survives to max character investment essentially undiluted because
+Dexterity's Attack-Speed modifier multiplies the weapon's own base speed rather than adding a
+flat amount, pushing the already-logged ~46x baseline-DPS compounding ceiling (Combat System v1)
+to roughly ~110x for a Poison Dagger wielder — the second weapon in a row to make that same
+already-open issue worse, not a new isolated problem. Logged in "Stone of Zombies" above and
+folded into the existing "Balance decision needed" item below rather than silently retuning.
+Verified: `./gradlew build` passes clean with zero warnings. **Not yet verified in an actual
+game session** — same no-GUI-automation limitation as every gameplay-feel check in this
+project; next step is a human `/summon`-ing one and fighting it.
 
 ## Last change (on `jonas_workbranch`)
 
@@ -639,16 +724,28 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-0. **In-game verification of the Stone of Spiders + Gold Sword** (this session's change, see
-   "Stone of Spiders" above) — `/summon baum2:stone_of_spiders`, confirm the model/texture
-   render with no errors, confirm damaging it past 10%-HP thresholds spawns spider waves,
-   confirm killing it kills all its spiders and drops a Gold Sword, confirm the nameplate shows
-   "Lvl. 10". Two judgment calls logged, not yet decided: (a) should the stone deal any direct
-   damage itself, or is "adds-only danger" the intended design; (b) is the Gold Sword's
-   Iron-equivalent-damage-but-faster-than-everything tuning the intended reward feel, or should
-   it lean into Gold's usual fast-but-weak identity instead. Also no natural spawn path exists
-   yet (summon-only) — decide when/how this mob should actually appear in the world (a
-   structure? a `dungeons/`-package encounter? natural biome spawn?).
+-1. **Balance decision needed, escalating across two weapons now, not yet made**: Combat System
+    v1's ~46x baseline-DPS-at-max-investment issue (see item 1a below) has now been pushed
+    further by two consecutive weapon drops in a row — Gold Sword (+12.5%) and Poison Dagger
+    (+145%, pushing the effective ceiling to ~110x) — because both used a faster-than-vanilla
+    attack-speed stat, and Dexterity's Attack-Speed modifier multiplies (not adds to) whatever
+    speed the weapon already has. Worth deciding now, before a third weapon repeats the pattern:
+    either cap/temper how much a single item's attack speed can contribute at high Dexterity
+    investment, or accept it as this mod's intended "gear matters a lot" power curve. See
+    "Stone of Zombies" above for the exact numbers.
+0. **In-game verification of both Stone mini-bosses** — `/summon baum2:stone_of_spiders` and
+   `/summon baum2:stone_of_zombies`, confirm both models/textures render with no errors
+   (including Zombies' green reskin + continuous ambient smoke), confirm damaging each past
+   10%-HP thresholds spawns the right add waves (spiders vs. 2 zombies+1 baby zombie), confirm
+   killing each kills its own spawned adds and drops its own weapon (Gold Sword / Poison
+   Dagger, the latter should visibly poison on hit), confirm nameplates show "Lvl. 10" / "Lvl.
+   20" respectively. Judgment calls logged, not yet decided: (a) should either stone deal any
+   direct damage itself, or is "adds-only danger" the intended design for the whole "Stone of"
+   mini-boss family; (b) Gold Sword's and Poison Dagger's speed-focused tuning (see item -1
+   above); (c) Stone of Zombies' adds-per-wave stayed flat at 3 despite HP/level doubling —
+   intended, or should add-pressure have scaled up too. Also no natural spawn path exists yet
+   for either mob (summon-only) — decide when/how this mob family should actually appear in the
+   world (a structure? a `dungeons/`-package encounter? natural biome spawn?).
 1. **In-game verification of everything merged this session** — no GUI-automation tool exists
    here (see "Current state"), so this needs a human: confirm the Class Screen ('K') and
    Character Stats Screen ('C') both still open correctly and don't visually collide with each

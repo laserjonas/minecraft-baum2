@@ -9,6 +9,7 @@ import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntity;
+import de.baum2dev.baum2.entity.StoneOfZombiesEntity;
 
 public class ModEntities {
 
@@ -23,8 +24,20 @@ public class ModEntities {
                     .build(STONE_OF_SPIDERS_KEY)
     );
 
+    public static final RegistryKey<EntityType<?>> STONE_OF_ZOMBIES_KEY =
+            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "stone_of_zombies"));
+
+    public static final EntityType<StoneOfZombiesEntity> STONE_OF_ZOMBIES = Registry.register(
+            Registries.ENTITY_TYPE,
+            STONE_OF_ZOMBIES_KEY,
+            EntityType.Builder.create(StoneOfZombiesEntity::new, SpawnGroup.MONSTER)
+                    .dimensions(3.0F, 3.0F)
+                    .build(STONE_OF_ZOMBIES_KEY)
+    );
+
     public static void registerAttributes() {
         FabricDefaultAttributeRegistry.register(STONE_OF_SPIDERS, StoneOfSpidersEntity.createStoneOfSpidersAttributes());
+        FabricDefaultAttributeRegistry.register(STONE_OF_ZOMBIES, StoneOfZombiesEntity.createStoneOfZombiesAttributes());
     }
 
     /** No-op - calling this forces this class (and its static EntityType registrations) to load. */

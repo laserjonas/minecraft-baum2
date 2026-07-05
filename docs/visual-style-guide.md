@@ -296,15 +296,19 @@ assets/baum2/
         wesenswahrer.png
     item/
       gold_sword.png           (16x16, item icon - see Section 14)
+      poison_dagger.png        (16x16, item icon - see Section 16)
     block/       (future: block textures)
     entity/
       stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
+      stone_of_zombies.png     (176x176 box-UV sheet, same layout as above - see Section 15)
   models/
     item/
       gold_sword.json          (see Section 14)
+      poison_dagger.json       (see Section 16)
     block/       (future)
   items/
     gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
+    poison_dagger.json         (1.21.11 item-model-definition entry point - see Section 16)
   blockstates/   (future)
 ```
 
@@ -993,8 +997,189 @@ vanilla's actual `golden_sword.png` pixel layout or any other specific game's ex
 
 ---
 
+## 15. Monster visual identity: "Stone of Zombies" (`baum2:stone_of_zombies`)
+
+The mod's second stationary mini-boss, mechanically and geometrically the sibling of Section
+13's Stone of Spiders: level 20, 400 HP (`StoneOfZombiesEntity.createStoneOfZombiesAttributes`),
+immobile, same 3x3-block cocoon-stone silhouette. Every 10%-of-max-health lost spawns a wave of
+2 zombies + 1 baby zombie (`StoneOfZombiesEntity.spawnZombieWave`); killing the stone kills every
+zombie it has spawned so far. Drops a Poison Dagger (Section 16) on death. Ambient
+`ParticleTypes.LARGE_SMOKE` drifts off it continuously, client-side (`tickMovement`).
+
+### 15.1 Shared geometry — reuses Section 13.2 exactly, no new shape
+
+**This mob does not introduce new geometry.** `HulkingCocoonStoneEntityModel` (see
+`src/client/java/de/baum2dev/baum2/entity/HulkingCocoonStoneEntityModel.java`) is literally the
+same Java model class shared between Stone of Spiders and Stone of Zombies — same 7 cuboids,
+same sizes, same positions, same 176x176 box-UV layout at the exact same UV offsets. Section
+13.2's cuboid breakdown table and its rationale ("organic-mass-as-geometric-volumes... reuse
+this method rather than reinventing per-mob") apply here unchanged — refer back to it rather
+than re-deriving. **Only the texture differs between the two mobs.** No Java model changes were
+needed or made for this pass.
+
+*Compliance note:* "cocoon mini-boss reskinned with a different infestation/theme and spawn
+type" is itself a generic, widely-used monster-variant convention (recoloring/rethreading a
+boss archetype for a second encounter) — genre convention, not IP. The toxic/zombie theme and
+palette below are original.
+
+### 15.2 Color palette: "Toxic Bloom" (original, distinct from every other palette in the mod)
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Rock shadow | Blight Stone Shadow | `#26301F` | Base cuboid's bottom/back faces |
+| Rock mid-tone | Blight Stone | `#435930` | Base cuboid's main faces (toxic-infused rock, reskin of Section 13.3's Fused Stone) |
+| Rock highlight | Blight Stone Pale | `#647A47` | Reserved for a future non-placeholder pass — not used in the current placeholder texture, mirrors Section 13.3's own unused "Pale" convention |
+| Shell shadow | Plague Husk Shadow | `#4F5A2C` | Body/cap bottom+back faces |
+| Shell mid-tone | Plague Husk | `#7C8F49` | Body/cap side+front faces |
+| Shell highlight | Plague Husk Pale | `#A8BD70` | Body/cap top faces |
+| Ooze accent | Toxic Ooze | `#B8D888` | Web-strand accent cuboids (D, E) — reskin of Section 13.3's silk-strand role as a sickly ooze/drip instead |
+| Crack/fissure accent | Fissure Rot | `#17200F` | Crack-line detail on the shell's front faces, and the underside of the ooze-accent cuboids |
+| Glow-vein core | Plague Glow | `#3DFF7E` | Bright toxic emerald-green — the glow-vein bumps' visible faces and the small glow blotches painted onto the body/cap |
+| Glow-vein edge | Plague Glow Dim | `#1B8A45` | Darker vein-edge tone, glow bump's hidden/side faces |
+
+*Compliance note:* chosen to be clearly distinct from Section 13.3's Fused Stone/Cocoon Husk
+(brown/tan) and Larval Glow (`#C4E064`, a warm yellow-lime hue) — Plague Glow is a cooler,
+more saturated emerald-green (hue shifted well away from Larval Glow's yellow-green, and much
+brighter/more saturated than the muted UI Verdigris Glow `#5FA98C` or the Character-Stats-
+Screen's jade Dexterity green `#4CBB7A`, per Section 12), so it reads as its own distinct
+"toxic glow" rather than a restyled copy of any existing green in the mod. "Sickly toxic green
+monster glow" itself is a genre-generic bioluminescence/poison cue (same reasoning Section
+13.3 already applied to its own chartreuse), not copied from any specific existing game's
+creature-glow branding.
+
+### 15.3 Placeholder texture (produced this pass)
+
+**Explicitly a temporary placeholder**, per `MASTERPROMPT.md`'s asset rule — flat-color box-UV
+fills generated programmatically (PowerShell + `System.Drawing`, same technique as Section
+13.4, no Python/ImageMagick available in this environment), not hand-drawn final art. No
+traced, extracted, or downloaded source material was used.
+
+- **File:** `assets/baum2/textures/entity/stone_of_zombies.png` (under
+  `src/main/resources/`) — matches the registered entity id `baum2:stone_of_zombies`, mirrors
+  Section 13.4's naming convention.
+- **Canvas:** 176 x 176 px, RGBA, transparent background outside the seven cuboids' UV
+  regions — **identical canvas size to `stone_of_spiders.png`**, since the geometry is
+  identical (Section 15.1).
+- **UV offsets used — identical to Section 13.4's table, reproduced verbatim, not
+  redesigned:**
+
+  | Part | UV (u, v) | Box size (w x h) |
+  |---|---|---|
+  | A - Base | (0, 0) | 176 x 56 |
+  | B - Body | (0, 56) | 136 x 58 |
+  | C - Cap | (0, 114) | 80 x 36 |
+  | D - Web-strand 1 (ooze accent) | (0, 150) | 56 x 4 |
+  | E - Web-strand 2 (ooze accent) | (0, 154) | 44 x 4 |
+  | F - Glow bump 1 | (0, 158) | 24 x 9 |
+  | G - Glow bump 2 | (0, 167) | 20 x 8 |
+
+- Each volume's faces are flat-filled using the standard Minecraft box-UV face sub-layout
+  (top=highlight, bottom+back=shadow, remaining sides+front=mid-tone for A/B/C; ooze-accent
+  cuboids filled solid Toxic Ooze with a Fissure Rot underside; glow bumps filled Plague
+  Glow/Plague Glow Dim on visible/hidden faces respectively) — same method as Section 13.4. A
+  handful of hand-placed crack-line and glow-blotch pixel clusters were painted directly onto
+  the body's and cap's front-face UV regions, same as Section 13.4's approach.
+- **Not yet done, flagged for a future art pass** (same caveat as Section 13.4): real
+  hand-drawn surface detail across the full shell — this texture only proves the palette/theme
+  swap and gives something to look at in-game.
+- **No Java/model changes required** — confirmed the UV table above is pixel-identical to
+  Section 13.4's, so `HulkingCocoonStoneEntityModel`'s existing `.uv(...)` calls line up with
+  this new texture exactly as they do with `stone_of_spiders.png`.
+
+---
+
+## 16. Weapon visual identity: "Poison Dagger" (`baum2:poison_dagger`)
+
+The mod's second custom item — a reward-drop dagger (Section 15's Stone of Zombies drops it),
+built on `ToolMaterial.IRON` with custom low-damage/high-speed args
+(`ModItems.POISON_DAGGER`, `.sword(ToolMaterial.IRON, 1.0F, 0.0F)`) — a "dagger" archetype:
+fast, weak per-hit, compensated by an on-hit Poison status effect wired in
+`combat/PoisonDaggerHandler.java`. Plain `Item`, no custom model class, following Section 14's
+precedent exactly.
+
+### 16.1 Design direction
+
+Small, fast, venomous blade — green-tinged metal with a poison sheen/drip accent, **not a
+recolor or clone of vanilla's iron sword texture, and not a resize of this mod's own Gold
+Sword (Section 14)**. Only the generic "diagonal tool icon in a 16x16 canvas" convention is
+reused (same genre-convention reasoning as Section 14.1), but the silhouette is deliberately
+**shorter and stubbier** than Gold Sword's full-canvas diagonal, to read as a distinct "dagger"
+archetype rather than a small sword: the blade runs from the bottom-left pommel only to roughly
+the canvas's center-upper area, leaving the top-right quadrant of the canvas empty/transparent
+(Gold Sword's blade tip reaches the top-right corner; this one does not).
+
+- **Silhouette:** same bottom-left-to-top-right diagonal orientation as every tool/weapon icon
+  in the mod (Section 14.1's read-at-a-glance convention), but roughly two-thirds the length —
+  pommel at (1,13)-(2,14), blade tip at (11,3), instead of spanning the full 16px diagonal.
+- **Parts, bottom-left to top-right:** a small 2x2 pommel block, a short 2px diagonal grip, a
+  perpendicular crossguard accent breaking the diagonal at the grip/blade junction, then a
+  tapering blade to a 1px point — same part vocabulary as Gold Sword (Section 14.1) for
+  cross-item consistency, just compressed to the shorter dagger length.
+- **New element not present on Gold Sword:** a single poison-sheen/drip accent pixel partway
+  up the blade, signaling the on-hit Poison effect visually.
+- **Palette is original, does not reuse Gold Sword's Aged Brass** — a dagger dropped by a toxic
+  mob calls for its own green-tinged steel identity rather than inheriting Gold Sword's warm
+  gold/bronze hilt, so this item gets a fully new palette rather than a partial one.
+
+### 16.2 Color palette
+
+| Role | Hex | Notes |
+|---|---|---|
+| Pommel | `#4A4F45` | Dark worn iron-green metal cap |
+| Grip | `#2E2A22` | Near-black leather-wrap handle, plain and unornamented |
+| Crossguard | `#6E7A5E` | Muted sage-metal accent, distinct from both pommel and blade tones |
+| Blade fill | `#8FA894` | Pale green-tinged steel |
+| Blade shadow edge | `#3F4A3C` | Thickening/shadow pixel along the blade's lower edge |
+| Blade highlight | `#D8E8C8` | Highlight pixels near the tip |
+| Poison sheen/drip accent | `#5FE06B` | Bright toxic-green accent pixel on the blade, signals the on-hit Poison effect |
+
+*Compliance note:* this is an original 7-color diagonal-dagger treatment; it does not
+reproduce vanilla's actual `iron_sword.png` pixel layout, Section 14's Gold Sword palette, or
+any other specific game's exact dagger/knife icon.
+
+### 16.3 Files produced (placeholder texture, real model/item-definition JSON)
+
+- **Texture** (placeholder, per `MASTERPROMPT.md`'s asset rule — flat pixel art, no
+  anti-aliasing, generated via PowerShell + `System.Drawing`, not hand-drawn final art):
+  `assets/baum2/textures/item/poison_dagger.png`, 16x16, RGBA, transparent background.
+- **Model JSON** (real, not a placeholder — same verified 1.21.11 schema as Section 14.3's
+  Gold Sword, reused exactly): `assets/baum2/models/item/poison_dagger.json`:
+  ```json
+  {
+    "parent": "minecraft:item/handheld",
+    "textures": { "layer0": "baum2:item/poison_dagger" }
+  }
+  ```
+- **Item-model-definition entry point** (real, not a placeholder — same 1.21.x schema
+  confirmed in Section 14.3): `assets/baum2/items/poison_dagger.json`:
+  ```json
+  {
+    "model": {
+      "type": "minecraft:model",
+      "model": "baum2:item/poison_dagger"
+    }
+  }
+  ```
+  Both files are required in 1.21.11, per the same gotcha Section 14.3 already documented and
+  verified against the decompiled vanilla client jar — not re-verified here since Section 14.3
+  already established it as ground truth for any future item this mod adds.
+
+---
+
 ## Changelog
 
+- **2026-07-05** — Added Section 15 (monster visual identity: "Stone of Zombies",
+  `baum2:stone_of_zombies` — the mod's second custom hostile mob) and Section 16 (weapon
+  visual identity: "Poison Dagger", `baum2:poison_dagger` — the mod's second custom item).
+  Stone of Zombies **reuses Section 13.2's 7-cuboid geometry and Section 13.4's UV layout
+  exactly, unchanged** (same shared Java model class, `HulkingCocoonStoneEntityModel`) — only a
+  new "Toxic Bloom" green/toxic palette (`Blight Stone`/`Plague Husk`/`Toxic Ooze`/`Plague
+  Glow` family) and retextured placeholder PNG were produced; no model/Java changes were
+  needed. Poison Dagger follows Gold Sword's exact item conventions (same model/item-definition
+  JSON schema) with a new original green-tinged-steel palette and a shorter, stubbier
+  dagger-specific silhouette (roughly two-thirds of Gold Sword's full-canvas diagonal) so it
+  reads as a distinct archetype rather than a small sword. Both placeholder PNGs generated via
+  PowerShell + `System.Drawing`. Updated Section 6's folder listing with the two new files.
 - **2026-07-05** — Added Section 13 (monster visual identity: "Stone of Spiders",
   `baum2:stone_of_spiders` — the mod's first custom hostile mob) and Section 14 (weapon visual
   identity: "Gold Sword", `baum2:gold_sword` — the mod's first custom item). Section 13

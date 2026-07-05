@@ -868,41 +868,102 @@ heavy base hit, a leap that ends in a ground AoE, and a 3-hit burst combo.
   strike; the leap-to-melee range now has no dead zone; the Colossal Warclub drops and is
   wieldable; the nameplate shows "Lvl. 25".
 
+#### Playtest fixes (real user testing, not just build/compile checks)
+
+The user actually summoned and fought this boss and reported four real problems - same "clean
+build isn't the same as working feature" lesson Spider Queen's own playtest round already
+taught this project:
+
+1. **"The jump with fire ring is perfect."** No fix needed - confirms the leap/fire-wave
+   mechanic (the newest, most novel part of this boss's kit) actually works end to end in a
+   live client, the first time anything in this boss's kit has been independently confirmed
+   rather than just build-verified.
+2. **"The attack and jump animation are missing. The zombie model is moving very static."**
+   Diagnosed against the real decompiled 1.21.11 client jar rather than guessed: the walk-cycle
+   and base attack-swing plumbing were **already correct** in v1 (confirmed
+   `LivingEntityRenderer.updateRenderState`/`BipedEntityRenderer.updateBipedRenderState` already
+   populate `limbSwingAnimationProgress`/`handSwingProgress`/`swingAnimationType` regardless of
+   this renderer bypassing `BipedEntityRenderer`). The one real, fixable gap: vanilla's
+   `MobEntity.isAttacking()` is only ever set by vanilla's own `MeleeAttackGoal`/
+   `ZombieAttackGoal` machinery, which this boss's fully custom attack `Goal`s (by design) never
+   call - so `state.attacking` always read `false`, meaning every swing used
+   `ArmPosing.zombieArms`' calmer non-attacking pose baseline even mid-strike, reading as stiff/
+   static. Fixed entirely client-side in `ZombieColossusEntityRenderer.updateRenderState`
+   (`state.attacking = entity.isAttacking() || state.handSwingProgress > 0.0F`), no gameplay
+   code touched. Separately, the leap and rage combo never had a telegraph *pose* at all (v1
+   deliberately kept this simple, unlike Spider Queen's crouch-coil animation) - added a new
+   `ColossusRenderState` (extends `ZombieEntityRenderState`, mirrors `SpiderQueenRenderState`'s
+   pattern) carrying two wind-up counters synced from new `ZombieColossusEntity.
+   getLeapWindupTicks()`/`getRageWindupTicks()` `TrackedData` fields, driving a crouch-and-coil-
+   with-club-drawn-back pose (leap) and an overhead club-raise pose (rage) in
+   `ZombieColossusEntityModel.setAngles`, both easing to neutral exactly as their counter hits 0
+   (matching when the server-side attack actually fires).
+3. **"That zombie looks like it has no muscles. Please improve that model."** The model reused
+   `BipedEntityModel.getModelData()` unmodified in v1 - a flat texture alone can't sell "great
+   strength" on vanilla's thin proportions regardless of shading. Replaced with bespoke bulkier
+   cuboids (body 8x12x4→14x12x6, arms/legs 4x12x4→6x14x6 / 6x12x6), same "custom geometry, not a
+   straight vanilla reuse" approach as `HulkingCocoonStoneEntityModel`, keeping standard part
+   names/hierarchy so the walk/attack/telegraph animation logic above still targets the right
+   parts, and keeping total model height unchanged to avoid ground clipping. Texture regenerated
+   against the new UV footprints with added muscle-definition shading (sternum groove, pec/ab
+   striations, bicep highlight, elbow-crease shadow) - `docs/visual-style-guide.md` Section 18
+   updated (18.2 rewritten, new 18.6/18.7).
+4. **"The Attack range is too short... This must be improved."** A real gameplay-logic issue,
+   fixed directly in `ZombieColossusEntity.java` (not the graphics-designer's concern): `Entity.
+   distanceTo()` measures center-to-center, not hitbox-edge-to-edge, so the original 2.0-block
+   range (taken literally from the initial spec) against a 1.8-block-wide giant holding a long
+   club meant the swing visually looked connected well before the hit actually registered. Base
+   attack, rage attack, and the leap's minimum trigger range all widened from 2.0 → 4.5 in
+   lockstep (preserving the earlier balance-reviewer dead-zone fix, which depends on the base-
+   attack and leap-minimum numbers matching exactly).
+
+Verified: `./gradlew build` passes clean after all four fixes. **Still not independently
+re-verified in an actual game session by this session** (no GUI-automation tool exists in this
+environment) - the fixes above were driven by the user's own real playtest report, but this
+session couldn't re-verify the fixes the same way. Next playtest should specifically confirm:
+attacks now visibly swing with proper intensity instead of looking stiff; the leap's crouch-coil
+telegraph and the rage combo's overhead club-raise are both visible before their respective
+attacks fire; the model reads as visibly muscular now, not just reskinned; the wider 4.5-block
+reach actually feels connected rather than either too short or now too generous. Not re-run:
+`ip-naming-compliance-checker`/`balance-reviewer` - nothing here is a new name, and the range
+widening is a direct, proportional response to "the numbers didn't match the model's real size,"
+not a fresh balance concern (same reasoning already applied to Spider Queen's own post-playtest
+speed/range/cooldown adjustments).
+
 ## Last change (on `fischey_workbranch`, based on the merged commit above)
 
-Added the third mini-boss, Zombie Colossus (`baum2:zombie_colossus`, level 25, 750 HP) plus its
-guaranteed drop, the Colossal Warclub — see "Zombie Colossus" above for full detail. A giant
-(3x-scaled) melee zombie boss extending vanilla `ZombieEntity` directly, with three attacks: a
-slow 100-damage base hit at an exact 2-block range (a fully custom `Goal`, not a
-`MeleeAttackGoal` subclass, since that class has no overridable attack-range hook in this MC
-version - confirmed via `javap` against the real 1.21.11 jar rather than assumed), a leap that
-reuses Spider Queen's proven direct-position-control `travel()` override (deliberately *not*
-re-attempting the velocity-based approach that failed twice in this exact codebase before that
-fix), ending in a new mechanic for this mod - an expanding "fire wave" AoE ring plus a
-custom-rate burn DoT (`combat/BurnDamageManager.java`, a new minimal tick-based tracker, since
-vanilla's own fire damage can't hit the spec's exact "2 damage/sec" number without a Mixin) -
-and a 3-hit rage combo. The boss holds a real equipped weapon rather than a cosmetic-only club;
-`graphics-designer` implemented this by decompiling and copying vanilla's own `GiantEntity`
-mechanism (a 6x zombie holding an oversized item, the same archetype), since vanilla's normal
-`ZombieEntityRenderer` hardcodes a non-scaled shadow radius the same way `SpiderEntityRenderer`
-did for Spider Queen.
+Playtest fix round on Zombie Colossus (added earlier this same branch - see "Zombie Colossus"
+above, "Playtest fixes" subsection, for full detail). The user actually summoned and fought the
+boss (added in the prior commit, `b6d8fc5`) and reported four things: the leap/fire-wave combo
+"is perfect" (no fix needed - first part of this boss's kit independently confirmed working in
+a live client); attack and jump animations were missing and the model looked static; the model
+"has no muscles"; and the attack range was too short.
 
-Ran all four applicable project subagents for real, not skipped: `ip-naming-compliance-checker`
-found "Colossus Club" was an exact-string match to an existing EverQuest 2 item and it was
-renamed to "Colossal Warclub" before anything else was built against it (asset/renderer work
-was mid-flight in a background agent at the time - it was notified of the rename and verified
-the new name directly from source rather than trusting the notification, which is exactly the
-right call); `balance-reviewer` found two real mechanical bugs (a zero-telegraph 300-damage rage
-burst, and a 2-3 block dead zone where no attack could land) plus a correctness gap (burn DoT
-ignoring Fire Resistance) and all three were fixed in this same pass, plus several numeric
-judgment calls logged for a human decision rather than silently changed (HP/level drift now at
-30, a new high; the club's flat-damage floor). `graphics-designer` produced the model/renderer/
-texture/icon and updated the style guide (Section 18, "Ashen Brute").
+Root causes, verified against the real decompiled 1.21.11 client jar rather than guessed: the
+walk-cycle/attack-swing plumbing was already correct in v1, but vanilla's `MobEntity.
+isAttacking()` is only ever set by vanilla's own attack-goal machinery, which this boss's fully
+custom attack `Goal`s never call - so swings always used the calmer non-attacking pose baseline,
+reading as stiff. Fixed client-side only (`state.attacking = entity.isAttacking() ||
+state.handSwingProgress > 0.0F` in `ZombieColossusEntityRenderer`). Separately, neither the leap
+nor the rage combo had a telegraph *pose* (v1 deliberately kept this simple) - added a new
+`ColossusRenderState` carrying two wind-up counters (synced from new `getLeapWindupTicks()`/
+`getRageWindupTicks()` `TrackedData` fields on the entity) driving a crouch-and-coil pose and an
+overhead club-raise pose in `ZombieColossusEntityModel`. The "no muscles" complaint was fixed by
+replacing v1's unmodified `BipedEntityModel.getModelData()` reuse with bespoke bulkier cuboids
+(thicker arms/legs/torso, same "custom geometry" approach as `HulkingCocoonStoneEntityModel`),
+plus a texture redo with actual muscle-definition shading. The short attack-range complaint was
+a real gameplay-logic issue (not the graphics-designer's concern): `Entity.distanceTo()` is
+center-to-center, not edge-to-edge, so the original 2.0-block range (taken literally from the
+initial spec) against a 1.8-block-wide giant with a long club meant hits looked connected well
+before they actually registered - widened to 4.5 across the base attack, rage attack, and the
+leap's minimum trigger range (kept in lockstep to preserve the earlier dead-zone fix).
 
-Verified: `./gradlew build` passes clean (Java + client renderer/model together). **Not yet
-verified in an actual game session** - same no-GUI-automation limitation as every previous boss
-in this project (see "Current state" throughout this doc). See "Zombie Colossus" above for the
-exact next-playtest checklist.
+Verified: `./gradlew build` passes clean after all four fixes. **Still not independently
+re-verified in an actual game session by this session** - the fixes were driven by the user's
+own real playtest report; see "Zombie Colossus" above for the exact next-playtest checklist.
+Not re-run: `ip-naming-compliance-checker`/`balance-reviewer` - nothing here is a new name, and
+the range widening is a proportional fix to match the model's real size, not a fresh balance
+concern (same reasoning already applied to Spider Queen's own post-playtest adjustments).
 
 ## Last change (on `jonas_workbranch`)
 

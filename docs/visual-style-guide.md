@@ -1439,30 +1439,53 @@ for Spider Queen (vanilla's own Giant/Zombie is this exact archetype) - genre co
 The palette and musculature/club design below are original and not modeled on any specific
 existing creature or game's actual design.
 
-### 18.2 Entity texture: `zombie_colossus.png`
+### 18.2 Entity model and texture: bespoke muscular geometry (playtest fix, v2)
 
-- **File:** `assets/baum2/textures/entity/zombie_colossus.png`.
-- **Canvas: 64x64 px, confirmed exactly matching vanilla's own plain biped/zombie UV layout** -
-  verified by reading `BipedEntityModel.getModelData(Dilation, float)` directly out of the
-  decompiled client-sources jar (not assumed): `TexturedModelData.of(BipedEntityModel.getModelData(Dilation.NONE, 0.0F), 64, 64)`,
-  the same call `EntityModels.getModels()` uses to build the shared `TexturedModelData` for
-  vanilla's own `ZOMBIE` **and** `GIANT` model layers (see 18.1). Only the bottom half of the 64x64
-  canvas is used - this base biped call defines just 5 real parts (head, hat-overlay, body, one
-  shared mirrored arm region, one shared mirrored leg region), not the additional jacket/sleeves/
-  pants overlay cuboids the full player-skin format also supports - so, like vanilla's own
-  `zombie.png`, the region below y=32 is unused/transparent.
+**v1 reused vanilla's exact `BipedEntityModel.getModelData()` unmodified** (just scaled 3x). Direct
+playtest feedback ("that zombie looks like it has no muscles") confirmed this was a real geometry
+problem, not a texture-painting problem: a uniformly-thin biped skeleton can't read as "hulking and
+strong" regardless of how its texture is painted. **v2 replaces the geometry with bespoke, visibly
+bulkier cuboids** - broader chest/shoulders, thicker arms, thicker legs - while deliberately keeping
+the exact same standard part names/hierarchy (`head` with child `hat`, `body`, `right_arm`,
+`left_arm`, `right_leg`, `left_leg`) that `BipedEntityModel`'s constructor binds via
+`ModelPart.getChild(name)`. Only each cuboid's size/origin changed; the inherited
+`AbstractZombieModel`/`BipedEntityModel` walk-cycle and attack-swing angle math (which only ever
+rotates/repositions these named parts, never assumes a specific size) keeps working unmodified -
+the same "custom geometry, but same part-naming contract" approach already established for the two
+stone mini-bosses' shared `HulkingCocoonStoneEntityModel`. Total model height (head top at y=-8 to
+feet at y=24) is kept identical to vanilla's own biped so the boss doesn't clip into the ground
+(confirmed ground-level convention: `LivingEntityRenderer`'s fixed `-1.501`-block translate, see
+Section 13.2's rationale).
 
-  | Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) | Notes |
-  |---|---|---|---|---|
-  | Head (inner) | (0, 0) | 8 x 8 x 8 | (0, 0, 32, 16) | Face painted with eyes + jaw line (below) |
-  | Hat (outer head overlay) | (32, 0) | 8 x 8 x 8, dilated | (32, 0, 32, 16) | **Left fully transparent**, matching vanilla `zombie.png`'s own convention of not using this overlay |
-  | Body | (16, 16) | 8 x 12 x 4 | (16, 16, 24, 16) | Bare muscled torso, not a shirt - see 18.3 |
-  | Arm (shared/mirrored, both arms) | (40, 16) | 4 x 12 x 4 | (40, 16, 16, 16) | Bare muscled bicep |
-  | Leg (shared/mirrored, both legs) | (0, 16) | 4 x 12 x 4 | (0, 16, 16, 16) | Tattered cloth wrap, distinct tone from the bare torso/arms |
+- **File:** `assets/baum2/textures/entity/zombie_colossus.png`, still 64x64 px, but now painted
+  against the model's own bespoke UV footprints below (verified against the actual box-UV math in
+  `ModelPart.Cuboid`'s constructor, decompiled 1.21.11 client jar, not assumed) rather than
+  vanilla's stock biped layout.
 
-  Both the arm and leg regions are genuinely shared between left/right (vanilla mirrors the same
-  UV rectangle for both sides via `.mirrored()`, confirmed in the same decompiled source) - painting
-  one side's region paints both limbs automatically.
+  | Part | Cuboid size (dx,dy,dz) | Origin (pivot) | UV origin | Box footprint (x, y, w, h) | Notes |
+  |---|---|---|---|---|---|
+  | Head (inner) | 8 x 8 x 8 | (0, 0, 0) | (0, 0) | (0, 0, 32, 16) | Unchanged from v1 - deliberately small relative to the new bulkier body, itself part of the "brute" silhouette. Front face: eye sockets + amber glare dots, jaw line, tusks |
+  | Hat (outer head overlay) | 8 x 8 x 8, dilated +0.5 | child of head, `ModelTransform.NONE` | (32, 0) | (32, 0, 32, 16) | **Left fully transparent**, matching vanilla `zombie.png`'s own convention |
+  | Body | 14 x 12 x 6 (was 8x12x4) | (0, 0, 0) | (0, 16) | (0, 16, 40, 18) | Broad barrel chest/shoulders - the primary "muscular" silhouette change. Front face: sternum groove + pec/ab highlight-and-shadow striations |
+  | Arm (shared/mirrored, both arms) | 6 x 14 x 6 (was 4x12x4) | right (-7, 2, 0), left (7, 2, 0) | (40, 16) | (40, 16, 24, 20) | Thick, slightly longer club-swinging limb, flush against the body's new wider edge. Front face: bicep bulge highlight + elbow-crease shadow line |
+  | Leg (shared/mirrored, both legs) | 6 x 12 x 6 (was 4x12x4) | right (-2.9, 12, 0), left (2.9, 12, 0) | (0, 34) | (0, 34, 24, 18) | Thick pillar legs, height unchanged so feet still land exactly at y=24 (no floor clipping). Front face: tattered-wrap fold lines + ragged hem |
+
+  Arm and leg regions remain genuinely shared between left/right via `.mirrored()` (same vanilla
+  mechanism as before) - painting one side's region paints both limbs automatically. Canvas stays
+  well within 64x64 (tallest used row ends at y=52, 12px of the canvas below that is unused/
+  transparent).
+
+**Muscle-definition shading, added this pass per the brief** ("touch up the palette with visible
+muscle-definition shading if that helps sell it further"): the body's front face now has a dark
+sternum groove flanked by highlight blocks (pecs) and two horizontal shadow striations across the
+midsection (abs), each followed by another highlight block below - reads as segmented muscle mass
+rather than a flat fill. The arm's front face has a highlight block near the shoulder (bicep bulge)
+and a dark line partway down (elbow crease) separating it from a shadow block below (forearm). This
+is still a **placeholder-effort treatment** (flat programmatic fills plus a handful of hand-placed
+accent rectangles, generated via a small Java/`ImageIO` tool - no Python/ImageMagick available in
+this environment, same placeholder-effort level as every other texture in this document), not
+hand-painted surface detail - a human artist pass would meaningfully raise the ceiling here, same
+caveat as 18.5 below.
 
 ### 18.3 Color palette: "Ashen Brute" (original, distinct from every other palette in this document)
 
@@ -1480,7 +1503,7 @@ recolor.
 | Muscle base | Exposed Muscle | `#7A2E24` | Torso/arm side/back/front base fill - the dominant "visible muscles" color per the brief |
 | Muscle highlight (wet sheen) | Exposed Muscle Sheen | `#B24A3A` | Torso top face, bicep bulge highlight, ab/pec striation highlights |
 | Muscle shadow | Exposed Muscle Dusk | `#4A1712` | Torso bottom face, bicep lower-shadow, ab striation shadows |
-| Wound/seam accent | Wound Edge | `#1F1A16` | Near-black - sternum groove, side striation lines, jaw line, ragged hem |
+| Wound/seam accent | Wound Edge | `#1F1A16` | Near-black - sternum groove, ab striation lines, jaw line, elbow-crease line, ragged hems (torso and leg) |
 | Eye glow (painted, no vanilla overlay involved) | Brute Glare | `#D9C24A` | Dull amber-yellow eye dots on the head's front face |
 | Eye-socket base | Deep Socket | `#140F0A` | Dark base under each eye dot |
 | Cloth-wrap mid-tone | Tattered Wrap | `#2E251C` | Leg region side/front/back faces - ragged trouser remnants, distinct tone from the bare torso/arms |
@@ -1533,36 +1556,121 @@ a broad, unclaimed fantasy-weapon archetype (not any one game's specific IP), an
 silhouette does not reproduce any existing game's specific club/mace icon, nor either of this mod's
 own existing weapon palettes (Gold Sword's bronze/gold hilt, Poison Dagger's green-tinged steel).
 
-### 18.5 Files produced this pass
+### 18.6 Playtest fixes (v2): animation diagnosis + leap/rage telegraph poses
 
-Placeholder texture + real (verified, not guessed) 1.21.11 model/item-definition JSON, generated
-via PowerShell + `System.Drawing` (same technique as every prior placeholder in this document; no
-Python/ImageMagick available in this environment). No traced, extracted, or downloaded source
-material was used.
+The user actually fought this boss (not just build/compile-checked it) and reported: (1) "the
+attack and jump animation are missing, the zombie model is moving very static," and (2) "that
+zombie looks like it has no muscles" (18.2/18.3 above cover the muscle fix). This subsection covers
+the animation diagnosis and the telegraph-pose fix.
+
+**Diagnosis, verified against the decompiled 1.21.11 client jar rather than guessed** (not the
+older-MC-version-recall this project's `HANDOFF.md` repeatedly warns against): the base walk-cycle
+and attack-swing plumbing v1 already had was **not actually broken**. Confirmed by decompiling
+`LivingEntityRenderer.updateRenderState` (populates `limbSwingAnimationProgress`/
+`limbSwingAmplitude` generically for every mob, not just Bipeds - reached via `super.
+updateRenderState()`, since `MobEntityRenderer` doesn't override it) and `BipedEntityRenderer.
+updateBipedRenderState`'s actual body (the static helper this boss's renderer already called in
+v1) - its very first line calls `ArmedEntityRenderState.updateRenderState`, which sets
+`handSwingProgress`/`swingAnimationType` from `entity.getHandSwingProgress(tickDelta)`. Both were
+already correctly wired; `AbstractZombieModel.setAngles` → `ArmPosing.zombieArms` already reads
+`handSwingProgress` to drive the swing on every real `swingHand()` call (`ColossusAttackGoal`/
+`RageAttackGoal` both already call it). **One real, fixable gap found**: vanilla's `MobEntity.
+isAttacking()` is only ever set `true` by vanilla's own `MeleeAttackGoal`/`ZombieAttackGoal`
+machinery, which this boss's fully custom attack `Goal`s never call (and per this task's scope,
+that gameplay code wasn't to be touched) - so `state.attacking` always read `false`, meaning every
+swing used `ArmPosing.zombieArms`' calmer non-attacking pose baseline even mid-strike. **Fixed
+purely client-side**, no gameplay code touched: `ZombieColossusEntityRenderer.updateRenderState`
+now also treats an in-progress hand swing as "attacking" (`state.attacking = entity.isAttacking()
+|| state.handSwingProgress > 0.0F`).
+
+The bigger, real contributor to "very static": the leap's 10-tick wind-up and the rage combo's
+8-tick wind-up were **completely frozen** in v1 - navigation stopped, zero pose change, for up to
+half a second each. Combined with the boss's intentionally slow 0.5-attacks/sec base cadence
+(gameplay-approved, not touched here), long stretches of a fight showed no visible motion at all.
+Fixed with real telegraph poses, same pattern already proven for Spider Queen's leap crouch
+(`SpiderQueenRenderState`/`SpiderQueenEntityModel`):
+
+- **New `ColossusRenderState`** (extends vanilla's `ZombieEntityRenderState`, not plain
+  `LivingEntityRenderState` - this boss's model still needs the zombie-specific `attacking` field
+  and every biped/armed field for its base animation) carries `leapWindupTicks`/`rageWindupTicks`,
+  populated in the renderer from `ZombieColossusEntity.getLeapWindupTicks()`/
+  `getRageWindupTicks()` (already wired server-side, synced via `TrackedData<Integer>` - the exact
+  same mechanism `SpiderQueenEntity.LEAP_WINDUP_TICKS` established).
+- **`ZombieColossusEntityModel.setAngles`** now layers two poses on top of the inherited walk/
+  attack animation, both easing in as their counter counts toward 0 and resolving to neutral right
+  as the real strike/launch fires server-side:
+  - **Leap wind-up** ("prepare to jump"): crouches the torso/head down, bends both legs, and winds
+    the main (club) arm back and up - a coiled, about-to-spring read.
+  - **Rage wind-up** ("prepare to slam"): raises the main arm high overhead (off-arm follows
+    partway for a two-handed read) with a slight backward torso lean - an overhead club-raise read.
+  - Duration constants (10 and 8 ticks) are duplicated as client-only constants in the model class
+    rather than exposed from the entity, since the real constants live on `private static final
+    int WINDUP_TICKS` fields inside `ZombieColossusEntity`'s private inner `Goal` classes, and this
+    task's scope explicitly excludes touching that gameplay code.
+
+**Not yet independently re-verified in an actual game session by this pass** (no GUI-automation
+tool exists in this environment, per every other UI/animation fix logged in `HANDOFF.md`) - next
+playtest should confirm: normal walking limb-swing while chasing, a visible club swing on every
+base attack and rage strike, the new crouch-and-coil pose during the leap wind-up, and the
+overhead-raise pose during the rage wind-up, both resolving right as the attack actually fires.
+
+### 18.7 Files produced this pass
+
+Bespoke model geometry/UV rework (v2) plus the v1 placeholder texture regenerated against the new
+UV footprints, and two new client-only render classes for the telegraph poses. Texture generated
+via a small Java/`ImageIO` command-line tool (no Python/ImageMagick available in this environment -
+same placeholder-effort convention as every other texture in this document, just a different tool
+than the PowerShell/`System.Drawing` approach used for v1). No traced, extracted, or downloaded
+source material was used.
 
 - `assets/baum2/textures/entity/zombie_colossus.png` (64x64, placeholder - flat box-UV fills plus
-  a handful of hand-placed muscle-striation/eye/jaw accent pixels, same effort level as Sections
-  13.4/15.3/17.2's placeholders)
-- `assets/baum2/textures/item/colossal_warclub.png` (16x16, placeholder)
-- `assets/baum2/models/item/colossal_warclub.json` (real, verified schema)
-- `assets/baum2/items/colossal_warclub.json` (real, verified schema)
-- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityModel.java` (real Java, not a
-  placeholder - reuses vanilla's shared `TexturedModelData` factory, no new geometry)
-- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityRenderer.java` (real Java, not a
-  placeholder - mirrors vanilla's `GiantEntityRenderer` mechanism, see 18.1)
-- `Baum2Client.java`'s registration block, extended with this boss's `EntityModelLayerRegistry`/
-  `EntityRendererFactories` pair, mirroring Spider Queen's existing block exactly.
+  hand-placed muscle-striation/eye/jaw/elbow-crease accent pixels, regenerated against the new
+  bespoke UV footprints in 18.2; same placeholder effort level as every other texture in this
+  document, now with added muscle-definition shading per this pass's brief)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityModel.java` (real Java, rewritten -
+  bespoke bulkier geometry replacing v1's unmodified `BipedEntityModel.getModelData()` reuse, plus
+  the leap/rage telegraph-pose logic)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityRenderer.java` (real Java, updated -
+  now creates/populates `ColossusRenderState` instead of vanilla's plain `ZombieEntityRenderState`,
+  plus the `state.attacking` animation fix)
+- `src/client/java/de/baum2dev/baum2/entity/ColossusRenderState.java` (new, real Java - carries the
+  leap/rage wind-up counters, same pattern as `SpiderQueenRenderState`)
+
+**Unchanged from v1, not re-touched this pass:** `assets/baum2/textures/item/colossal_warclub.png`,
+`assets/baum2/models/item/colossal_warclub.json`, `assets/baum2/items/colossal_warclub.json`,
+`Baum2Client.java`'s registration block (still calls `ZombieColossusEntityModel::getTexturedModelData`/
+`ZombieColossusEntityRenderer::new` with the same `ModelTransformer.scaling(3.0F)` wrapper - no
+signature changes were needed there).
 
 **Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
 document): real hand-drawn surface detail (skin texture, fabric weave on the leg-wrap, wood grain
-on the club) - this pass proves the UV layout, establishes the palette/silhouette, and gives this
-boss and its drop something considered to look at in-game, but a human artist pass would meaningfully
-raise the ceiling here.
+on the club) - this pass proves the new bulkier UV layout, establishes muscle-definition shading,
+and adds the telegraph poses, but a human artist pass would meaningfully raise the ceiling here.
 
 ---
 
 ## Changelog
 
+- **2026-07-05** — Zombie Colossus playtest fixes (v2), added Section 18.6/18.7: user actually
+  fought the boss and reported the attack/jump animation looked missing ("moving very static")
+  and the model "has no muscles." Diagnosed the animation complaint against the decompiled
+  1.21.11 client jar rather than guessing: the base walk-cycle and attack-swing plumbing was
+  already correctly wired in v1 (confirmed `LivingEntityRenderer.updateRenderState` and
+  `BipedEntityRenderer.updateBipedRenderState`'s real bodies both already populate the fields
+  needed); the one real gap was `state.attacking` never reading `true` (this boss's custom attack
+  `Goal`s never call vanilla's `setAttacking`), fixed client-side by also treating a live hand-
+  swing as "attacking." The bigger real contributor was the leap/rage wind-ups being completely
+  frozen — fixed with real telegraph poses (crouch-and-coil for the leap, overhead club-raise for
+  rage), same pattern as Spider Queen's leap crouch, via a new `ColossusRenderState` carrying the
+  two wind-up counters `ZombieColossusEntity` already exposes. Separately, replaced v1's unmodified
+  reuse of `BipedEntityModel.getModelData()` with bespoke bulkier geometry (broader chest/
+  shoulders, thicker arms/legs) that keeps the same standard part names so the animation logic
+  above still targets the right parts — the actual fix for "no muscles," since a texture alone
+  can't sell strength on a uniformly-thin vanilla skeleton. Regenerated the entity texture against
+  the new UV footprints with added muscle-definition shading (sternum groove, pec/ab striations,
+  bicep highlight, elbow crease). `./gradlew build` confirmed passing. Not yet re-verified in an
+  actual game session (no GUI-automation tool in this environment) — flagged in 18.6 for the next
+  playtest.
 - **2026-07-05** — Added Section 18 (boss visual identity: "Zombie Colossus",
   `baum2:zombie_colossus` — the mod's **second** true mobile boss, joining Spider Queen — and its
   "Colossal Warclub" drop, `baum2:colossal_warclub`, renamed from the originally-drafted "Colossus

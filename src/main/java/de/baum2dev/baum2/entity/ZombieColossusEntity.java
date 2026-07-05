@@ -19,6 +19,9 @@ import net.minecraft.entity.ai.goal.WanderAroundFarGoal;
 import net.minecraft.entity.attribute.DefaultAttributeContainer;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.entity.data.DataTracker;
+import net.minecraft.entity.data.TrackedData;
+import net.minecraft.entity.data.TrackedDataHandlerRegistry;
 import net.minecraft.entity.mob.ZombieEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
@@ -58,6 +61,14 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
     private static final double[] LEAP_FRACTIONS = {
             0.09, 0.19, 0.29, 0.39, 0.48, 0.57, 0.65, 0.73, 0.80, 0.87, 0.92, 0.96, 0.99, 1.00
     };
+
+    // Synced to the client so the (custom, muscular) model can play a real telegraph pose
+    // during the leap wind-up and rage wind-up, instead of the boss just standing still for a
+    // few ticks - same mechanism SpiderQueenEntity.LEAP_WINDUP_TICKS already established.
+    private static final TrackedData<Integer> LEAP_WINDUP_TICKS =
+            DataTracker.registerData(ZombieColossusEntity.class, TrackedDataHandlerRegistry.INTEGER);
+    private static final TrackedData<Integer> RAGE_WINDUP_TICKS =
+            DataTracker.registerData(ZombieColossusEntity.class, TrackedDataHandlerRegistry.INTEGER);
 
     private int leapCooldownTicks = 0;
     private int rageCooldownTicks = 0;
@@ -103,6 +114,33 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
     @Override
     protected boolean burnsInDaylight() {
         return false;
+    }
+
+    @Override
+    protected void initDataTracker(DataTracker.Builder builder) {
+        super.initDataTracker(builder);
+        builder.add(LEAP_WINDUP_TICKS, 0);
+        builder.add(RAGE_WINDUP_TICKS, 0);
+    }
+
+    /** Ticks remaining before the next leap launches (0 = not preparing one) - read client-side
+     *  to drive a crouch/coil telegraph pose in ZombieColossusEntityModel. */
+    public int getLeapWindupTicks() {
+        return this.dataTracker.get(LEAP_WINDUP_TICKS);
+    }
+
+    void setLeapWindupTicks(int ticks) {
+        this.dataTracker.set(LEAP_WINDUP_TICKS, ticks);
+    }
+
+    /** Ticks remaining before the rage combo's first strike (0 = not winding up) - read
+     *  client-side to drive an overhead-raise telegraph pose. */
+    public int getRageWindupTicks() {
+        return this.dataTracker.get(RAGE_WINDUP_TICKS);
+    }
+
+    void setRageWindupTicks(int ticks) {
+        this.dataTracker.set(RAGE_WINDUP_TICKS, ticks);
     }
 
     /** Always wields its signature club - not vanilla's random per-difficulty gearing. */
@@ -276,10 +314,13 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
     /**
      * The slow, heavy base attack - a fully custom Goal rather than a MeleeAttackGoal subclass,
      * since MeleeAttackGoal has no overridable attack-range hook in this version (confirmed via
-     * javap against the real 1.21.11 jar) and the spec gives an exact 2-block range number.
+     * javap against the real 1.21.11 jar). Range widened from the original 2.0 after playtesting
+     * - `Entity.distanceTo()` measures center-to-center, not hitbox-edge-to-edge, so 2.0 against
+     * a 1.8-block-wide giant holding a long club left the actual swing looking like it connected
+     * well before the hit registered. 4.5 accounts for the boss's own bulk plus club length.
      */
     private static class ColossusAttackGoal extends Goal {
-        private static final double ATTACK_RANGE = 2.0;
+        private static final double ATTACK_RANGE = 4.5;
         private static final double MOVE_SPEED = 1.0;
         private static final int ATTACK_COOLDOWN_TICKS = 40; // 0.5 attacks/sec
 
@@ -341,10 +382,11 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
      */
     private static class LeapAttackGoal extends Goal {
         // MIN_RANGE matches ColossusAttackGoal.ATTACK_RANGE exactly - balance-reviewer found a
-        // real mechanical dead zone (2-3 blocks) where neither the base attack nor the leap
-        // could land, letting a player deny all damage by holding that exact band. No gap
-        // between "melee reach ends" and "leap range begins" anymore.
-        private static final double MIN_RANGE = 2.0;
+        // real mechanical dead zone where neither the base attack nor the leap could land,
+        // letting a player deny all damage by holding that exact band. Kept in lockstep with
+        // the base attack's range (now 4.5, widened after playtesting - see that goal's
+        // javadoc) so there's still no gap between "melee reach ends" and "leap range begins".
+        private static final double MIN_RANGE = 4.5;
         private static final double MAX_RANGE = 15.0;
         private static final int WINDUP_TICKS = 10;
         private static final int COOLDOWN_TICKS = 200; // 10 seconds
@@ -383,6 +425,7 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
         public void start() {
             colossus.getNavigation().stop();
             windupTicksRemaining = WINDUP_TICKS;
+            colossus.setLeapWindupTicks(windupTicksRemaining);
             hasDealtDamageThisLeap = false;
             colossus.playSound(SoundEvents.ENTITY_ZOMBIE_AMBIENT, 2.0F, 0.6F);
         }
@@ -390,6 +433,7 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
         @Override
         public void stop() {
             windupTicksRemaining = 0;
+            colossus.setLeapWindupTicks(0);
             colossus.stopLeapFlight();
         }
 
@@ -404,6 +448,7 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
             if (windupTicksRemaining > 0) {
                 colossus.getNavigation().stop();
                 windupTicksRemaining--;
+                colossus.setLeapWindupTicks(windupTicksRemaining);
                 if (windupTicksRemaining == 0) {
                     launch(target);
                 }
@@ -447,7 +492,10 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
      * before it starts.
      */
     private static class RageAttackGoal extends Goal {
-        private static final double RANGE = 2.0;
+        // Kept in lockstep with ColossusAttackGoal.ATTACK_RANGE (widened to 4.5 after
+        // playtesting - see that goal's javadoc) so rage strikes reach exactly as far as the
+        // base attack does.
+        private static final double RANGE = 4.5;
         private static final int WINDUP_TICKS = 8;
         private static final int COOLDOWN_TICKS = 200; // 10 seconds
         private static final float STRIKE_DAMAGE = 100.0F;
@@ -480,6 +528,7 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
         @Override
         public void start() {
             windupTicksRemaining = WINDUP_TICKS;
+            colossus.setRageWindupTicks(windupTicksRemaining);
             elapsedTicks = 0;
             nextStrikeIndex = 0;
             colossus.getNavigation().stop();
@@ -488,6 +537,7 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
 
         @Override
         public void stop() {
+            colossus.setRageWindupTicks(0);
             colossus.rageCooldownTicks = COOLDOWN_TICKS;
         }
 
@@ -501,6 +551,7 @@ public class ZombieColossusEntity extends ZombieEntity implements MonsterLevelPr
 
             if (windupTicksRemaining > 0) {
                 windupTicksRemaining--;
+                colossus.setRageWindupTicks(windupTicksRemaining);
                 return;
             }
 

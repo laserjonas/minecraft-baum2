@@ -814,6 +814,26 @@ melee attack at all** — its entire kit is four skills, each its own `Goal`, pl
     playtest report; the next playtest should specifically confirm the weapon now renders, the
     boss reads as clearly non-human/imposing, and each skill's new sound/particle cue is
     actually noticeable in a real fight.
+- **Second playtest round found the held-weapon fix from the round above actually looked worse,
+  not just unpolished**: the user reported the model "looks like it has a penis" and asked for
+  the sword to actually fit the hand. Root cause, found by re-reading
+  `DrevathisHeldWeaponFeatureRenderer` rather than guessing: v1 of that renderer anchored the
+  weapon only at `getRootPart()` and translated it to one fixed point directly in front of the
+  torso's center at roughly hip height, with **no arm-following rotation at all** — a static rod
+  projecting straight out from the middle of the body regardless of any arm pose, which is
+  exactly the silhouette that reads badly. (Checked the entity texture pixel-by-pixel first to
+  rule out a texture bug — the UV layout and colors documented in `docs/visual-style-guide.md`
+  19.2 are correct and match the model; the horn region's olive-brown "Cursed Bone" tone was a
+  red herring, not the cause.) Fixed by anchoring at the right arm's own current transform via
+  `setArmAngle(...)` — the exact mechanism vanilla's own `HeldItemFeatureRenderer` uses — so the
+  weapon now inherits the arm's existing "grip inward" bend and moves with every skill's
+  telegraph pose, then offsetting down the arm's own length toward the actual hand instead of the
+  torso, adding a -35° tilt so the blade presents at an angle instead of dead-straight-forward,
+  and trimming the extra scale 1.8x → 1.6x. Verified: `./gradlew build` passes clean. **Still not
+  re-verified in a live client** — exact numeric offsets here are reasoned from the arm's cuboid
+  dimensions and vanilla's own reference offsets, not visually tuned (no live-render tooling
+  available in this environment), so this is the best-effort mechanism fix; a further numeric
+  tweak pass may still be needed after the next real playtest.
 - Verified: `./gradlew build` passes clean after every step, including after the two
   balance-reviewer fixes above. **Not yet verified in an actual game session** — same caveat
   every other boss in this project carries (see "No GUI-automation tool" note below).
@@ -853,7 +873,21 @@ melee attack at all** — its entire kit is four skills, each its own `Goal`, pl
 
 ## Last change (on `fischey_workbranch`)
 
-**Playtest fix round on Drevathis** (immediately after the commit below, same session): the user
+**Second Drevathis fix round** (same session, immediately after the round below): the user
+reported the held weapon "looks like it has a penis" and asked for it to actually fit the hand.
+Full detail in "Current state" above — root cause was the held-weapon renderer anchoring at the
+model root only and translating to one fixed point in front of the torso with no arm-following
+rotation, producing a static rod projecting from the body's center regardless of pose. Fixed by
+anchoring at the right arm's own live transform (the same mechanism vanilla's
+`HeldItemFeatureRenderer` uses) so the weapon now follows the arm's grip pose and every skill's
+animation, offset toward the actual hand, tilted off dead-straight-forward, and scaled down
+slightly. Ruled out a texture bug first by inspecting the entity texture directly pixel-by-pixel
+before concluding the actual cause was the render code, not the art. Verified: `./gradlew build`
+passes clean. **Not yet re-verified in a live client** — flagged as reasoned-not-tuned, since no
+live-render tooling exists in this environment; the next playtest should confirm this specifically.
+
+Earlier, still on `fischey_workbranch`: **playtest fix round on Drevathis** (immediately after
+the commit below, same session): the user
 summoned and inspected the boss and reported three things — "the demon boss has no weapon and
 looks like a hobbit", "the weapon does not look like it comes from a demon cursed blade", and
 "the skill itself is not visible... also not from the boss". Full root-cause detail folded into

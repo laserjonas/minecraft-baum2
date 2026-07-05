@@ -5,6 +5,8 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.TypeFilter;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
@@ -52,18 +54,26 @@ public final class DarkWaveEffect {
         }
 
         spawnWaveParticles(world, origin, forward, across, range, width);
+        world.playSound(null, origin.x, origin.y, origin.z, SoundEvents.ENTITY_WITHER_SHOOT, SoundCategory.HOSTILE, 1.2F, 0.8F);
     }
 
+    /**
+     * Fills the whole rectangle densely (several rows across the width, a couple of vertical
+     * layers) rather than a sparse 3-line outline - an instant, one-tick effect with too few
+     * particles was easy to miss entirely (playtest finding: "the skill itself is not visible").
+     */
     private static void spawnWaveParticles(ServerWorld world, Vec3d origin, Vec3d forward, Vec3d across, double range, double width) {
-        int steps = (int) Math.ceil(range);
-        for (int i = 0; i <= steps; i++) {
-            double along = (range * i) / steps;
-            Vec3d center = origin.add(forward.multiply(along));
-            Vec3d left = center.add(across.multiply(width / 2.0));
-            Vec3d right = center.subtract(across.multiply(width / 2.0));
-            world.spawnParticles(ParticleTypes.SQUID_INK, center.x, center.y + 0.1, center.z, 1, 0.0, 0.0, 0.0, 0.0);
-            world.spawnParticles(ParticleTypes.SQUID_INK, left.x, left.y + 0.1, left.z, 1, 0.0, 0.0, 0.0, 0.0);
-            world.spawnParticles(ParticleTypes.SQUID_INK, right.x, right.y + 0.1, right.z, 1, 0.0, 0.0, 0.0, 0.0);
+        int alongSteps = (int) Math.ceil(range * 1.5);
+        int acrossSteps = Math.max(2, (int) Math.ceil(width));
+        for (int i = 0; i <= alongSteps; i++) {
+            double along = (range * i) / alongSteps;
+            Vec3d rowCenter = origin.add(forward.multiply(along));
+            for (int j = 0; j <= acrossSteps; j++) {
+                double offset = width * ((double) j / acrossSteps - 0.5);
+                Vec3d point = rowCenter.add(across.multiply(offset));
+                world.spawnParticles(ParticleTypes.SQUID_INK, point.x, point.y + 0.15, point.z, 2, 0.15, 0.3, 0.15, 0.01);
+                world.spawnParticles(ParticleTypes.SCULK_SOUL, point.x, point.y + 0.6, point.z, 1, 0.15, 0.3, 0.15, 0.01);
+            }
         }
     }
 

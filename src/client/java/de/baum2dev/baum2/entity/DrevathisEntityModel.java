@@ -45,6 +45,14 @@ public class DrevathisEntityModel extends BipedEntityModel<DrevathisRenderState>
         super(modelPart);
     }
 
+    /**
+     * v2 geometry - v1 (unmodified vanilla biped proportions plus two small 2x6x2 horns) read as
+     * "a reskinned player" in an actual playtest ("looks like a hobbit"), the same class of
+     * complaint Zombie Colossus got fixed for ("no muscles") by moving away from vanilla-default
+     * cuboid sizes. This pass broadens the torso/arms, lengthens the horns substantially, adds a
+     * much larger cape, and adds small clawed fingertips on both hands - a silhouette that no
+     * longer reads as human-proportioned even before the texture is considered.
+     */
     public static TexturedModelData getTexturedModelData() {
         ModelData modelData = new ModelData();
         ModelPartData root = modelData.getRoot();
@@ -55,36 +63,47 @@ public class DrevathisEntityModel extends BipedEntityModel<DrevathisRenderState>
         head.addChild("hat",
                 ModelPartBuilder.create().uv(32, 0).cuboid(-4.0F, -8.0F, -4.0F, 8.0F, 8.0F, 8.0F, Dilation.NONE.add(0.5F)),
                 ModelTransform.NONE);
-        // Curved-back horns - purely cosmetic children of the head, no effect on vanilla's
-        // head-tracking rotation math (that rotates the whole "head" part, horns included).
+        // Long, dramatically back-swept horns (2x9x2, up from 2x6x2) - purely cosmetic children
+        // of the head, no effect on vanilla's head-tracking rotation math.
         head.addChild("horn_right",
-                ModelPartBuilder.create().uv(0, 32).cuboid(-1.0F, -3.0F, 0.0F, 2.0F, 6.0F, 2.0F, Dilation.NONE),
-                ModelTransform.of(-3.0F, -8.0F, 1.0F, 0.5F, 0.0F, -0.3F));
+                ModelPartBuilder.create().uv(36, 36).cuboid(-1.0F, -5.0F, 0.0F, 2.0F, 9.0F, 2.0F, Dilation.NONE),
+                ModelTransform.of(-3.0F, -8.0F, 1.0F, 0.7F, 0.0F, -0.4F));
         head.addChild("horn_left",
-                ModelPartBuilder.create().uv(8, 32).cuboid(-1.0F, -3.0F, 0.0F, 2.0F, 6.0F, 2.0F, Dilation.NONE),
-                ModelTransform.of(3.0F, -8.0F, 1.0F, 0.5F, 0.0F, 0.3F));
+                ModelPartBuilder.create().uv(44, 36).cuboid(-1.0F, -5.0F, 0.0F, 2.0F, 9.0F, 2.0F, Dilation.NONE),
+                ModelTransform.of(3.0F, -8.0F, 1.0F, 0.7F, 0.0F, 0.4F));
 
+        // Broad chest (8x12x4 -> 9x13x5) - vanilla-default proportions were the "hobbit" problem
+        // in the first place; this is deliberately closer to Zombie Colossus's own "broad body"
+        // fix than to vanilla's stock biped size.
         ModelPartData body = root.addChild("body",
-                ModelPartBuilder.create().uv(16, 16).cuboid(-4.0F, 0.0F, -2.0F, 8.0F, 12.0F, 4.0F, Dilation.NONE),
+                ModelPartBuilder.create().uv(0, 16).cuboid(-4.5F, 0.0F, -2.5F, 9.0F, 13.0F, 5.0F, Dilation.NONE),
                 ModelTransform.origin(0.0F, 0.0F, 0.0F));
-        // Trailing cape - a slightly-behind, slightly-oversized flat cuboid, standard "cape"
-        // modeling trick (thin box just behind the body, not a physically simulated cloth part).
+        // Trailing cape - substantially larger (10x18x1, up from 9x16x1) and starting higher on
+        // the back, for a "sovereign's cloak" silhouette rather than a small back-flap.
         body.addChild("cape",
-                ModelPartBuilder.create().uv(24, 32).cuboid(-4.5F, 0.0F, 0.0F, 9.0F, 16.0F, 1.0F, Dilation.NONE),
-                ModelTransform.of(0.0F, -1.0F, 2.5F, 0.15F, 0.0F, 0.0F));
+                ModelPartBuilder.create().uv(28, 16).cuboid(-5.0F, -1.0F, 0.0F, 10.0F, 18.0F, 1.0F, Dilation.NONE),
+                ModelTransform.of(0.0F, -1.0F, 2.7F, 0.18F, 0.0F, 0.0F));
 
-        root.addChild("right_arm",
-                ModelPartBuilder.create().uv(40, 16).cuboid(-3.0F, -2.0F, -2.0F, 4.0F, 12.0F, 4.0F, Dilation.NONE),
-                ModelTransform.origin(-5.0F, 2.0F, 0.0F));
-        root.addChild("left_arm",
-                ModelPartBuilder.create().uv(40, 16).mirrored().cuboid(-1.0F, -2.0F, -2.0F, 4.0F, 12.0F, 4.0F, Dilation.NONE),
-                ModelTransform.origin(5.0F, 2.0F, 0.0F));
+        ModelPartData rightArm = root.addChild("right_arm",
+                ModelPartBuilder.create().uv(0, 36).cuboid(-3.0F, -2.0F, -2.5F, 5.0F, 13.0F, 5.0F, Dilation.NONE),
+                ModelTransform.origin(-5.5F, 2.0F, 0.0F));
+        ModelPartData leftArm = root.addChild("left_arm",
+                ModelPartBuilder.create().uv(0, 36).mirrored().cuboid(-2.0F, -2.0F, -2.5F, 5.0F, 13.0F, 5.0F, Dilation.NONE),
+                ModelTransform.origin(5.5F, 2.0F, 0.0F));
+        // Clawed fingertips - tiny cosmetic children at each hand, the cheapest possible way to
+        // read as "not a human hand" in silhouette.
+        rightArm.addChild("claw_right",
+                ModelPartBuilder.create().uv(52, 36).cuboid(-1.5F, 0.0F, -1.0F, 3.0F, 2.0F, 2.0F, Dilation.NONE),
+                ModelTransform.origin(0.0F, 11.0F, 0.0F));
+        leftArm.addChild("claw_left",
+                ModelPartBuilder.create().uv(52, 36).mirrored().cuboid(-1.5F, 0.0F, -1.0F, 3.0F, 2.0F, 2.0F, Dilation.NONE),
+                ModelTransform.origin(0.0F, 11.0F, 0.0F));
 
         root.addChild("right_leg",
-                ModelPartBuilder.create().uv(0, 16).cuboid(-2.0F, 0.0F, -2.0F, 4.0F, 12.0F, 4.0F, Dilation.NONE),
+                ModelPartBuilder.create().uv(20, 36).cuboid(-2.0F, 0.0F, -2.0F, 4.0F, 12.0F, 4.0F, Dilation.NONE),
                 ModelTransform.origin(-1.9F, 12.0F, 0.0F));
         root.addChild("left_leg",
-                ModelPartBuilder.create().uv(0, 16).mirrored().cuboid(-2.0F, 0.0F, -2.0F, 4.0F, 12.0F, 4.0F, Dilation.NONE),
+                ModelPartBuilder.create().uv(20, 36).mirrored().cuboid(-2.0F, 0.0F, -2.0F, 4.0F, 12.0F, 4.0F, Dilation.NONE),
                 ModelTransform.origin(1.9F, 12.0F, 0.0F));
 
         return TexturedModelData.of(modelData, 64, 64);

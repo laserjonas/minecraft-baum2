@@ -1698,7 +1698,23 @@ exact palette below was checked hex-by-hex against every existing palette in thi
 them; see the per-table compliance notes below for the closest neighbors and why they remain
 distinguishable.
 
-### 19.2 Entity model and texture: bespoke biped, 64x64
+### 19.2 Entity model and texture: bespoke biped, 64x64 (playtest fix, v2)
+
+**v1** (unmodified vanilla-biped-proportioned cuboids, a plain rectangular cape, no claws) was
+actually playtested and reported back bluntly: **"the demon boss... looks like a hobbit."** The fix
+had two halves, both documented here since they're inseparable in practice - a texture pass alone
+can't sell "cursed demon sovereign" on vanilla-biped proportions, and new geometry alone reads as
+flat/plain without matching surface detail:
+
+1. `DrevathisEntityModel` (Java) moved off vanilla-biped proportions: broadened chest/arms, much
+   longer/more dramatic back-swept horns, a substantially bigger trailing cape, and small clawed
+   fingertips on both hands (see that file's own v2 doc-comment for the exact cuboid deltas).
+2. This section's texture is **regenerated from scratch against the new UV layout** below (not
+   patched in place - the old UV layout no longer lines up with the new cuboids at all), and pushed
+   substantially further on surface detail: glowing rune-crack patterns across skin and robe, an
+   asymmetric/jagged (not plain-rectangle) cape hem, stronger 3-band shadow-shading on every major
+   face to sell the broadened silhouette, a larger/brighter glowing-core eye treatment, and a new
+   thin "circlet" band on the hat layer for a cheap extra sovereign/crown cue.
 
 - **File:** `assets/baum2/textures/entity/drevathis.png` (placed under
   `src/client/resources/assets/baum2/...` - see the note in Section 6 on why this one entity
@@ -1706,40 +1722,67 @@ distinguishable.
 - **Canvas:** 64x64 px, matching `DrevathisEntityModel`'s `TexturedModelData.of(modelData, 64, 64)`
   registration exactly.
 - **UV layout** (derived directly from the box-UV cuboid sizes/origins given in this boss's own
-  model class, using the standard Minecraft box-UV unwrap formula - not guessed):
+  model class, using the standard Minecraft box-UV unwrap formula - not guessed; re-derived in full
+  for v2, since every part except the head/hat changed size and/or UV origin):
 
   | Part | Cuboid size (dx,dy,dz) | UV origin | Box footprint (x, y, w, h) | Notes |
   |---|---|---|---|---|
-  | Head (inner) | 8x8x8 | (0, 0) | (0, 0, 32, 16) | Standard biped head layout |
-  | Hat (outer overlay) | 8x8x8 | (32, 0) | (32, 0, 32, 16) | **Left fully transparent**, same convention as Section 18.2 - no crown/hood detail painted on this layer in this pass |
-  | Body | 8x12x4 | (16, 16) | (16, 16, 24, 16) | Robed torso |
-  | Arms (shared/mirrored) | 4x12x4 | (40, 16) | (40, 16, 16, 16) | Sleeve + bare hand at the wrist |
-  | Legs (shared/mirrored) | 4x12x4 | (0, 16) | (0, 16, 16, 16) | Robe leg-wrap |
-  | Horn 1 | 2x6x2 | (0, 32) | (0, 32, 8, 8) | Backward-curving horn |
-  | Horn 2 | 2x6x2 | (8, 32) | (8, 32, 8, 8) | Second horn, mirrored position |
-  | Cape | 9x16x1 | (24, 32) | (24, 32, 20, 17) | Trailing cape behind the body |
+  | Head (inner) | 8x8x8 | (0, 0) | (0, 0, 32, 16) | Unchanged from v1 |
+  | Hat (outer overlay) | 8x8x8 | (32, 0) | (32, 0, 32, 16) | **v2:** no longer fully transparent - carries a thin circlet band, see below |
+  | Body | 9x13x5 (was 8x12x4) | (0, 16) | (0, 16, 28, 18) (was 16,16,24,16) | Broader robed torso |
+  | Cape | 10x18x1 (was 9x16x1) | (28, 16) | (28, 16, 22, 19) (was 24,32,20,17) | Substantially larger; moved next to the body in UV space |
+  | Arms (shared/mirrored) | 5x13x5 (was 4x12x4) | (0, 36) | (0, 36, 20, 18) (was 40,16,16,16) | Broader sleeve + bare hand at the wrist |
+  | Legs (shared/mirrored) | 4x12x4 | (20, 36) | (20, 36, 16, 16) (was 0,16,16,16) | Robe leg-wrap, size unchanged, UV origin moved |
+  | Horn (right) | 2x9x2 (was 2x6x2) | (36, 36) | (36, 36, 8, 11) (was 0,32,8,8) | Longer, more dramatic back-swept horn |
+  | Horn (left) | 2x9x2 (was 2x6x2) | (44, 36) | (44, 36, 8, 11) (was 8,32,8,8) | Second horn, mirrored position |
+  | Claw (right, **new in v2**) | 3x2x2 | (52, 36) | (52, 36, 10, 4) | Small clawed fingertip |
+  | Claw (left, **new in v2**, shares the claw UV box mirrored) | 3x2x2 | (52, 36) | (52, 36, 10, 4) | Same UV box as the right claw, mirrored at render time - same sharing convention arms/legs already use |
 
-  All eight regions fit within the 64x64 canvas with no overlap (tallest region, the cape, ends at
-  y=49; the remaining strip below is unused/transparent, same "generous canvas, unused margin is
-  fine" convention as Section 18.2's zombie_colossus.png).
+  All regions still fit the 64x64 canvas with no overlap (tallest region, the arms, ends at y=54;
+  remaining canvas space stays unused/transparent margin, same convention as Section 18.2's
+  `zombie_colossus.png`).
 
 - **Face-by-face treatment**, following this document's established "top=highlight, bottom=shadow,
-  front=detail, sides=mid-tone" convention (Sections 13.3, 18.2):
-  - **Head:** top/back = pale/shadow Cursed Hide tones; front face carries a dark hollow-socket
-    patch per eye with a single bright Grave Frost dot inside each (painted eye-glow, no vanilla
-    overlay involved - this model has no vanilla eye-feature-renderer to rely on, same situation
-    Section 17.3 already documented for Spider Queen) plus a thin Sovereign Blood jaw-line accent.
-  - **Body:** Shroud tones on all faces, with a vertical Sovereign Blood sash down the front and
-    two small Grave Frost rune-mark dots flanking it - the "regal sovereign" read.
+  front=detail, sides=mid-tone" convention (Sections 13.3, 18.2), with v2's added detail called out:
+  - **Head:** top/back = pale/shadow Cursed Hide tones. Front face carries a 2x2 hollow-socket
+    patch per eye (up from a single flat dot in v1) with a bright Grave Frost core pixel plus a
+    Grave Frost Dim "bleed" pixel beside it for a visibly glowing (not just colored-in) eye, a
+    Sovereign Blood jaw-line accent, and **(v2)** one short asymmetric Grave Frost crack per face
+    (front/right/left/back each get a differently-shaped crack, not a mirrored pair) - painted
+    eye-glow and cracks both, no vanilla overlay involved (this model has no vanilla eye-feature-
+    renderer to rely on, same situation Section 17.3 already documented for Spider Queen).
+  - **Hat (v2 addition):** a thin 2px Sovereign Blood "circlet" band wraps the right/front/left/back
+    faces at brow height, with a Grave Frost + Grave Frost Pale gem accent centered on the front -
+    a crown/coronet read that needed no new geometry, sitting on the already-existing (if
+    previously blank) hat overlay layer.
+  - **Body:** Shroud tones with **(v2)** an explicit 3-band vertical gradient (Shroud Pale top /
+    Shroud mid / Shroud Void bottom) on every side face, to sell the new 9-wide broadened chest's
+    contour instead of a flat fill reading as flat. A widened 2px Sovereign Blood sash runs down
+    the front, flanked by two small plus-shaped Grave Frost rune marks, each now trailing its own
+    asymmetric crack toward the sash (the left one longer than the right - deliberately not
+    mirrored), plus one extra crack each on the side faces.
+  - **Cape (the headline fix):** an irregular **per-column hem cutoff**, cut via alpha rather than
+    left as a straight rectangle edge, so the cape reads as a jagged/tattered "sovereign's torn
+    cloak" silhouette instead of a plain rectangle - the concrete fix for "looks generic." Same
+    3-band vertical shading as the body, Sovereign Blood edge piping down both long edges, the
+    existing small Sovereign Blood diamond crest with a Grave Frost accent dot near the top, and
+    **(v2)** two new asymmetric Grave Frost crack lines running from near the crest down toward the
+    hem at different lengths/paths on the left vs. right half.
   - **Arms:** Shroud sleeve on the upper ~2/3 of the front face, Cursed Hide (bare skin) on the
-    lower ~1/3 (hand/wrist showing), separated by a thin Sovereign Blood cuff band.
-  - **Legs:** Shroud tones with a Sovereign Blood hem trim line near the bottom.
+    lower ~1/3 (hand/wrist showing), separated by a thin Sovereign Blood cuff band - **(v2)** now
+    with a small Grave Frost crack + Grave Frost Dim bleed pixel painted directly onto the bare
+    hand/wrist on the front face (the curse-glow bleeding into flesh itself, not just the robe) and
+    one crack on the back face.
+  - **Claws (new in v2):** small Cursed Hide Shadow fill with a single Grave Frost Dim glint on
+    each fingertip's front face - the cheapest possible palette-level cue that these are claws, not
+    human fingers.
+  - **Legs:** Shroud tones with a Sovereign Blood hem trim line near the bottom, **(v2)** now with
+    the same 3-band vertical shading as the body/arms and one small Grave Frost Dim crack accent on
+    the front face only (kept sparse - legs are the smallest, least-seen faces, so a single accent
+    stays legible rather than over-cluttering a tiny UV area).
   - **Horns:** Cursed Bone tones (not the flesh/shroud palette - horns are a separate bone-like
-    material), each with a small Grave Frost Dim glow accent near the tip.
-  - **Cape:** Shroud front face with Sovereign Blood edge trim on both side faces (a thin crimson
-    piping along the cape's edges), a hemmed Shroud Void border top and bottom, and a small
-    Sovereign Blood diamond emblem with a single Grave Frost accent dot near the top - a "crest/
-    brooch" read without needing a separate cuboid.
+    material). **(v2)** the tip glow widened from a single accent dot to a full 2px Grave Frost Dim
+    band near the tip end, a clearer "the tip glows" read now that the horns are 50% longer.
 
 ### 19.3 Color palette: "Abyssal Sovereign"
 
@@ -1774,28 +1817,54 @@ Cursed Hide's cool blue-gray family is the inverse of Ashen Brute's warm brown-g
 all have B>R>G) - same "ashen dead flesh" genre idea, opposite temperature, so the mod's two
 "long-dead skin" bosses don't read as recolors of each other.
 
-### 19.4 Weapon visual identity: "Drevathis's Cursed Blade" (`baum2:drevathis_cursed_blade`)
+### 19.4 Weapon visual identity: "Drevathis's Cursed Blade" (`baum2:drevathis_cursed_blade`) (playtest fix, v2)
+
+**v1's** straight, parallel-edged diagonal blade was reported back just as bluntly as the entity:
+**"the weapon does not look like it comes from a demon cursed blade"** - the silhouette read as a
+generic straight iron sword despite already using the boss's own palette; palette alone wasn't
+doing the job, execution needed to change. **v2 keeps the exact same six hexes** (nothing in the
+palette was the problem, only the shape/detail built from it) and pushes the *silhouette* itself
+much further:
 
 Follows Section 14/16/18.4's exact item conventions (plain `Item`, `minecraft:item/handheld`
 parent, the same `assets/baum2/items/<name>.json` + `assets/baum2/models/item/<name>.json` entry-
-point pair). The item has 0 base combat stats (pure support - its value is the on-hit dark AoE
-wave proc, not stat lines), so the visual has to carry the "this is special" read entirely through
+point pair) - **unchanged in v2**: the model/parent JSON was reviewed, not modified. Vanilla's
+`minecraft:item/handheld` (inheriting `item/generated`) already extrudes the flat icon texture
+into a thin 3D shape using that texture's own alpha silhouette - the same built-in mechanism every
+vanilla sword icon's in-hand "thickness" comes from. That means a jagged, asymmetric *alpha* shape
+in the 16x16 texture alone is sufficient to read as a jagged 3D silhouette in hand, in the GUI, and
+on the ground; no model/geometry change was necessary to fix this complaint, only the texture.
+
+The item still has 0 base combat stats (pure support - its value is the on-hit dark AoE wave proc,
+not stat lines), so the visual still has to carry the "this is special" read entirely through
 silhouette/palette rather than any stat-comparison affordance.
 
-- **Silhouette:** same established bottom-left-pommel-to-top-right-tip diagonal convention as
-  Gold Sword/Poison Dagger/Colossal Warclub, but drawn as a long, narrow, elegant blade (not a
-  blunt club, not a short dagger) with a glowing rune-fuller groove running its full length -
-  the "elegant ancient cursed greatsword" read, distinct from every other weapon silhouette in
-  this document. Deliberately shares its palette with the boss's own texture (Sovereign Blood
-  crossguard/pommel, Grave Frost fuller) so the blade the boss wields (rendered ~1.8x oversized by
-  `DrevathisHeldWeaponFeatureRenderer`) and the same blade as a dropped/held item read as one
-  consistent object at both scales, rather than two independently-designed weapons that happen to
-  share a name.
-- **Parts, bottom-left to top-right:** a 2px Sovereign Blood pommel with a single Grave Frost Pale
-  glint pixel at the very corner, a short dark Shroud grip, a Sovereign Blood crossguard flare
-  (with two Ebon Steel Sheen accent pixels) breaking the diagonal, then a long tapering blade -
-  Ebon Steel Sheen edge with a continuous Grave Frost fuller line down its center, narrowing to a
-  single-pixel taper near the tip, ending in a Grave Frost Pale glint pixel at the very point.
+- **Silhouette (v2):** same established bottom-left-pommel-to-top-right-tip diagonal convention as
+  Gold Sword/Poison Dagger/Colossal Warclub, but the blade's two edges are now **deliberately
+  asymmetric** rather than a mirrored taper: the lower/left edge is a smooth, clean taper (the
+  "cutting edge"), while the upper/right edge's width oscillates row-by-row (2/1/2/1/2/1/2/3 rather
+  than a straight line), reading as a chipped, jagged, unnatural spine rather than a factory-clean
+  blade. A continuous Grave Frost fuller/glow groove still runs the blade's centerline, now joined
+  by **two separate Sovereign Blood crimson vein-branch pixels** breaking off the fuller partway
+  down the blade - both signature glow colors visible on the blade at once, not just cyan alone.
+  The crossguard is no longer a straight symmetric bar: it keeps its Sovereign Blood flare and two
+  Ebon Steel Sheen accent pixels, but now also grows a **curling, asymmetric hook-horn accent on
+  one side only** (a Sovereign Blood shaft ending in an Ebon Steel Sheen glint at its curled tip) -
+  the concrete "wicked curved hilt" execution the brief asked for. The pommel gets one deliberate
+  notch cut out of its block shape so even the hilt end reads as slightly irregular rather than a
+  clean rectangle. Deliberately shares its palette with the boss's own texture (Sovereign Blood
+  crossguard/pommel/hook, Grave Frost fuller and vein-branches) so the blade the boss wields
+  (rendered ~1.8x oversized by `DrevathisHeldWeaponFeatureRenderer`) and the same blade as a
+  dropped/held item read as one consistent object at both scales, rather than two independently-
+  designed weapons that happen to share a name.
+- **Parts, bottom-left to top-right:** a Sovereign Blood pommel (with one notch cut out and a
+  single Grave Frost Pale glint pixel at the very corner), a short dark Shroud grip, a Sovereign
+  Blood crossguard flare (two Ebon Steel Sheen accent pixels, plus the asymmetric curling hook
+  accent described above extending off the upper side only), then the jagged tapering blade -
+  Ebon Steel Sheen edge pixels on a jagged/asymmetric outline, Ebon Steel fill, a continuous Grave
+  Frost fuller line down its center with two Sovereign Blood vein-branch pixels breaking off it,
+  narrowing to a single-pixel taper at the tip, ending in a Grave Frost Pale glint pixel at the very
+  point.
 
 | Role | Hex | Notes |
 |---|---|---|
@@ -1814,33 +1883,79 @@ green-tinged steel, Colossal Warclub's wood-and-stud brown).
 
 ### 19.5 Files produced this pass (all explicitly temporary placeholders)
 
-Per `MASTERPROMPT.md`'s asset rule - flat-color pixel fills generated programmatically (Python +
-Pillow, installed into this environment for this pass since neither PowerShell/`System.Drawing`
-nor ImageMagick/prior Python+Pillow were readily available at the start of it), not hand-drawn
-final art. No traced, extracted, or downloaded source material was used.
+Per `MASTERPROMPT.md`'s asset rule - flat-color/gradient pixel fills generated programmatically
+(Python + Pillow), not hand-drawn final art. No traced, extracted, or downloaded source material
+was used. **v2 regenerates both PNGs from scratch** (not patched in place) against the new UV
+layout/silhouette described in 19.2/19.4; the two item-model-definition JSON files below were
+reviewed and are unchanged (no model/geometry change was needed for either fix - see 19.4's
+alpha-silhouette note for why the sword didn't need one).
 
-- `assets/baum2/textures/entity/drevathis.png` (64x64, placeholder - flat box-UV fills per the
-  face-by-face treatment in Section 19.2; placed under `src/client/resources/...`, see the Section
-  6 note on why)
-- `assets/baum2/textures/item/drevathis_cursed_blade.png` (16x16, placeholder - diagonal blade
-  silhouette per Section 19.4)
-- `assets/baum2/models/item/drevathis_cursed_blade.json` (real, verified schema - identical
-  `minecraft:item/handheld` parent pattern as every other weapon in this document)
-- `assets/baum2/items/drevathis_cursed_blade.json` (real, verified schema - the 1.21.11
-  item-model-definition entry point, required alongside the file above per the gotcha Section
-  14.3 already verified against the decompiled vanilla client jar)
+- `assets/baum2/textures/entity/drevathis.png` (64x64, placeholder - flat/gradient box-UV fills
+  plus crack/eye-glow/jagged-cape-hem accent pixels per the v2 face-by-face treatment in Section
+  19.2; regenerated against the new UV footprints in `DrevathisEntityModel` v2; placed under
+  `src/client/resources/...`, see the Section 6 note on why)
+- `assets/baum2/textures/item/drevathis_cursed_blade.png` (16x16, placeholder - jagged/asymmetric
+  blade silhouette with a curling hook-guard accent, per Section 19.4 v2)
+- `assets/baum2/models/item/drevathis_cursed_blade.json` (unchanged - reviewed, still the correct
+  `minecraft:item/handheld` parent pattern as every other weapon in this document; its built-in
+  alpha-based flat-item extrusion is what makes the jagged v2 silhouette work with no model edit)
+- `assets/baum2/items/drevathis_cursed_blade.json` (unchanged - the 1.21.11 item-model-definition
+  entry point, required alongside the file above per the gotcha Section 14.3 already verified
+  against the decompiled vanilla client jar)
 
 **Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
 document): real hand-drawn surface detail (cape fabric weave, horn texture/ridges, robe folds,
-blade edge highlights) - this pass proves the UV layout, establishes the "Abyssal Sovereign"
-palette, and gives the mod's current top-tier boss and its signature drop something considered to
-look at in-game, but a human artist pass would meaningfully raise the ceiling here given this
-boss's "current top-tier" status.
+blade edge highlights beyond the flat/gradient fills used here) - this pass substantially raises
+the "reads as a cursed demon sovereign, not a reskinned player" bar per direct playtest feedback,
+but a human artist pass would still meaningfully raise the ceiling here given this boss's
+"current top-tier" status.
+
+### 19.6 Why this v2 pass exists: playtest feedback
+
+The user actually played against this boss (not just build-checked it) and gave two blunt, distinct
+complaints, both addressed above:
+
+1. **"the demon boss has no weapon and looks like a hobbit"** - the "no weapon" half was a separate
+   real code bug (a missing `initEquipment()` call meant the sword was never actually equipped),
+   not a visual-design issue, and isn't this agent's concern. The **"looks like a hobbit"** half is
+   the visual complaint this pass addresses: the boss read as a small, plain, generic humanoid, not
+   an imposing cursed demon lord. Fixed by (a) the model geometry broadening/lengthening described
+   in `DrevathisEntityModel`'s own v2 doc-comment, and (b) this document's Section 19.2 texture
+   rework - stronger shadow-shading, glowing rune-cracks, a jagged cape hem, a brighter glowing-eye
+   treatment, and a new crown-band cue - so the silhouette and surface detail both stopped reading
+   as "reskinned player."
+2. **"the weapon does not look like it comes from a demon cursed blade"** - addressed entirely in
+   Section 19.4: the palette wasn't the problem (kept exactly as-is), the straight/generic
+   silhouette was, so v2 makes the blade's own edges asymmetric/jagged, adds a curling hook-guard
+   accent, and adds a second glow color (crimson vein-branches alongside the cyan fuller) so the
+   weapon can no longer be mistaken for a plain iron sword reskin.
+
+Same "Abyssal Sovereign" palette identity throughout (Section 19.3) - per the task brief, the
+palette itself was never the problem and needed no changes; only the concrete texture-level
+execution built from it did.
 
 ---
 
 ## Changelog
 
+- **2026-07-05** — Drevathis playtest fixes (v2), reworked Section 19.2/19.4/19.5, added Section
+  19.6: user actually fought the boss and reported "the demon boss... looks like a hobbit" (visual
+  half of a two-part complaint; the other half - the sword never being equipped - was a real code
+  bug, not a visual issue, fixed separately) and "the weapon does not look like it comes from a
+  demon cursed blade." Kept the "Abyssal Sovereign" palette exactly as-is (Section 19.3 unchanged,
+  not the problem per the user's own framing) and instead pushed the *execution*: regenerated
+  `drevathis.png` (64x64) from scratch against `DrevathisEntityModel`'s new v2 UV layout (broader
+  chest/arms, longer horns, bigger cape, new claw parts) with substantially more surface detail -
+  glowing Grave Frost rune-cracks across skin and robe, an asymmetric/jagged (alpha-cut, not
+  rectangular) cape hem, 3-band shadow-shading on every major face, a larger glowing-core eye
+  treatment, and a new Sovereign-Blood circlet band on the previously-blank hat layer. Regenerated
+  `drevathis_cursed_blade.png` (16x16) with a deliberately asymmetric jagged blade edge (oscillating
+  width vs. a smooth opposite edge), a curling one-sided hook-guard accent, and Sovereign Blood
+  crimson vein-branches breaking off the existing Grave Frost fuller groove - same six hexes as v1,
+  new silhouette. No model/parent JSON changes were needed for the sword: verified
+  `minecraft:item/handheld`'s built-in flat-item alpha extrusion already turns a jagged alpha
+  silhouette into a jagged in-hand/GUI/ground shape. `./gradlew build` not re-run by this agent
+  (asset/doc-only change, no Java touched); not yet re-verified in an actual game session.
 - **2026-07-05** — Added Section 19 (boss visual identity: "Drevathis, the Cursed Sovereign",
   `baum2:drevathis` — the mod's current top-tier boss, level 40, above Zombie Colossus's 25 — and
   its guaranteed drop "Drevathis's Cursed Blade," `baum2:drevathis_cursed_blade`). Unlike Spider

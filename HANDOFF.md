@@ -770,6 +770,50 @@ melee attack at all** — its entire kit is four skills, each its own `Goal`, pl
   Dash launch velocity are both flagged as needing an empirical tuning pass after a real
   playtest, same as this project's established pattern for every prior boss's leap/launch
   numbers. No natural spawn path (`/summon baum2:drevathis`-only, same as all four other bosses).
+- **First real playtest round found three more issues, all fixed in a follow-up pass** (the user
+  actually summoned and fought/inspected the boss): "the demon boss has no weapon and looks like
+  a hobbit", "the weapon does not look like it comes from a demon cursed blade", and "the skill
+  itself is not visible... also not from the boss". Root causes, in order of how much they
+  mattered:
+  1. **A real, structural bug — the sword was never actually equipped.** Confirmed by decompile:
+     `MobEntity.initialize(...)` does **not** call `initEquipment(...)` in this version at all;
+     only specific vanilla subclasses (`ZombieEntity`, `PiglinEntity`,
+     `AbstractSkeletonEntity`, etc.) call it themselves from their own overridden
+     `initialize()`. `ZombieColossusEntity` got this for free by extending `ZombieEntity`;
+     `DrevathisEntity` extends `HostileEntity` directly, which has no such override — so the
+     mainhand slot was genuinely empty, not a rendering problem. Fixed by adding an
+     `initialize(...)` override that calls `this.initEquipment(...)` explicitly, the same pattern
+     the vanilla subclasses use internally.
+  2. **Skill effects were real but nearly imperceptible.** None of the four skills played any
+     sound at all, and `DarkWaveEffect`'s particle burst was a sparse 3-line outline fired for a
+     single tick (an instant, one-frame effect with ~60 total particles across a 20-block
+     rectangle). Fixed by adding a distinct sound cue to every skill (teleport/impact sounds for
+     Dash, a chain-hit sound for Chain, evoker-cast/wither-shoot sounds for Wave, warden-roar/
+     lightning-impact sounds for Thunder) and substantially densifying the particle effects
+     (Wave's rectangle is now filled edge-to-edge rather than outlined; Thunder's strikes are now
+     a tall vertical column, not a single ground-level puff, so they're visible from a distance).
+  3. **The model geometry itself read as "a reskinned player."** v1's body/arm/leg cuboids were
+     essentially unmodified vanilla biped proportions plus two small 2x6x2 horns — the same class
+     of complaint Zombie Colossus got fixed for ("no muscles") by moving away from vanilla-default
+     sizes. Fixed with a v2 pass: broadened chest (8x12x4 → 9x13x5) and arms (4x12x4 → 5x13x5),
+     much longer/more dramatically swept horns (2x6x2 → 2x9x2), a substantially bigger cape
+     (9x16x1 → 10x18x1), and new small clawed fingertips on both hands — a silhouette that no
+     longer reads as human-proportioned even before the texture is considered.
+  - `graphics-designer` then regenerated both the entity texture (to match the new UV layout
+    from the geometry pass) and the sword's item texture, pushing much harder on "cursed/
+    demonic" execution within the same already-cleared "Abyssal Sovereign" palette (no hex
+    changes): glowing eye sockets, asymmetric rune-cracks, a jagged/tattered cape hem instead of
+    a plain rectangle, a Sovereign-Blood circlet band on the hat layer, and — for the sword — an
+    asymmetric serrated blade edge, a curling hook-guard, and both signature glow colors (Grave
+    Frost cyan + Sovereign Blood crimson) visible on the blade at once, so it can no longer be
+    mistaken for a reskinned iron sword. Both textures remain explicit placeholders (programmatic
+    flat/gradient fills), same as every other boss — a human-artist pass is still the
+    recommended next step given this boss's top-tier status.
+  - Verified: `./gradlew build` passes clean after all three fixes. **Still not independently
+    re-verified in a live client** — the fixes were driven directly by the user's own real
+    playtest report; the next playtest should specifically confirm the weapon now renders, the
+    boss reads as clearly non-human/imposing, and each skill's new sound/particle cue is
+    actually noticeable in a real fight.
 - Verified: `./gradlew build` passes clean after every step, including after the two
   balance-reviewer fixes above. **Not yet verified in an actual game session** — same caveat
   every other boss in this project carries (see "No GUI-automation tool" note below).
@@ -809,8 +853,26 @@ melee attack at all** — its entire kit is four skills, each its own `Goal`, pl
 
 ## Last change (on `fischey_workbranch`)
 
-**Added Drevathis, the Cursed Sovereign** — this project's fifth boss and current top tier (level
-40, above Zombie Colossus's 25), and its first boss with no normal melee attack at all. Full
+**Playtest fix round on Drevathis** (immediately after the commit below, same session): the user
+summoned and inspected the boss and reported three things — "the demon boss has no weapon and
+looks like a hobbit", "the weapon does not look like it comes from a demon cursed blade", and
+"the skill itself is not visible... also not from the boss". Full root-cause detail folded into
+"Current state" above under "Drevathis, the Cursed Sovereign" — in short: (1) a real structural
+bug, not a render issue — `MobEntity.initialize(...)` never calls `initEquipment(...)` in this
+version except from specific vanilla subclasses' own overrides, and `DrevathisEntity` (extending
+`HostileEntity` directly, unlike every zombie/spider-based prior boss) had no such override, so
+the sword's mainhand slot was genuinely empty; (2) none of the four skills played any sound and
+`DarkWaveEffect`'s particle burst was a sparse single-tick outline, both fixed with real audio
+cues and denser/taller particle effects; (3) the model geometry itself was unmodified vanilla
+biped proportions plus two small horns, fixed with a broader chest/arms, much longer horns, a
+bigger cape, and clawed fingertips, followed by `graphics-designer` regenerating both textures to
+match and to read as far more clearly demonic/cursed within the same already-cleared palette.
+Verified: `./gradlew build` passes clean after all three fixes. **Not yet re-verified in an
+actual game session** — the exact next-playtest checklist is in "Current state" above.
+
+Earlier, still on `fischey_workbranch`: **added Drevathis, the Cursed Sovereign** — this
+project's fifth boss and current top tier (level 40, above Zombie Colossus's 25), and its first
+boss with no normal melee attack at all. Full
 detail folded into "Current state" above under "Drevathis, the Cursed Sovereign" — see that
 section for the complete skill kit, the naming journey (three of the user's own name picks
 rejected by `ip-naming-compliance-checker` before "Drevathis" cleared), and two real bugs

@@ -5,6 +5,8 @@ import java.util.EnumSet;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.EntityData;
+import net.minecraft.entity.SpawnReason;
 import net.minecraft.entity.ai.goal.ActiveTargetGoal;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.ai.goal.LookAroundGoal;
@@ -26,11 +28,13 @@ import net.minecraft.network.packet.s2c.play.EntityVelocityUpdateS2CPacket;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.TypeFilter;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.random.Random;
 import net.minecraft.world.LocalDifficulty;
+import net.minecraft.world.ServerWorldAccess;
 import net.minecraft.world.World;
 import de.baum2dev.baum2.combat.DarkWaveEffect;
 import de.baum2dev.baum2.registry.ModItems;
@@ -123,6 +127,23 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
     protected void initEquipment(Random random, LocalDifficulty localDifficulty) {
         this.equipStack(EquipmentSlot.MAINHAND, new ItemStack(ModItems.DREVATHIS_CURSED_BLADE));
         this.setEquipmentDropChance(EquipmentSlot.MAINHAND, 0.0F);
+    }
+
+    /**
+     * {@code MobEntity.initialize(...)} does NOT call {@code initEquipment(...)} on its own in
+     * this version - confirmed by decompile: only specific vanilla subclasses (ZombieEntity,
+     * PiglinEntity, AbstractSkeletonEntity, etc.) call it themselves from their own overridden
+     * {@code initialize()}. {@code ZombieColossusEntity} gets this for free by extending
+     * {@code ZombieEntity}; {@code HostileEntity} (this class's own superclass) has no such
+     * override, so the mainhand sword was never actually equipped - confirmed real bug, not a
+     * render issue (the boss genuinely had an empty mainhand slot).
+     */
+    @Override
+    public EntityData initialize(
+            ServerWorldAccess world, LocalDifficulty difficulty, SpawnReason spawnReason, EntityData entityData) {
+        entityData = super.initialize(world, difficulty, spawnReason, entityData);
+        this.initEquipment(world.getRandom(), difficulty);
+        return entityData;
     }
 
     @Override
@@ -238,6 +259,11 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
             windupTarget = target;
             boss.getNavigation().stop();
 
+            if (boss.getEntityWorld() instanceof ServerWorld serverWorld) {
+                spawnTeleportParticles(serverWorld, boss.getEntityPos());
+            }
+            boss.playSound(SoundEvents.ENTITY_ENDERMAN_TELEPORT, 2.0F, 0.7F);
+
             Vec3d behind = new Vec3d(-target.getRotationVector().x, 0.0, -target.getRotationVector().z);
             if (behind.lengthSquared() < 1.0E-7) {
                 behind = new Vec3d(1.0, 0.0, 0.0);
@@ -245,8 +271,17 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
             behind = behind.normalize().multiply(TELEPORT_OFFSET);
             boss.requestTeleport(target.getX() + behind.x, target.getY(), target.getZ() + behind.z);
 
+            if (boss.getEntityWorld() instanceof ServerWorld serverWorld) {
+                spawnTeleportParticles(serverWorld, boss.getEntityPos());
+            }
+
             windupTicksRemaining = WINDUP_TICKS;
             boss.setDashWindupTicks(windupTicksRemaining);
+        }
+
+        private void spawnTeleportParticles(ServerWorld world, Vec3d pos) {
+            world.spawnParticles(ParticleTypes.REVERSE_PORTAL, pos.x, pos.y + 1.0, pos.z, 40, 0.4, 0.8, 0.4, 0.05);
+            world.spawnParticles(ParticleTypes.SQUID_INK, pos.x, pos.y + 1.0, pos.z, 20, 0.4, 0.8, 0.4, 0.02);
         }
 
         @Override
@@ -268,6 +303,9 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
                 if (windupTarget.isAlive() && boss.getEntityWorld() instanceof ServerWorld serverWorld) {
                     windupTarget.damage(serverWorld, boss.getDamageSources().indirectMagic(boss, boss), DAMAGE);
                     launchUpward(windupTarget, LAUNCH_VELOCITY);
+                    serverWorld.spawnParticles(ParticleTypes.SONIC_BOOM, windupTarget.getX(), windupTarget.getY() + 1.0, windupTarget.getZ(), 1, 0.0, 0.0, 0.0, 0.0);
+                    serverWorld.spawnParticles(ParticleTypes.SQUID_INK, windupTarget.getX(), windupTarget.getY(), windupTarget.getZ(), 30, 0.3, 0.1, 0.3, 0.1);
+                    boss.playSound(SoundEvents.ENTITY_WARDEN_SONIC_BOOM, 1.5F, 1.4F);
                 }
                 boss.dashCooldownTicks = COOLDOWN_TICKS;
             }
@@ -317,6 +355,7 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
             effectTicksRemaining = SLOW_DURATION_TICKS;
             boss.setChainEffectTicks(effectTicksRemaining);
             boss.chainCooldownTicks = COOLDOWN_TICKS;
+            boss.playSound(SoundEvents.BLOCK_CHAIN_HIT, 1.5F, 0.6F);
         }
 
         @Override
@@ -395,6 +434,7 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
             aimDirection = direction.lengthSquared() > 1.0E-7 ? direction.normalize() : boss.getRotationVec(1.0F);
             castTicksRemaining = CAST_TICKS;
             boss.setWaveCastTicks(castTicksRemaining);
+            boss.playSound(SoundEvents.ENTITY_EVOKER_CAST_SPELL, 1.5F, 0.6F);
         }
 
         @Override
@@ -461,6 +501,7 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
             elapsedTicks = 0;
             nextStrikeIndex = 0;
             boss.setThunderChannelTicks(STRIKE_TICKS[STRIKE_TICKS.length - 1] + 1);
+            boss.playSound(SoundEvents.ENTITY_WARDEN_ROAR, 1.5F, 0.7F);
         }
 
         @Override
@@ -497,7 +538,14 @@ public class DrevathisEntity extends HostileEntity implements MonsterLevelProvid
             double strikeZ = target.getZ() + Math.sin(angle) * radius;
             double strikeY = target.getY();
 
-            serverWorld.spawnParticles(ParticleTypes.ELECTRIC_SPARK, strikeX, strikeY + 1.0, strikeZ, 12, 0.2, 0.6, 0.2, 0.02);
+            // A tall column (not just a burst at foot level) so the strike reads as a bolt
+            // dropping from above, visible from a distance - a single foot-level puff was easy
+            // to miss entirely (balance-reviewer/playtest finding: skill effects weren't visible).
+            for (double y = 0.0; y <= 6.0; y += 1.0) {
+                serverWorld.spawnParticles(ParticleTypes.ELECTRIC_SPARK, strikeX, strikeY + y, strikeZ, 6, 0.15, 0.15, 0.15, 0.03);
+            }
+            serverWorld.spawnParticles(ParticleTypes.SQUID_INK, strikeX, strikeY + 0.1, strikeZ, 15, 0.6, 0.05, 0.6, 0.02);
+            serverWorld.playSound(null, strikeX, strikeY, strikeZ, SoundEvents.ENTITY_LIGHTNING_BOLT_IMPACT, boss.getSoundCategory(), 1.5F, 1.2F);
 
             Box hitBox = new Box(
                     strikeX - STRIKE_HIT_RADIUS, strikeY - 1.0, strikeZ - STRIKE_HIT_RADIUS,

@@ -38,6 +38,23 @@ public class ModItems {
     );
 
     /**
+     * "Colossal Warclub" - dropped by the Zombie Colossus boss. Great damage, slow speed per
+     * the boss's own design brief; built on the generic .sword() builder like Gold Sword/Poison
+     * Dagger (this codebase's established pattern for non-sword-shaped melee weapons - there is
+     * no dedicated blunt-weapon Item type in this API version). Originally named "Colossus
+     * Club" - renamed after ip-naming-compliance-checker found that exact name is a real,
+     * if minor/non-iconic, existing item in EverQuest 2.
+     */
+    public static final RegistryKey<Item> COLOSSAL_WARCLUB_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "colossal_warclub"));
+
+    public static final Item COLOSSAL_WARCLUB = Registry.register(
+            Registries.ITEM,
+            COLOSSAL_WARCLUB_KEY,
+            new Item(new Item.Settings().registryKey(COLOSSAL_WARCLUB_KEY).sword(ToolMaterial.IRON, 12.0F, -3.0F))
+    );
+
+    /**
      * "Queen Spider Set" - dropped by the Spider Queen boss. Stats sit between Iron and
      * Diamond pending a real balance pass (see HANDOFF.md); repair material and equip sound
      * are placeholder choices (no dedicated spider-silk material exists yet in this mod).
@@ -94,6 +111,7 @@ public class ModItems {
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
             entries.add(GOLD_SWORD);
             entries.add(POISON_DAGGER);
+            entries.add(COLOSSAL_WARCLUB);
             entries.add(QUEEN_SPIDER_HELMET);
             entries.add(QUEEN_SPIDER_CHESTPLATE);
             entries.add(QUEEN_SPIDER_LEGGINGS);

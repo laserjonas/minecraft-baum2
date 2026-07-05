@@ -759,36 +759,150 @@ confirm: the leap visibly covers real ground (not "tiny"); continuous re-aim rea
 threatening tracking, not a jittery snap; she isn't trivially kitable anymore at the new 20-block
 range/90-tick cooldown/0.4 speed; she doesn't take fall damage from her own landings.
 
+### Zombie Colossus — third mini-boss, first mob with an AoE + custom-rate DoT (`baum2:zombie_colossus`)
+
+Level 25, 750 HP, 3x-scaled melee zombie boss wielding a real held weapon (the "Colossal
+Warclub" drop). Same mobile-boss family as Spider Queen (extends a vanilla mob directly -
+here `ZombieEntity`, not `HostileEntity` - to inherit its model/animation/undead traits, full
+`initGoals()` replacement), but the first boss with three genuinely different attacks: a slow
+heavy base hit, a leap that ends in a ground AoE, and a 3-hit burst combo.
+
+- **Base attack** (`ColossusAttackGoal`): 100 damage, exactly 2-block range, 40-tick (0.5/sec)
+  cooldown. **Not** a `MeleeAttackGoal` subclass, unlike Spider Queen's melee goal - confirmed
+  via `javap` against the real 1.21.11 jar that `MeleeAttackGoal` has no overridable
+  attack-range hook in this version (only Spider Queen's cooldown-only override was ever safe).
+  Since the spec gave an exact range number, this is a fully custom `Goal` that manages its own
+  chase-then-swing logic end to end.
+- **Leap attack** (`LeapAttackGoal`): triggers 2-15 blocks away (widened from an initial 3-15 -
+  see balance fix below), ~200-tick (10s) cooldown, 10-tick stationary wind-up (navigation
+  frozen + a growl, no bespoke crouch-pose render state this time - kept v1 simple, unlike
+  Spider Queen's dedicated telegraph animation), 100 damage on landing-contact. Reuses
+  `SpiderQueenEntity`'s hard-won, **proven** technique verbatim: `travel(Vec3d)` overridden to
+  directly drive position via `this.move(MovementType.SELF, delta)` off a precomputed per-tick
+  arc table, re-aiming at the live target every tick - **did not** re-attempt a
+  velocity/`setVelocity()` leap, since this exact codebase already burned two rounds finding
+  that approach unreliable (see Spider Queen's own history above). One arc profile was enough
+  here (no elevated-target case requested).
+- **Fire wave** (new mechanic - first AoE-that-isn't-a-single-hit in the mod): triggered when
+  the leap's flight ends. An expanding ring from the landing point (plain fields on the entity,
+  ticked from `tick()`, same pattern as the leap-flight state), 5 blocks/sec outward, vanishing
+  at 10 blocks (~2s of active hazard), each player hit once for 25 damage + a 5-second burn.
+  Particles are spawned server-side via `ServerWorld.spawnParticles` (auto-networked to nearby
+  clients, no custom sync needed - unlike Spider Queen's client-only cosmetic aura, this needed
+  particles at deterministic world positions).
+- **Burn DoT** (`combat/BurnDamageManager.java`, new file): vanilla's own fire-tick damage is a
+  fixed, non-configurable rate, so it can't reproduce the spec's exact "2 damage/sec for 5
+  seconds" without a Mixin - overkill for one number. New minimal static
+  `Map<UUID, ticks-remaining>` ticked off `ServerTickEvents.END_SERVER_TICK` (same shape as
+  `VitalsTickHandler`/`PoisonDaggerHandler`), registered once from `Baum2.onInitialize()`.
+- **Rage attack** (`RageAttackGoal`): 3 strikes of 100 damage each in quick succession, melee
+  range only, own 200-tick (10s) cooldown, higher goal priority than the base attack so it
+  periodically preempts the normal cadence (shared `Control` flags, arbitrated by goal
+  priority - confirmed no simultaneous-fire path exists between any of the three attack goals).
+- **Held club**: real equipped `ItemStack` (`initEquipment()` sets mainhand to the Colossal
+  Warclub, drop chance zeroed since the guaranteed drop is handled explicitly in `dropLoot()`
+  instead), not a baked-on cosmetic cuboid. `graphics-designer` confirmed and implemented this
+  is the simpler route by decompiling vanilla's own `GiantEntity` (a 6x zombie holding an
+  oversized item - the identical archetype) and copying its exact mechanism:
+  `ZombieColossusEntityRenderer` extends `MobEntityRenderer` directly (bypassing both vanilla's
+  `ZombieEntityRenderer` and `ZombieBaseEntityRenderer`, which hardcode a non-scaled `0.5F`
+  shadow radius with no override point - the same problem Spider Queen's renderer javadoc
+  already documented for `SpiderEntityRenderer`), reuses vanilla's own `ZombieEntityRenderState`
+  unchanged, and manually attaches `HeldItemFeatureRenderer` + calls the static
+  `BipedEntityRenderer.updateBipedRenderState(...)` helper - exactly what `GiantEntityRenderer`
+  itself does. `ZombieColossusEntityModel` reuses `BipedEntityModel.getModelData()` (the same
+  factory vanilla's own Zombie *and* Giant models both use), scaled 3x via `ModelTransformer`
+  at model-layer registration, same mechanism Spider Queen already established for spiders.
+- **`burnsInDaylight()` overridden to `false`** - confirmed overridable via `javap` against the
+  real jar; a boss shouldn't be cheesable by sunlight-camping.
+- **`balance-reviewer` ran for real, found two genuine mechanical bugs (not just numeric
+  judgment calls) and both were fixed in this same pass rather than deferred, matching the
+  precedent Spider Queen's leap-aiming fix set**:
+  1. The rage attack originally had **zero telegraph** - 300 damage (60% of a fresh character's
+     500 starting HP) landable within 0.5s with no warning and no way to react, a sharper
+     "you didn't see it coming" burst than anything else reviewed in this mod, unlike the leap's
+     already-signed-off "fully committed but telegraphed" design. Fixed by adding an 8-tick
+     stationary wind-up + growl before the first strike (still fully committed once it starts,
+     same "no mid-combo dodge" precedent as the leap - this only adds a fair warning, not an
+     escape window).
+  2. A real **dead zone between 2 and 3 blocks** where neither the base attack (requires ≤2) nor
+     the leap (originally required ≥3) could land - a player holding that exact band took zero
+     damage indefinitely. Fixed by lowering the leap's minimum trigger range to 2.0, closing the
+     gap completely.
+  - **Also found, not fixed as a mechanical bug but as a real correctness issue - fixed
+    anyway**: the fire wave's burn DoT ignored Fire Resistance/fire immunity entirely (it's an
+    independent tracker from vanilla's own fire-tick damage, which *does* respect those - see
+    `BurnDamageManager`'s class javadoc for why a separate tracker exists at all). Fixed by
+    checking `player.isFireImmune()` / `hasStatusEffect(FIRE_RESISTANCE)` before each damage
+    tick, so standard fire counterplay actually works against this attack.
+  - **Findings logged, not changed (judgment calls for a human, not bugs)**: (a) 750/25 = 30
+    HP/level is a new high point, extending an already-drifting trend (Stone bosses 20, Spider
+    Queen ~23.3, this one 30 - three bosses in a row drifting the same direction, each already
+    individually logged, now compounding); (b) the Colossal Warclub's flat 20-damage floor at
+    zero Strength investment (15 raw damage, unaffected by Dexterity since its attack speed is
+    *below* vanilla baseline) already one-shots any ~20-HP vanilla mob without any character
+    investment, a threshold every other weapon in the mod previously needed ~25 invested
+    Strength points to reach - **but simulated concretely that this weapon's shape doesn't add
+    to the already-escalating max-investment DPS-ceiling issue the way Gold Sword/Poison Dagger
+    did** (16.7x baseline at max investment vs. vanilla iron's own 24.7x - the first boss
+    weapon in this family whose speed is low enough that Dexterity's multiplicative bonus has
+    less to work with, actually *sitting below* the existing ceiling rather than pushing it
+    higher).
+- **`ip-naming-compliance-checker` ran for real. "Zombie Colossus" cleared** (generic
+  descriptive compound, no specific-MMORPG match found). **"Colossus Club" (the original drop
+  name) was flagged and renamed to "Colossal Warclub"** - the original name was a genuine
+  1:1 exact-string match to an existing (if minor, non-iconic) EverQuest 2 item, not just
+  coincidental short-word overlap. Renamed before this session's own build/balance passes
+  completed, so no stale references were left anywhere (Java constant is
+  `ModItems.COLOSSAL_WARCLUB`, registry id `baum2:colossal_warclub`).
+- Visual identity: `docs/visual-style-guide.md` Section 18 - "Ashen Brute" palette, a new
+  64x64 placeholder zombie-model texture (flat fills, no hand-painted detail yet, consistent
+  with every other mob's first-pass texture in this mod) plus a 16x16 club icon.
+- Verified: `./gradlew build` passes clean (both the entity/AI/combat Java and the client
+  renderer/model compile together). **Not yet verified in an actual game session** - same
+  no-GUI-automation limitation as every previous boss in this project. Next playtest should
+  `/summon baum2:zombie_colossus` and confirm: the 3x zombie model + club render correctly with
+  no missing-texture/pink-black errors; base attack/leap/fire-wave/rage attack all trigger and
+  deal their stated damage; the fire wave's burn ticks 2 damage/sec for 5 seconds and is
+  blocked by Fire Resistance; the rage attack's new wind-up is visible/audible before the first
+  strike; the leap-to-melee range now has no dead zone; the Colossal Warclub drops and is
+  wieldable; the nameplate shows "Lvl. 25".
+
 ## Last change (on `fischey_workbranch`, based on the merged commit above)
 
-Rewrote the Spider Queen leap attack a third time, this time abandoning velocity-based movement
-entirely — see "Spider Queen" above, "Leap rewritten again" subsection, for full detail. User
-report after the previous (physics-simulated velocity) round: "the jump looks still tiny... the
-spider nearly gains no distance" and "I don't feel this spider is a boss because I can kite it
-easily." Two rounds of velocity-based attempts (explicit navigation-stop calls, then
-physics-accurate launch velocities derived from a real gravity/drag simulation) still weren't
-translating into real in-game distance, most likely due to some residual vanilla AI/movement
-interference that couldn't be conclusively isolated without a live client to test against.
-Rather than attempt a third patch on that same uncertain foundation, `SpiderQueenEntity` now
-overrides `travel(Vec3d)` directly and, during an active leap, bypasses vanilla's velocity/
-gravity pipeline entirely - `this.move(MovementType.SELF, delta)` is called directly every
-tick using a precomputed per-tick position-delta table (the same simulated arc shapes from the
-previous round, now consumed as position deltas instead of a single launch velocity), which
-guarantees the exact intended distance regardless of any AI state, since nothing else in her
-normal movement pipeline runs during those ticks. This also directly fixes the kiting complaint:
-the leap now re-aims toward the target's live position on *every* tick of flight (previously
-only once or twice), plus movement speed raised 0.3→0.4, leap trigger range widened 12→20
-blocks, and cooldown shortened 140→90 ticks - all aimed at making her meaningfully harder to
-outrun and less exploitable via a safe waiting distance. Also made her immune to fall damage
-from her own leap landings (`handleFallDamage` overridden to always return false), since a
-directly-driven 12-block-high vertical leap would otherwise self-damage her on landing.
-Verified: `./gradlew build` passes clean. **Still not independently verified against a live
-client, for the third time on this same feature** — this is the most load-bearing thing to
-confirm on the next playtest, since "does the leap work" has been wrong twice already despite
-passing build checks both times. Not re-run: `ip-naming-compliance-checker`/`balance-reviewer`
-— same 75 leap damage as already reviewed; the speed/range/cooldown changes are numeric but
-squarely a direct response to "not a boss, too easy to kite," not a fresh balance concern to
-flag, so treated as part of this same fix rather than a new item needing review.
+Added the third mini-boss, Zombie Colossus (`baum2:zombie_colossus`, level 25, 750 HP) plus its
+guaranteed drop, the Colossal Warclub — see "Zombie Colossus" above for full detail. A giant
+(3x-scaled) melee zombie boss extending vanilla `ZombieEntity` directly, with three attacks: a
+slow 100-damage base hit at an exact 2-block range (a fully custom `Goal`, not a
+`MeleeAttackGoal` subclass, since that class has no overridable attack-range hook in this MC
+version - confirmed via `javap` against the real 1.21.11 jar rather than assumed), a leap that
+reuses Spider Queen's proven direct-position-control `travel()` override (deliberately *not*
+re-attempting the velocity-based approach that failed twice in this exact codebase before that
+fix), ending in a new mechanic for this mod - an expanding "fire wave" AoE ring plus a
+custom-rate burn DoT (`combat/BurnDamageManager.java`, a new minimal tick-based tracker, since
+vanilla's own fire damage can't hit the spec's exact "2 damage/sec" number without a Mixin) -
+and a 3-hit rage combo. The boss holds a real equipped weapon rather than a cosmetic-only club;
+`graphics-designer` implemented this by decompiling and copying vanilla's own `GiantEntity`
+mechanism (a 6x zombie holding an oversized item, the same archetype), since vanilla's normal
+`ZombieEntityRenderer` hardcodes a non-scaled shadow radius the same way `SpiderEntityRenderer`
+did for Spider Queen.
+
+Ran all four applicable project subagents for real, not skipped: `ip-naming-compliance-checker`
+found "Colossus Club" was an exact-string match to an existing EverQuest 2 item and it was
+renamed to "Colossal Warclub" before anything else was built against it (asset/renderer work
+was mid-flight in a background agent at the time - it was notified of the rename and verified
+the new name directly from source rather than trusting the notification, which is exactly the
+right call); `balance-reviewer` found two real mechanical bugs (a zero-telegraph 300-damage rage
+burst, and a 2-3 block dead zone where no attack could land) plus a correctness gap (burn DoT
+ignoring Fire Resistance) and all three were fixed in this same pass, plus several numeric
+judgment calls logged for a human decision rather than silently changed (HP/level drift now at
+30, a new high; the club's flat-damage floor). `graphics-designer` produced the model/renderer/
+texture/icon and updated the style guide (Section 18, "Ashen Brute").
+
+Verified: `./gradlew build` passes clean (Java + client renderer/model together). **Not yet
+verified in an actual game session** - same no-GUI-automation limitation as every previous boss
+in this project (see "Current state" throughout this doc). See "Zombie Colossus" above for the
+exact next-playtest checklist.
 
 ## Last change (on `jonas_workbranch`)
 
@@ -1019,6 +1133,17 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
     durability/toughness sit "between Iron and Diamond" as the code comment claims; (d) repairs
     via iron ingots is a real mismatch against Diamond-equal defense, pending a dedicated repair
     material that doesn't exist yet.
+0b. **In-game verification of Zombie Colossus + Colossal Warclub** — `/summon
+    baum2:zombie_colossus`, confirm the 3x zombie model and held club render with no missing-
+    texture errors, confirm base attack/leap/fire-wave/rage-attack all trigger and deal their
+    stated damage, confirm the fire wave's burn ticks 2 dmg/sec for 5s and is actually blocked
+    by Fire Resistance, confirm the rage attack's new 8-tick wind-up is visible/audible before
+    the first strike, confirm there's no dead zone between melee and leap range anymore, confirm
+    the Colossal Warclub drops and is wieldable, confirm "Lvl. 25" nameplate. Judgment calls
+    logged, not yet decided (see "Zombie Colossus" above): (a) 30 HP/level is a new high point in
+    an already-drifting trend across three consecutive bosses; (b) the Colossal Warclub's flat
+    damage floor (one-shots ~20-HP vanilla mobs with zero Strength investment) despite not
+    itself worsening the already-logged max-investment DPS-ceiling issue.
 1. **In-game verification of everything merged this session** — no GUI-automation tool exists
    here (see "Current state"), so this needs a human: confirm the Class Screen ('K') and
    Character Stats Screen ('C') both still open correctly and don't visually collide with each

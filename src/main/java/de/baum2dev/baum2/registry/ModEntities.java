@@ -11,6 +11,7 @@ import net.minecraft.util.Identifier;
 import de.baum2dev.baum2.entity.SpiderQueenEntity;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntity;
 import de.baum2dev.baum2.entity.StoneOfZombiesEntity;
+import de.baum2dev.baum2.entity.ZombieColossusEntity;
 
 public class ModEntities {
 
@@ -48,10 +49,22 @@ public class ModEntities {
                     .build(SPIDER_QUEEN_KEY)
     );
 
+    public static final RegistryKey<EntityType<?>> ZOMBIE_COLOSSUS_KEY =
+            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "zombie_colossus"));
+
+    public static final EntityType<ZombieColossusEntity> ZOMBIE_COLOSSUS = Registry.register(
+            Registries.ENTITY_TYPE,
+            ZOMBIE_COLOSSUS_KEY,
+            EntityType.Builder.create(ZombieColossusEntity::new, SpawnGroup.MONSTER)
+                    .dimensions(1.8F, 5.85F)
+                    .build(ZOMBIE_COLOSSUS_KEY)
+    );
+
     public static void registerAttributes() {
         FabricDefaultAttributeRegistry.register(STONE_OF_SPIDERS, StoneOfSpidersEntity.createStoneOfSpidersAttributes());
         FabricDefaultAttributeRegistry.register(STONE_OF_ZOMBIES, StoneOfZombiesEntity.createStoneOfZombiesAttributes());
         FabricDefaultAttributeRegistry.register(SPIDER_QUEEN, SpiderQueenEntity.createSpiderQueenAttributes());
+        FabricDefaultAttributeRegistry.register(ZOMBIE_COLOSSUS, ZombieColossusEntity.createZombieColossusAttributes());
     }
 
     /** No-op - calling this forces this class (and its static EntityType registrations) to load. */

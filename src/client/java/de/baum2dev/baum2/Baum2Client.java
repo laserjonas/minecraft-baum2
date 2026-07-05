@@ -17,6 +17,8 @@ import de.baum2dev.baum2.entity.SpiderQueenEntityModel;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfZombiesEntityRenderer;
+import de.baum2dev.baum2.entity.ZombieColossusEntityModel;
+import de.baum2dev.baum2.entity.ZombieColossusEntityRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.ui.Baum2KeyBindings;
@@ -65,5 +67,10 @@ public class Baum2Client implements ClientModInitializer {
                 SpiderQueenEntityRenderer.LAYER,
                 () -> SpiderQueenEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
         EntityRendererFactories.register(ModEntities.SPIDER_QUEEN, SpiderQueenEntityRenderer::new);
+
+        EntityModelLayerRegistry.registerModelLayer(
+                ZombieColossusEntityRenderer.LAYER,
+                () -> ZombieColossusEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
+        EntityRendererFactories.register(ModEntities.ZOMBIE_COLOSSUS, ZombieColossusEntityRenderer::new);
     }
 }

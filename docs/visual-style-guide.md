@@ -297,11 +297,13 @@ assets/baum2/
     item/
       gold_sword.png           (16x16, item icon - see Section 14)
       poison_dagger.png        (16x16, item icon - see Section 16)
+      colossal_warclub.png     (16x16, item icon - see Section 18.3)
     block/       (future: block textures)
     entity/
       stone_of_spiders.png     (176x176 box-UV sheet - see Section 13)
       stone_of_zombies.png     (176x176 box-UV sheet, same layout as above - see Section 15)
       spider_queen.png         (64x32, vanilla spider UV layout - see Section 17)
+      zombie_colossus.png      (64x64, vanilla biped/zombie UV layout - see Section 18.2)
       equipment/
         humanoid/
           queen_spider.png     (64x32, vanilla classic armor-layer UV - see Section 17.4)
@@ -313,12 +315,14 @@ assets/baum2/
       poison_dagger.json       (see Section 16)
       queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
       queen_spider_boots.json  (see Section 17.4)
+      colossal_warclub.json    (see Section 18.3)
     block/       (future)
   items/
     gold_sword.json            (1.21.11 item-model-definition entry point - see Section 14)
     poison_dagger.json         (1.21.11 item-model-definition entry point - see Section 16)
     queen_spider_helmet.json, queen_spider_chestplate.json, queen_spider_leggings.json,
     queen_spider_boots.json    (1.21.11 item-model-definition entry points - see Section 17.4)
+    colossal_warclub.json      (1.21.11 item-model-definition entry point - see Section 18.3)
   equipment/
     queen_spider.json          (1.21.11 equipment-texture definition - see Section 17.4)
   blockstates/   (future)
@@ -1377,8 +1381,214 @@ artist pass would meaningfully raise the ceiling here given the "should look bea
 
 ---
 
+## 18. Boss visual identity: "Zombie Colossus" (`baum2:zombie_colossus`) and the "Colossal Warclub"
+
+The mod's **second mobile boss** (level 25, 750 HP) - a hulking, muscular zombie warlord, 3x the
+size of a vanilla zombie (`ModEntities.ZOMBIE_COLOSSUS` is `.dimensions(1.8F, 5.85F)`, exactly
+triple a vanilla zombie's `0.6F, 1.95F`), that fights with a slow, heavy 2-block-range club attack
+plus a leap-and-fire-wave signature move (`ZombieColossusEntity.java`). Its guaranteed drop is the
+**Colossal Warclub** (`baum2:colossal_warclub`) - originally drafted as "Colossus Club" but renamed
+before any asset work referenced it, after `ip-naming-compliance-checker` found that exact string
+is a real (if minor/non-iconic) existing item name in EverQuest 2; only the item's name/id changed,
+the entity keeps "Zombie Colossus." This section follows Section 17's precedent (first true mobile
+boss, `spider_queen`) as the second data point for that family, and the same reused-vanilla-model-
+plus-`ModelTransformer.scaling` mechanism applies again below - see 18.1 for the version-specific
+verification.
+
+### 18.1 Why this shape/approach - held-item rendering, not a baked-on club
+
+Two rendering options were on the table (a real held item vs. a permanently-baked cosmetic club
+cuboid). **Real held-item rendering was used** - confirmed straightforward to get working
+correctly in 1.21.11 by decompiling the actual client jar rather than guessing, because vanilla
+already solves this *exact* problem for its own oversized-zombie boss:
+
+- `GiantEntity` (vanilla's 6x-scaled zombie) is rendered by `GiantEntityRenderer`, which:
+  - extends `MobEntityRenderer` **directly** (not `BipedEntityRenderer`/`ZombieBaseEntityRenderer`)
+    specifically so it can pass its own scaled shadow radius (`0.5F * scale`) to the constructor -
+    `ZombieBaseEntityRenderer`'s own constructor hardcodes an unscaled `0.5F` with no override
+    hook, the same "vanilla renderer hardcodes a fixed shadow radius" problem
+    `SpiderQueenEntityRenderer`'s javadoc already documents for `SpiderEntityRenderer`;
+  - reuses vanilla's own `ZombieEntityRenderState` unchanged (no custom render-state subclass -
+    Giant needs no bespoke pose, and neither does this boss);
+  - reuses `GiantEntityModel`, which is just `AbstractZombieModel<ZombieEntityRenderState>` with
+    **no scaling logic of its own** - the scaling instead happens once, centrally, where
+    `EntityModels.getModels()` registers `EntityModelLayers.GIANT`: the exact same shared
+    `TexturedModelData` used for the plain `ZOMBIE` layer gets `.transform(ModelTransformer.scaling(6.0F))`
+    - this is the same "reuse the shared vanilla `TexturedModelData`, scale it once via
+    `ModelTransformer` at model-layer registration" mechanism `SpiderQueenEntityModel`/
+    `Baum2Client` already established for Spider Queen, now confirmed (by decompiling
+    `EntityModels.getModels()` directly, not assumed) to be vanilla's own real mechanism for this
+    exact archetype, not just this mod's own convention;
+  - adds `HeldItemFeatureRenderer` by hand (since `ZombieBaseEntityRenderer` doesn't add one
+    itself - only `GiantEntityRenderer`, for this exact "big zombie holding a big item" case);
+  - calls the static helper `BipedEntityRenderer.updateBipedRenderState(entity, state, tickDelta,
+    itemModelResolver)` from its own `updateRenderState` override to populate the render state's
+    held-item/arm-pose fields, since it no longer extends `BipedEntityRenderer` to get that for
+    free.
+
+`ZombieColossusEntityRenderer`/`ZombieColossusEntityModel` copy this exact, vanilla-proven
+mechanism verbatim for this boss (see those two classes' own javadoc for the full mapping), rather
+than inventing a new one or falling back to option (b)'s baked-on cosmetic club. No `ArmorFeatureRenderer`
+is attached - this boss only ever equips a mainhand weapon (`ZombieColossusEntity.initEquipment()`),
+never armor, so that plumbing (which `GiantEntityRenderer` does use, for Giant's equippable armor
+slots) isn't needed here.
+
+*Compliance note:* "giant reskinned/muscular version of a normal enemy wielding an oversized
+weapon" is the same generic, widely-used monster-variant convention Section 17.1 already argued
+for Spider Queen (vanilla's own Giant/Zombie is this exact archetype) - genre convention, not IP.
+The palette and musculature/club design below are original and not modeled on any specific
+existing creature or game's actual design.
+
+### 18.2 Entity texture: `zombie_colossus.png`
+
+- **File:** `assets/baum2/textures/entity/zombie_colossus.png`.
+- **Canvas: 64x64 px, confirmed exactly matching vanilla's own plain biped/zombie UV layout** -
+  verified by reading `BipedEntityModel.getModelData(Dilation, float)` directly out of the
+  decompiled client-sources jar (not assumed): `TexturedModelData.of(BipedEntityModel.getModelData(Dilation.NONE, 0.0F), 64, 64)`,
+  the same call `EntityModels.getModels()` uses to build the shared `TexturedModelData` for
+  vanilla's own `ZOMBIE` **and** `GIANT` model layers (see 18.1). Only the bottom half of the 64x64
+  canvas is used - this base biped call defines just 5 real parts (head, hat-overlay, body, one
+  shared mirrored arm region, one shared mirrored leg region), not the additional jacket/sleeves/
+  pants overlay cuboids the full player-skin format also supports - so, like vanilla's own
+  `zombie.png`, the region below y=32 is unused/transparent.
+
+  | Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) | Notes |
+  |---|---|---|---|---|
+  | Head (inner) | (0, 0) | 8 x 8 x 8 | (0, 0, 32, 16) | Face painted with eyes + jaw line (below) |
+  | Hat (outer head overlay) | (32, 0) | 8 x 8 x 8, dilated | (32, 0, 32, 16) | **Left fully transparent**, matching vanilla `zombie.png`'s own convention of not using this overlay |
+  | Body | (16, 16) | 8 x 12 x 4 | (16, 16, 24, 16) | Bare muscled torso, not a shirt - see 18.3 |
+  | Arm (shared/mirrored, both arms) | (40, 16) | 4 x 12 x 4 | (40, 16, 16, 16) | Bare muscled bicep |
+  | Leg (shared/mirrored, both legs) | (0, 16) | 4 x 12 x 4 | (0, 16, 16, 16) | Tattered cloth wrap, distinct tone from the bare torso/arms |
+
+  Both the arm and leg regions are genuinely shared between left/right (vanilla mirrors the same
+  UV rectangle for both sides via `.mirrored()`, confirmed in the same decompiled source) - painting
+  one side's region paints both limbs automatically.
+
+### 18.3 Color palette: "Ashen Brute" (original, distinct from every other palette in this document)
+
+Deliberately **not another green** - every prior hostile-mob palette in this document (Toxic
+Bloom, Mutant Ichor) is some shade of sickly/toxic green; this boss instead reads as long-dead,
+ashen, sun-bleached flesh with raw exposed red-brown musculature, so it's immediately
+distinguishable from the mod's other zombie/spider mobs at a glance rather than being a third green
+recolor.
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Skin shadow | Ashen Hide Shadow | `#332C22` | Head bottom face |
+| Skin mid-tone | Ashen Hide | `#5C5142` | Head side/back faces |
+| Skin highlight | Ashen Hide Pale | `#7D715C` | Head top face |
+| Muscle base | Exposed Muscle | `#7A2E24` | Torso/arm side/back/front base fill - the dominant "visible muscles" color per the brief |
+| Muscle highlight (wet sheen) | Exposed Muscle Sheen | `#B24A3A` | Torso top face, bicep bulge highlight, ab/pec striation highlights |
+| Muscle shadow | Exposed Muscle Dusk | `#4A1712` | Torso bottom face, bicep lower-shadow, ab striation shadows |
+| Wound/seam accent | Wound Edge | `#1F1A16` | Near-black - sternum groove, side striation lines, jaw line, ragged hem |
+| Eye glow (painted, no vanilla overlay involved) | Brute Glare | `#D9C24A` | Dull amber-yellow eye dots on the head's front face |
+| Eye-socket base | Deep Socket | `#140F0A` | Dark base under each eye dot |
+| Cloth-wrap mid-tone | Tattered Wrap | `#2E251C` | Leg region side/front/back faces - ragged trouser remnants, distinct tone from the bare torso/arms |
+| Cloth-wrap highlight | Tattered Wrap Fold | `#4A3C2C` | Leg top face + fold-line accents |
+| Cloth-wrap shadow | Tattered Wrap Dusk | `#180F09` | Leg bottom face |
+| Bone/tusk accent | Bone | `#D8CFC0` | Two small tooth/tusk pixels at the jaw corners |
+
+*Compliance note:* an ashen/gray-brown "long-dead brute" palette with raw red-brown exposed
+muscle is a broad, unclaimed genre convention (undead/berserker "muscle-bound brute" enemies with
+visible musculature appear across countless unrelated games and other media), not IP tied to any
+one game. Checked distinct from every existing palette in this document: it shares no hue family
+with Section 13.3's warm tan/lime (Fused Stone/Larval Glow), Section 15.2's yellow-olive toxic
+green (Toxic Bloom), or Section 17.3's cool gray-teal green (Mutant Ichor) - Ashen Brute is
+brown/red-based, not green at all, which is the deliberate distinguishing choice. `Brute Glare`'s
+dull amber-yellow eye glow is also checked distinct from Section 17.3's brighter chartreuse `Toxic
+Eye` (`#E8FF6B`) and Section 13.3's `Larval Glow` (`#C4E064`) - all three sit in a loose
+yellow-green family (a common "monster eye glow" genre convention), but Brute Glare is the dullest/
+most desaturated of the three and is a minor accent here, not the palette's dominant tone.
+
+### 18.4 Weapon visual identity: "Colossal Warclub" (`baum2:colossal_warclub`)
+
+Follows Section 14/16's exact item conventions (plain `Item`, no custom model class, same
+`minecraft:item/handheld` parent + `assets/baum2/items/<name>.json` entry-point pair, both files
+required per the gotcha Section 14.3 already verified against the decompiled vanilla client jar).
+
+- **Silhouette:** a deliberate departure from Gold Sword/Poison Dagger's tapering-blade shape,
+  since a club needs to read as blunt/heavy rather than sharp: a thin 2px diagonal handle
+  (bottom-left, matching the established bottom-left-to-top-right orientation convention) leading
+  into a large, lumpy, irregular club-head mass occupying roughly the top-right third of the 16x16
+  canvas - asymmetric/organic-looking lumps (not a clean circle/oval) so it reads as a heavy,
+  crude weapon rather than a polished mace.
+- **Details:** a couple of small metal studs jutting from the head (menace/weight cue), a single
+  dulled blood/dirt smear low on the head (battle-worn flavor), and a dark leather-style grip wrap
+  crossing the handle partway up.
+
+| Role | Hex | Notes |
+|---|---|---|
+| Handle wood, dark | `#3E2A1A` | Alternating with the mid-tone along the diagonal for a faceted-wood read |
+| Handle wood, mid | `#5A3D24` | |
+| Grip wrap | `#24180F` | Near-black leather bands crossing the handle |
+| Club-head base | `#6B5A42` | Dominant fill of the lumpy head mass |
+| Club-head highlight | `#8C7854` | Upper-left lumps, simulating top-lit shading |
+| Club-head shadow | `#463823` | Lower-right lumps |
+| Metal stud | `#8A8A82` | Small embedded studs |
+| Metal stud shadow | `#4A4A44` | |
+| Blood/dirt smear | `#6B2A1E` | Single accent low on the head |
+
+*Compliance note:* this is an original 9-color club treatment - a plain wood-and-stud war club is
+a broad, unclaimed fantasy-weapon archetype (not any one game's specific IP), and this palette/
+silhouette does not reproduce any existing game's specific club/mace icon, nor either of this mod's
+own existing weapon palettes (Gold Sword's bronze/gold hilt, Poison Dagger's green-tinged steel).
+
+### 18.5 Files produced this pass
+
+Placeholder texture + real (verified, not guessed) 1.21.11 model/item-definition JSON, generated
+via PowerShell + `System.Drawing` (same technique as every prior placeholder in this document; no
+Python/ImageMagick available in this environment). No traced, extracted, or downloaded source
+material was used.
+
+- `assets/baum2/textures/entity/zombie_colossus.png` (64x64, placeholder - flat box-UV fills plus
+  a handful of hand-placed muscle-striation/eye/jaw accent pixels, same effort level as Sections
+  13.4/15.3/17.2's placeholders)
+- `assets/baum2/textures/item/colossal_warclub.png` (16x16, placeholder)
+- `assets/baum2/models/item/colossal_warclub.json` (real, verified schema)
+- `assets/baum2/items/colossal_warclub.json` (real, verified schema)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityModel.java` (real Java, not a
+  placeholder - reuses vanilla's shared `TexturedModelData` factory, no new geometry)
+- `src/client/java/de/baum2dev/baum2/entity/ZombieColossusEntityRenderer.java` (real Java, not a
+  placeholder - mirrors vanilla's `GiantEntityRenderer` mechanism, see 18.1)
+- `Baum2Client.java`'s registration block, extended with this boss's `EntityModelLayerRegistry`/
+  `EntityRendererFactories` pair, mirroring Spider Queen's existing block exactly.
+
+**Not yet done, flagged for a future art pass** (same caveat as every prior placeholder in this
+document): real hand-drawn surface detail (skin texture, fabric weave on the leg-wrap, wood grain
+on the club) - this pass proves the UV layout, establishes the palette/silhouette, and gives this
+boss and its drop something considered to look at in-game, but a human artist pass would meaningfully
+raise the ceiling here.
+
+---
+
 ## Changelog
 
+- **2026-07-05** — Added Section 18 (boss visual identity: "Zombie Colossus",
+  `baum2:zombie_colossus` — the mod's **second** true mobile boss, joining Spider Queen — and its
+  "Colossal Warclub" drop, `baum2:colossal_warclub`, renamed from the originally-drafted "Colossus
+  Club" after `ip-naming-compliance-checker` found that exact string matches an existing EverQuest
+  2 item name; only the item's name/id changed before any asset referenced it, the entity keeps
+  its own name). Verified against the decompiled 1.21.11 client jar (not guessed) that vanilla
+  already solves the exact "oversized zombie-family boss holding an oversized item" problem via its
+  own `GiantEntity`/`GiantEntityRenderer`/`GiantEntityModel` — copied that mechanism directly:
+  `ZombieColossusEntityRenderer` extends `MobEntityRenderer` (not `BipedEntityRenderer`, which
+  hardcodes an unscaled shadow radius with no override), reuses vanilla's own
+  `ZombieEntityRenderState` unchanged, adds `HeldItemFeatureRenderer` by hand, and calls the static
+  `BipedEntityRenderer.updateBipedRenderState` helper — giving this boss real held-item rendering
+  (the club is a genuine equipped `ItemStack`, not a baked-on cosmetic cuboid) with no new render-
+  state class needed. `ZombieColossusEntityModel` reuses vanilla's exact shared
+  `BipedEntityModel.getModelData()`/`TexturedModelData` (64x64 canvas, confirmed identical to what
+  vanilla's own `ZOMBIE` and `GIANT` model layers both use), scaled 3x via `ModelTransformer` at
+  model-layer registration — the same mechanism Spider Queen already established for this mod.
+  Established a new "Ashen Brute" palette (brown/red-based, deliberately *not* another green,
+  unlike every other hostile mob in this document) with exposed-muscle red-brown accents per the
+  "visible muscles" brief, and a 9-color "Colossal Warclub" item palette/silhouette distinct from
+  both Gold Sword and Poison Dagger's existing weapon treatments. Produced a placeholder 64x64
+  entity texture and 16x16 item texture (PowerShell + `System.Drawing`, no Python/ImageMagick
+  available in this environment) plus the real, verified 1.21.11 model/item-definition JSON pair
+  for the club. Updated Section 6's folder listing. Wired both new classes into `Baum2Client.java`'s
+  registration block, mirroring Spider Queen's existing entry exactly. `./gradlew build` confirmed
+  passing after these changes.
 - **2026-07-05** — Reworked the Spider Queen **entity's own texture** (Section 17.3) after
   direct playtest feedback: the boss should look "more green and more like a mutant spider,"
   matching its already-implemented green witch-smoke aura particle effect (Java-side, not a

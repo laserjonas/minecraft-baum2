@@ -16,6 +16,7 @@ import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.VitalsManager;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.registry.ModItems;
+import de.baum2dev.baum2.skills.DelayedSpellEffectScheduler;
 
 public class Baum2 implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("baum2");
@@ -47,6 +48,7 @@ public class Baum2 implements ModInitializer {
         VitalsTickHandler.registerEvents();
         PoisonDaggerHandler.registerEvents();
         BurnDamageManager.registerEvents();
+        DelayedSpellEffectScheduler.registerEvents();
 
         LOGGER.info("Baum2 progression system loaded");
     }

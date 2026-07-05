@@ -3,11 +3,13 @@ package de.baum2dev.baum2.networking;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
 import de.baum2dev.baum2.classes.ClassManager;
 import de.baum2dev.baum2.progression.AttributeManager;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.PlayerProgressData;
 import de.baum2dev.baum2.progression.VitalsManager;
+import de.baum2dev.baum2.skills.SpellCaster;
 
 /**
  * Central networking registry and utility class for all Baum2 custom packets.
@@ -41,6 +43,14 @@ public class Baum2Networking {
                 SpendAttributePointPayload.TYPE,
                 SpendAttributePointPayload.CODEC
         );
+        PayloadTypeRegistry.playC2S().register(
+                CastSpellPayload.TYPE,
+                CastSpellPayload.CODEC
+        );
+        PayloadTypeRegistry.playC2S().register(
+                SubspecSelectPayload.TYPE,
+                SubspecSelectPayload.CODEC
+        );
     }
 
     /**
@@ -48,8 +58,28 @@ public class Baum2Networking {
      * (server-reachable) entrypoint.
      */
     public static void registerServerReceivers() {
-        ServerPlayNetworking.registerGlobalReceiver(ClassSelectPayload.TYPE, (payload, context) ->
-            ClassManager.selectClass(context.player(), payload.playerClass()));
+        ServerPlayNetworking.registerGlobalReceiver(ClassSelectPayload.TYPE, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            ClassManager.SelectAttempt attempt = ClassManager.selectClass(player, payload.playerClass());
+            if (attempt.result() == ClassManager.SelectResult.ON_COOLDOWN) {
+                player.sendMessage(Text.literal(String.format(
+                    "You can't change class yet (%.1f minutes remaining).", attempt.remainingCooldownTicks() / 20.0 / 60.0
+                )), true);
+            }
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(SubspecSelectPayload.TYPE, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            ClassManager.SelectAttempt attempt = ClassManager.selectSubspec(player, payload.subspec());
+            if (attempt.result() == ClassManager.SelectResult.ON_COOLDOWN) {
+                player.sendMessage(Text.literal(String.format(
+                    "You can't change sub-specialization yet (%.1f minutes remaining).", attempt.remainingCooldownTicks() / 20.0 / 60.0
+                )), true);
+            }
+            // WRONG_CLASS is silently ignored, same as CastSpellPayload's stale-slot case below -
+            // the GUI only ever offers sub-specs belonging to the player's current class, so this
+            // only happens for a stale/out-of-date client render, not a real user action.
+        });
 
         ServerPlayNetworking.registerGlobalReceiver(
                 SpendAttributePointPayload.TYPE,
@@ -64,6 +94,28 @@ public class Baum2Networking {
                         VitalsManager.applyBaseAttack(player, progress.getStrength());
                         VitalsManager.applyAttackSpeed(player, progress.getDexterity());
                     }
+                }
+        );
+
+        ServerPlayNetworking.registerGlobalReceiver(
+                CastSpellPayload.TYPE,
+                (payload, context) -> {
+                    ServerPlayerEntity player = context.player();
+                    ClassManager.getSelectedClass(player).ifPresent(playerClass ->
+                        SpellCaster.spellForSlot(playerClass, payload.slot()).ifPresent(spell -> {
+                            SpellCaster.CastAttempt attempt = SpellCaster.attemptCast(player, spell);
+                            switch (attempt.result()) {
+                                case SUCCESS -> player.sendMessage(Text.literal("You cast " + spell.displayName() + "."), true);
+                                case ON_COOLDOWN -> player.sendMessage(Text.literal(String.format(
+                                    "%s is on cooldown (%.1fs remaining).", spell.displayName(), attempt.remainingCooldownTicks() / 20.0
+                                )), true);
+                                case INSUFFICIENT_MANA -> player.sendMessage(Text.literal(
+                                    spell.displayName() + " requires " + spell.manaCost() + " Mana."
+                                ), true);
+                                case WRONG_CLASS -> { /* stale client-side spell for a class the player no longer has - ignore silently */ }
+                            }
+                        })
+                    );
                 }
         );
     }

@@ -3055,4 +3055,785 @@ ArmedEntityRenderState.java`, `net/minecraft/client/item/ItemModelManager.java`,
   depend on this specific model's arm span and the weapon item's own baked model bounding box)
   — there is no single "correct" numeric offset, only the mechanism above is confirmed correct.
 
+## GeckoLib integration — researched 2026-07-05 (ahead of Spider Queen rebuild)
+
+Researched ahead of two planned changes to `entity/SpiderQueenEntity.java` (currently a
+hand-coded `SpiderEntity` subclass with a synced `TrackedData<Integer>` wind-up counter and
+per-tick hand-derived leap physics, no animation library): (1) rebuild it on GeckoLib's
+`GeoEntity`/`GeoModel`/`GeoEntityRenderer`/animation-controller system instead of hand-coded
+pose math, and (2) separately, replace its hand-authored cuboid geometry with a downloaded
+Sketchfab OBJ+MTL organic mesh ("Voided Spider", CC-BY 4.0). Verified by downloading and
+inspecting the actual published 1.21.11 build's jar/sources jar directly (most authoritative —
+more so than the current wiki text, which turned out to be stale/aspirational in one real way,
+see below), cross-checked against `wiki.geckolib.com` (the current, correct wiki location —
+`github.com/bernie-g/geckolib/wiki` itself is stale past GeckoLib 4 and explicitly says so) and
+Fabric's own Loom docs for `include()`.
+
+### A. Exact dependency/repo setup for this project's exact stack
+
+- **Confirmed latest GeckoLib build for Minecraft `1.21.11` is `5.4.5`** (published
+  2026-03-03), via Modrinth's version API (`api.modrinth.com/v2/project/geckolib/version?
+  game_versions=["1.21.11"]&loaders=["fabric"]`) — a full patch chain exists for this exact MC
+  version (5.4, 5.4.1 … 5.4.5), so 5.4.5 is the one to pin, not an older patch.
+- **Real, verified discrepancy — the current wiki text is wrong about the Maven group ID, use
+  the old one.** `wiki.geckolib.com/docs/geckolib5/setup/fabric/*` (the current official setup
+  pages) show the repository filter and dependency coordinate using group `com.geckolib`
+  (`modImplementation "com.geckolib:geckolib-fabric-${minecraftVersion}:${geckolibVersion}"`).
+  **This does not actually resolve.** Confirmed two ways: (1) `dl.cloudsmith.io/public/
+  geckolib3/geckolib/maven/com/geckolib/...` 404s; (2) the *real*, working maven-metadata.xml
+  lives at `.../maven/software/bernie/geckolib/geckolib-fabric-1.21.11/maven-metadata.xml`
+  (`groupId=software.bernie.geckolib`, `latest=5.4.5`) — and downloading the actual published
+  jar and unzipping it confirms every class is still packaged under
+  `software/bernie/geckolib/...` (e.g. `software/bernie/geckolib/animatable/GeoEntity.class`),
+  not `com/geckolib/...`. (The GeckoLib GitHub repo's `main` branch source tree *has* moved its
+  Java package to `com.geckolib` already — confirmed via a shallow clone — so the rename is
+  real and coming, just not yet true for the published `5.4.5`/`1.21.11` artifact. Re-check this
+  before actually adding the dependency, in case a later patch flips the artifact's own group
+  before this project catches up — a quick `curl` against both metadata URLs, as done here,
+  settles it in seconds.) **Use `software.bernie.geckolib`, not `com.geckolib`, right now.**
+- **Confirmed working repository + dependency block** (adapt the version property name to this
+  project's existing `gradle.properties` conventions):
+  ```groovy
+  // build.gradle
+  repositories {
+      exclusiveContent {
+          forRepository {
+              maven {
+                  name = 'GeckoLib'
+                  url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/'
+              }
+          }
+          filter { includeGroupAndSubgroups('software.bernie.geckolib') }
+      }
+  }
+
+  dependencies {
+      modImplementation "software.bernie.geckolib:geckolib-fabric-${project.minecraft_version}:${project.geckolib_version}"
+  }
+  ```
+  ```properties
+  # gradle.properties
+  geckolib_version=5.4.5
+  ```
+- **Confirmed no version conflicts against this project's pinned stack** — read directly from
+  the published jar's own `fabric.mod.json`:
+  ```json
+  "depends": {
+      "fabricloader": ">=0.18",
+      "fabric-api": ">=0.139.4+1.21.11",
+      "java": ">=17",
+      "minecraft": ">=1.21.11"
+  }
+  ```
+  This project's pins (Loader `0.19.3`, Fabric API `0.141.4+1.21.11`, Java `21`, MC `1.21.11`)
+  all satisfy these comfortably. GeckoLib also ships its own `accessWidener`
+  (`geckolib.classtweaker`) and a Mixin config (`geckolib.mixins.json`) — both are handled
+  automatically by Loom for a `modImplementation`/`include`d mod dependency (transitive AW/Mixin
+  application is standard Loom behavior, not something this project needs to wire up by hand);
+  no Loom-1.17.13-specific gotcha was found for GeckoLib specifically beyond the general
+  Loom/Gradle version pins already documented above under "Version / mapping gotchas".
+- **`include(...)` (jar-in-jar) is the right call for "players don't need GeckoLib installed
+  separately", confirmed via Fabric's own Loom docs** (`docs.fabricmc.net/develop/loom/`):
+  `include` "declares a dependency that should be included as a jar-in-jar in the final mod
+  output" — for a non-mod-shaped dependency Loom auto-generates a wrapper
+  `fabric.mod.json`, but GeckoLib already *is* a proper Fabric mod jar (confirmed above, real
+  `id: "geckolib"` in its own `fabric.mod.json`), so `include(...)` just nests the real thing.
+  Practical form, combining with the dependency above:
+  ```groovy
+  dependencies {
+      modImplementation("software.bernie.geckolib:geckolib-fabric-${project.minecraft_version}:${project.geckolib_version}")
+      include("software.bernie.geckolib:geckolib-fabric-${project.minecraft_version}:${project.geckolib_version}")
+  }
+  ```
+  **One honest caveat, not fully resolved by primary-source docs this session**: Fabric Loader's
+  nested-jar mechanism loads an `include`d jar as a first-class mod with its own mod ID
+  (`geckolib`) on the shared classpath — this is **not** the same as Forge/NeoForge's
+  isolated-classloader JarInJar, and Fabric's own Loom docs don't document what happens if a
+  *second*, unrelated mod the player also installs bundles a **different** GeckoLib version the
+  same way (a real, if narrow, scenario once this mod ships publicly). This wasn't found
+  explicitly documented anywhere authoritative (not Fabric's docs, not GeckoLib's wiki) — treat
+  it as a genuinely open, low-probability risk rather than a solved problem; Fabric API itself
+  ships as many small jar-in-jar'd modules this same way, which suggests the mechanism is
+  battle-tested for widely-shared libraries, but that isn't a direct guarantee for two
+  *different pinned versions* of the same library colliding. Community convention (and what
+  GeckoLib's own maintainers implicitly expect, given they publish a "library" ModMenu badge
+  on the mod normally) is that `include`-bundling a library like this is common and accepted
+  practice for a small/single mod like this project, not shading/relocating classes — this
+  project should do the same, just be aware version-mismatch-across-mods is the one edge case
+  nobody has fully documented.
+
+### B. GeckoLib's `.geo.json` format is fundamentally cuboid+bone — it does NOT import arbitrary organic meshes. Be honest about this with the user.
+
+**Short answer: no, GeckoLib cannot import an arbitrary OBJ/glTF organic triangle mesh (like a
+Sketchfab download) and there is no good, non-lossy path to get one in. This part of the plan,
+as stated, is not practical without either a full manual re-model or accepting a very different
+(and likely much worse-looking) result than the source mesh.**
+
+- **GeckoLib's own wiki states this almost directly**: "Making Your Models (Blockbench)"
+  (`github.com/bernie-g/geckolib/wiki/Making-Your-Models-(Blockbench)`) says outright, **"Models
+  consist of cubes and groups"** — only groups (bones) can be animated, cubes are the only
+  geometry primitive. There is no mention anywhere in GeckoLib's docs (old wiki or current
+  `wiki.geckolib.com`) of a mesh/vertex-based element type, a `poly_mesh` field, or any
+  arbitrary-triangle import path. This matches the confirmed source-level reality: GeckoLib's
+  geo.json format is a direct descendant of Bedrock's own entity geometry format, which itself
+  is bone/cuboid-only (Bedrock's separate, newer `poly_mesh` beta feature is not something
+  GeckoLib's docs reference at all).
+- **Blockbench does have a separate, genuinely free-form "Mesh" element type** (distinct from
+  "Cube"), and Blockbench's OBJ/glTF importer does produce Mesh elements from an imported model
+  — but that element type is only usable in Blockbench's **"Generic Model"** project format (the
+  one aimed at OBJ/glTF/rendering-only workflows), not in the "Modded Entity"/GeckoLib Animated
+  Model formats a Minecraft mod actually needs to export from. **This specific
+  format-compatibility detail could not be pinned down with a directly-quotable primary source
+  this session** (Blockbench's own "Formats" wiki page describes export capability per format
+  but not per-element-type support, and no clearer official statement was found) — but it is
+  consistent with, and not contradicted by, every other piece of evidence gathered (GeckoLib's
+  explicit "cubes and groups" statement; a third-party Blockbench plugin existing specifically
+  to "enable the use of meshes in bedrock formats" for actual Bedrock Edition export, implying
+  mesh support is *not* native even to Bedrock-style formats without an add-on). Treat "Mesh
+  elements don't survive into a GeckoLib-exportable project" as a very-high-confidence
+  conclusion, not a hedge — just not a single-quote-verified one.
+- **What "importing" a Sketchfab mesh into Blockbench actually gets you, realistically**: opening
+  an OBJ in Blockbench's Generic Model format shows you the organic mesh as a visual reference/
+  proportions guide at best. There is no automatic "convert this mesh into an equivalent cuboid
+  hierarchy" tool — a human has to manually re-block the creature by hand, cuboid by cuboid,
+  eyeballing the reference mesh's proportions (exactly the same "trace over a picture" workflow
+  as building any vanilla-style Minecraft mob model from a concept image, not a specialized mesh-
+  import feature). Practical implications, based on general, well-established Minecraft-modding
+  practice rather than anything Sketchfab/GeckoLib-specific: (a) **polycount is a real practical
+  concern but — see the correction in part B-2 below — is not actually the primary technical
+  wall; it's more about art-direction/labor fit than a hard engine limit.** A Sketchfab
+  "organic" download is routinely tens of thousands to hundreds of thousands of triangles, vs.
+  even the most detailed hand-built vanilla-style Minecraft mob model sitting in the low hundreds
+  of cuboids (a cuboid is 6 quads = 12 triangles, so even 200 cuboids ≈ 2,400 triangles) — several
+  orders of magnitude apart — but this session's follow-up research (part B-2) found this gap is
+  driven by authoring-tool/labor convention and stylistic fit, not by a hard rendering-engine
+  ceiling; (b) **texture/UV remapping would also need to be redone from scratch** — a re-blocked
+  cuboid model needs its own boxed UV layout (or GeckoLib's per-cuboid UV mapping), which bears no
+  relationship to the original mesh's own UV unwrap, so the original Sketchfab texture can only be
+  used as a *color/palette reference*, not applied directly.
+- **Honest recommendation for the user's actual stated goal**: if the goal is specifically "use
+  this Sketchfab model's geometry," that is not realistically achievable in GeckoLib (or
+  vanilla) without a full manual re-model that will necessarily simplify/reinterpret the source
+  mesh into cuboids — at that point most of what makes a from-scratch organic sculpt visually
+  distinctive (smooth curves, non-blocky silhouette) is lost, and the practical result is "an
+  artist used the Sketchfab model as a visual reference," not "the Sketchfab model in-game." If
+  the actual goal is "a smoother/higher-poly-looking spider than hand-authored cuboids," the
+  more realistic path within GeckoLib is still cuboids, just more of them and more carefully
+  shaped/angled (GeckoLib's bone hierarchy allows finer per-limb pivoting than a flat vanilla
+  `EntityModel`, which helps organic *posing* even though the geometry itself stays cuboid).
+  This is worth surfacing to the user as a real scope/expectation conversation before starting
+  part 2 of the plan, not something to quietly attempt and hope looks acceptable.
+
+### B-2. Follow-up, researched 2026-07-05: does source *format* (glTF/GLB/USDZ/OBJ/FBX) matter, and is there ANY real path to arbitrary-mesh entity rendering on this exact stack?
+
+Direct follow-up question from the team: since Sketchfab's "Voided Spider" is downloadable in
+several formats, does format choice actually matter, or is the limitation truly architectural
+regardless of which one is picked? Re-verified rather than re-asserting the prior conclusion —
+this section corrects/sharpens part B above in one real way (see the polycount note) and adds
+new, concrete findings part B didn't have.
+
+**1. Confirmed, precisely: the limitation is 100% architectural on the *target* framework side,
+not the source format. Format choice (glTF vs. GLB vs. USDZ vs. OBJ vs. FBX) does not matter at
+all** — none of them can be *directly* consumed as arbitrary triangle-mesh geometry by either
+vanilla's `EntityModel` or GeckoLib's `GeoModel`, because **neither framework's file format has a
+slot for arbitrary mesh data in the first place** — both are strictly named-cuboid/bone
+hierarchies (vanilla's own `.json` entity model format equally; GeckoLib's `geo.json` is a
+direct descendant of Bedrock's cuboid-only entity geometry format). This isn't a parser
+limitation that a different input format could route around — cuboid-hierarchy is the *only*
+shape either framework's data model can represent, full stop, no matter what you feed Blockbench
+on the way in.
+
+**2. But the *engine underneath* those frameworks is not the same restriction — confirmed
+directly from decompiled 1.21.11 source, not assumed.** Read
+`com/mojang/blaze3d/vertex/VertexFormat.java` from this project's own genSources output
+(`.gradle/loom-cache/.../minecraft-clientOnly-...-sources.jar`):
+```java
+public enum DrawMode {
+    LINES(2, 2, false), DEBUG_LINES(2, 2, false), DEBUG_LINE_STRIP(2, 1, true),
+    POINTS(1, 1, false),
+    TRIANGLES(3, 3, false), TRIANGLE_STRIP(3, 1, true), TRIANGLE_FAN(3, 1, true),
+    QUADS(4, 4, false);
+```
+and `net/minecraft/client/render/VertexConsumer.java`:
+```java
+default void vertex(float x, float y, float z, int color, float u, float v,
+                     int overlay, int light, float normalX, float normalY, float normalZ)
+```
+**Minecraft's actual GPU-facing rendering pipeline already natively supports raw `TRIANGLES` (and
+strips/fans), and `VertexConsumer.vertex(...)` is a plain per-vertex feed with no built-in notion
+of "cuboid" or "quad" at all.** So: a genuinely arbitrary triangle mesh absolutely *can* be drawn
+by Minecraft's renderer, today, on this exact version — the GPU/engine was never the obstacle.
+`EntityModel` and `GeoModel` are both *authoring/animation convenience layers* built on top of
+this same low-level pipeline that chose to only expose cuboids — a deliberate scope/tooling
+choice by their respective maintainers, not a hard technical ceiling. **This is a real
+correction to part B's framing above**: the earlier "polycount is a hard practical wall" language
+overstated a rendering-engine limit that doesn't actually exist as stated — modern GPUs render
+far more than a few thousand triangles per visible mob without strain; the real reason vanilla/
+GeckoLib mob models stay in the low hundreds of cuboids is stylistic convention and modeling
+labor, not a performance ceiling being bumped into.
+
+**3. So could a modder just write a custom `EntityRenderer` that manually parses a glTF/OBJ file
+and feeds raw vertex data into a `VertexConsumer` every frame, bypassing `EntityModel`/`GeoModel`
+entirely? Yes — this is real, technically available, and people genuinely do it — but skeletal
+(posed/animated) mesh rendering specifically is a substantially bigger lift than it sounds, and
+no ready, maintained library does it for Fabric 1.21.11 today.** Concrete evidence, not
+speculation:
+  - **MCglTF** (`github.com/ModularMods/MCglTF` / `TimLee9024/MCglTF`, MIT) is a real, general-
+    purpose glTF loader library with an explicit example for "rendering Block, Item, and Entity,"
+    full rig/skeletal-animation/morph-target support. **But it's dead**: last published version
+    `2023-07-15`, max supported Minecraft `1.19.3`. Confirmed via Modrinth's version API — three
+    years and several major Minecraft/rendering-pipeline rewrites out of date relative to
+    1.21.11. Its announced Forge-focused successor, CleanroomMC's `CRglTF`, isn't a Fabric
+    project at all.
+  - **CustomglTF** (a related/derivative glTF loader, Fabric-only) is more recent but still stops
+    at Minecraft `1.20.1`/`1.20.4` — five-ish Minecraft feature releases short of `1.21.11`.
+  - **Suspicious Shapes** (`modrinth.com/mod/suspicious-shapes`, active, Fabric/Quilt) is a real,
+    currently-relevant glTF-in-Minecraft library — "Using frapi (the fabric-rendering API), this
+    mod intercepts requests for block models... provides them as static models" — **but it's
+    block-model-only, static meshes only (no skeletal animation at all), and its own supported-
+    version list tops out at `1.21.4`**, not `1.21.11`.
+  - **ArmorStand** (`modrinth.com/mod/armor-stand`, bundling its own internal renderer library
+    "BlazeRod") is the closest real proof this is achievable at all on a modern client: "Render
+    glTF, VRM, PMX, PMD models... Import VMD format animation files... Support instanced
+    rendering" — genuine arbitrary-mesh + skeletal-animation rendering, shipping today. **But**:
+    it explicitly only replaces the *player* entity's own model (not a general "give any custom
+    mob a mesh" API), its maintained version list stops at `1.21.8` (not `1.21.11` — one behind
+    this project's pin), and its own README explicitly warns off reuse: *"Due to lack of
+    documentation, and its API can be changed at any time, it is not encouraged to use BlazeRod
+    in other projects for now."*
+  - **Conclusion from this evidence**: writing a custom mesh-feeding `EntityRenderer` for a
+    *static, unanimated* mesh is realistic and has real precedent (Suspicious Shapes proves the
+    "parse a mesh format, feed `VertexConsumer`" pattern works fine on current Fabric). Doing the
+    same for a *skeletally animated* mesh (which is what a boss mob's crouch/leap/idle poses
+    need) means either (a) writing your own glTF/OBJ skin-and-joint evaluator from scratch —
+    parsing bind poses, joint hierarchies, per-vertex skin weights, then computing skinned vertex
+    positions on the CPU every render frame, essentially hand-building a miniature version of
+    what BlazeRod/MCglTF/GeckoLib each already do internally — or (b) forking and porting one of
+    the above (abandoned, or explicitly reuse-discouraged) libraries to `1.21.11` yourself. Both
+    are real, substantial engineering undertakings (realistically multi-week, not a weekend
+    detour), not "somewhat more effort than GeckoLib." Hitbox/pose integration (item (a)) is at
+    least one thing that would *not* need extra work either way — the entity's hitbox comes from
+    `EntityType.Builder.dimensions()` regardless of what renders it, already fully decoupled from
+    the visual model in this project's existing code.
+
+**Direct, unhedged answer to "does it really not matter which format we use"**: **Correct, it
+truly does not matter — glTF, GLB, USDZ, OBJ, and FBX are all equally unusable *as direct input*
+to either vanilla `EntityModel` or GeckoLib `GeoModel`,** because the limitation is which
+*framework* you render through, not which file you started from. A practical, currently-real
+path to genuine arbitrary-mesh rendering *does* exist in the Fabric ecosystem in principle (the
+engine supports it; other mods prove it), but **no ready, maintained, documented library
+currently does this for a custom mob on Fabric 1.21.11** — the nearest real artifacts are either
+several major versions behind (MCglTF, CustomglTF), scoped to something else and behind by one
+version with reuse explicitly discouraged (ArmorStand/BlazeRod), or missing skeletal animation
+entirely (Suspicious Shapes). Getting a genuinely animated arbitrary mesh onto Spider Queen today
+means either building that missing piece from scratch or porting an unmaintained one — both
+real, both large, neither a hidden shortcut this research missed. **Recommendation: proceed with
+cuboids (GeckoLib) for this mob**, and treat "fully arbitrary animated mesh support" as its own
+separate, large, standalone research-and-build effort if the team ever wants to pursue it
+deliberately — not something to fold into the Spider Queen rebuild.
+
+### C. What GeckoLib's animation system actually changes for the leap attack — rendering/pose only, not physics
+
+**The user's phrasing ("our leap jump should work with that mod much better") should not go
+unchallenged: GeckoLib is a rendering/animation library. It does not move entities through the
+world, and adopting it will not, by itself, change or improve the leap's trajectory, hitbox
+collision, target-tracking, or any other physics/gameplay behavior currently implemented in
+`SpiderQueenEntity.travel()`/`LeapAttackGoal`.**
+
+- **Confirmed via GeckoLib's own "Entity Animations" wiki page**: an `AnimationController`'s
+  `predicate` callback reads entity/animation state and returns a `PlayState`
+  (`CONTINUE`/`STOP`) plus which keyframed animation to play — this is a client-side rendering
+  decision only. Nothing in the documented API touches `Entity.setVelocity()`, `travel()`,
+  position, or collision. This matches how the currently-planned architecture already separates
+  concerns: `SpiderQueenEntity.travel()` (server-authoritative position math, already hand-
+  derived from the game's real per-tick gravity/drag) would stay **exactly as it is** — only the
+  *rendering* of the wind-up crouch pose and the leap's airborne pose would move from the
+  current hand-coded `SpiderQueenRenderState`/`SpiderQueenEntityModel` per-tick angle
+  interpolation to a GeckoLib `AnimationController` driven by the same already-synced
+  `LEAP_WINDUP_TICKS` `TrackedData<Integer>` (still needed, still synced the same way — GeckoLib
+  doesn't replace the need for server→client state sync, it just replaces what the client *does*
+  with that synced value once it's read).
+- **What genuinely would improve**: keyframed bone rotation/position/scale curves with GeckoLib's
+  30+ built-in easing functions, smooth automatic blending between animation states (e.g.
+  wind-up → launch → airborne → land), and no longer hand-deriving per-tick pose-angle math in
+  Java for every frame of the crouch — this is a real, legitimate quality-of-life and visual-
+  smoothness win over the current approach, and matches what GeckoLib is actually for.
+- **What would NOT improve, and needs a separate/different change if desired**: the leap's
+  actual flight arc, distance, re-aiming behavior, and landing-damage detection are 100% in
+  `SpiderQueenEntity`'s own `travel()`/`performLeapFlightStep()`/`LeapAttackGoal` code today, and
+  would remain 100% there after a GeckoLib migration — none of that is GeckoLib's domain.
+  (Nothing found in GeckoLib's docs suggests any physics/movement helper exists at all — it is
+  scoped purely to rendering/animation, confirmed structurally by every source consulted, not
+  just an absence of a feature this session happened not to find.)
+
+### D. Compatibility with a 3x-scaled spider + the existing velocity-based leap goal — no hard blocker found, but the current scaling mechanism does not carry over as-is
+
+- **The current 3x-scale mechanism (`ModelTransformer.scaling(3.0F)` at `EntityModelLayer`
+  registration) is a Fabric API hook specific to vanilla's `EntityModel`/`EntityModelLayerRegistry`
+  pipeline — GeckoLib does not use `EntityModelLayerRegistry` at all** (it resolves its own
+  `geo.json`/animation/texture assets directly by `Identifier` path via `GeoModel`), so this
+  exact call site will simply not apply to a GeckoLib-based renderer. **This is not a blocker,
+  just a "different API, same job" migration point** — confirmed via the actual downloaded
+  `5.4.5` sources jar, `GeoEntityRenderer` has its own, purpose-built equivalent:
+  ```java
+  // software/bernie/geckolib/renderer/GeoEntityRenderer.java, confirmed exact method:
+  public GeoEntityRenderer<T, R> withScale(float scale) { return withScale(scale, scale); }
+  public GeoEntityRenderer<T, R> withScale(float scaleWidth, float scaleHeight) { ... }
+  ```
+  i.e. call `.withScale(3.0F)` on the constructed renderer (same place/style as vanilla's
+  `EntityRendererRegistry.register(...)` call), instead of `ModelTransformer.scaling(3.0F)` at
+  model-layer registration. **Confirmed bonus**: `GeoEntityRenderer`'s internal
+  `scaleModelForRender(...)` also automatically multiplies in the vanilla render state's own
+  native scale field (the same one vanilla's baby-mob/`EntityAttributes.SCALE` scaling flows
+  through) on top of the manual `withScale(...)` override — so if this project ever also wants
+  per-instance dynamic scale (not needed today, `EntityType.Builder.dimensions()` + a fixed
+  `withScale` covers today's fixed-3x case), that hook already composes correctly rather than
+  needing to be fought.
+- **The entity's hitbox is unaffected either way** — `EntityType.Builder.dimensions(3.0F, 3.0F)`
+  (already in place, registered independently of whichever renderer/model system is used) stays
+  exactly as-is; hitbox sizing was never coupled to the vanilla-`EntityModel`-specific scaling
+  call, so nothing here forces a hitbox change when swapping renderers.
+- **No specific reported GeckoLib bug/limitation was found for "scaled hitbox + GeoEntity" or
+  "velocity-driven custom leap goal + GeoEntity" combinations** — searched GeckoLib's GitHub
+  issues and general web search specifically for this; nothing on-point turned up. Absence of a
+  found issue isn't proof of absence of a problem, but there is no evidence this is a known
+  rough edge either. Structurally, this tracks with (C) above: since GeckoLib's animation system
+  never touches `travel()`/velocity/position, and this project's leap already drives position
+  via a direct `move()` call inside an overridden `travel()` rather than vanilla's velocity+
+  gravity integration, there's no code path where GeckoLib's rendering-only responsibilities and
+  this project's movement-only responsibilities would even interact, let alone conflict.
+- **One real, concrete migration task, not a blocker but worth flagging up front**: swapping to
+  `GeoEntityRenderer`/`GeoRenderState` means the existing custom `SpiderQueenRenderState` needs
+  to additionally implement GeckoLib's `GeoRenderState` interface (confirmed from the
+  `GeoEntityRenderer<T, R extends EntityRenderState & GeoRenderState>` generic bound in the
+  downloaded sources) alongside whatever vanilla `EntityRenderState` base it already extends —
+  this is normal GeckoLib integration work, not a project-specific obstacle, but it does mean the
+  current `SpiderQueenRenderState`/`SpiderQueenEntityModel` pair gets replaced rather than
+  reused, consistent with what the user is already planning to do.
+- **Not relevant here, but worth knowing about for the future**: GeckoLib 5 has a distinct
+  "Replaced Entities" (`GeoReplacedEntity`) path specifically for re-skinning an *existing*
+  vanilla/other-mod `EntityType` in place without registering a new one at all. That doesn't fit
+  this case — `SpiderQueenEntity` is already this project's own registered custom `EntityType`
+  (extending `SpiderEntity` for behavior reuse, but its own distinct type) — so the normal
+  `GeoEntity` path (implement the interface directly on `SpiderQueenEntity`, keep extending
+  `SpiderEntity` for AI/goal reuse exactly as today) is the right one, not `GeoReplacedEntity`.
+
+### E. "Does ModelEngine help?" — no, confirmed: it's a Bukkit/Spigot/Paper server plugin, a completely different ecosystem from this project's Fabric client mod, and doesn't solve the mesh problem anyway
+
+Researched 2026-07-05, direct follow-up. **Confirmed, matching the working assumption exactly:**
+"ModelEngine" (Ticxo's original plugin, now maintained as MythicCraft's "Model Engine 4",
+`git.lumine.io/mythiccraft/model-engine-4`) is a **Bukkit/Spigot/Paper server-side plugin**, not
+a Fabric mod, and not a client mod of any kind. Its own marketing copy states this directly:
+**"Create & control mod-like entity models, without any mods."** It works by authoring a
+Blockbench (`.bbmodel`) project, then having the plugin assemble a resource pack that reskins a
+base vanilla item (historically `leather_horse_armor` + `CustomModelData`) displayed on
+invisible armor-stand/display-entity "bones" driven server-side — a trick specifically designed
+so an **unmodified vanilla client** sees a "custom model," no client mod required at all.
+Current build line supports up to Minecraft `1.21.11` (client resource-pack/protocol
+compatibility — server plugins and resource packs are largely mod-loader-agnostic, so this
+version reach doesn't imply any Fabric relevance), runs on Paper (recommended) or Spigot.
+**No mention of Fabric or Forge anywhere in its own docs/marketing — confirmed by direct search,
+not inferred.**
+
+1. **Confirmed: this is categorically incompatible with this project's stack, not just
+   "different."** A Bukkit plugin is compiled against CraftBukkit/Paper server internals (Bukkit's
+   `JavaPlugin` lifecycle, `plugin.yml`, Bukkit event API) and only runs inside a Paper/Spigot
+   server process — a completely different server implementation than a Fabric dedicated server
+   or Fabric's integrated singleplayer server (both of which run real `net.minecraft`/
+   `net.fabricmc` code directly, no CraftBukkit layer at all). Fabric Loader cannot load a Bukkit
+   plugin jar — different classloading, different entrypoint contract, no crossover mechanism
+   exists. **It cannot be installed into or used by this project in any form.**
+2. **Its technique doesn't port over either, and wouldn't be worth porting if it did.** The
+   armor-stand/display-entity + resource-pack-`CustomModelData` illusion exists specifically to
+   fake a "modded" look on a client that has *no mod installed* — solving a problem this project
+   doesn't have, since a Fabric mod already *is* real client code with direct, full access to
+   Minecraft's actual entity-rendering Java API (`EntityRenderer`, `EntityModel`, or GeckoLib's
+   `GeoModel`/`GeoRenderer`). Adopting the Bukkit trick here would be a strict downgrade: same
+   underlying modeling constraint (its `.bbmodel` files are still ordinary cuboid+bone Blockbench
+   projects — **this does not change or bypass the cuboid-only conclusion from parts B/B-2 at
+   all**), delivered through a far more fragile, indirect mechanism (stacked invisible entities,
+   resource-pack reloads, server-authoritative pose puppeteering) instead of a real renderer.
+   There is no reusable code or asset pipeline crossover — only the general "author in Blockbench"
+   idea is shared, and this project already has that via GeckoLib.
+3. **Yes — GeckoLib is confirmed the direct Fabric-ecosystem equivalent of what ModelEngine
+   provides on Spigot/Paper**: Blockbench-authored, bone-hierarchy-driven custom entity models
+   with a full animation-controller system, just implemented as real client-rendering Java code
+   in a proper mod instead of a server-plugin-plus-resource-pack illusion for an unmodified
+   client. Nothing among ModelEngine, the abandoned glTF loaders, or Suspicious Shapes (parts B-2
+   above) changes this pairing — GeckoLib remains this project's closest and correct match.
+
+### F. Verified 5.4.5 API skeleton for the actual Spider Queen migration — pulled directly from the downloaded jar, not the wiki
+
+Researched 2026-07-05, immediately before implementation. **Method**: downloaded
+`geckolib-fabric-1.21.11-5.4.5-sources.jar` fresh (same artifact as part A) and read the actual
+source files. That jar's sources are themselves in **intermediary** names (`class_1297`,
+`method_5628`, etc. — Cloudsmith publishes GeckoLib's own build output unremapped, the same way
+Loom itself receives it before remapping it against this project's Yarn mappings at
+dependency-resolution time), so every intermediary name below was cross-checked against this
+project's own Yarn tiny mappings (`.gradle/loom-cache/source_mappings/*.tiny`, generated by this
+project's own `genSources` run) to get the real Yarn name a modder actually types. Both are shown
+below only where useful; the code samples use plain Yarn names throughout, exactly as they'd
+appear once Loom remaps the dependency.
+
+**1. `GeoEntity` — confirmed exact.** `GeoEntity extends GeoAnimatable` and adds **no new
+abstract methods of its own** — it only adds `default` helper methods (`getAnimData`,
+`setAnimData`, `triggerAnim`, `stopTriggeredAnim`, all explicitly marked `DO NOT OVERRIDE`). The
+two methods that must actually be implemented both come from `GeoAnimatable` itself, and the
+predicate/registration shape is confirmed to **not** be the older `registerControllers(AnimationData data)`
+style — it's this, verbatim from the `5.4.5` source:
+```java
+// software/bernie/geckolib/animatable/GeoAnimatable.java, confirmed exact:
+public interface GeoAnimatable {
+    void registerControllers(AnimatableManager.ControllerRegistrar controllers);
+    AnimatableInstanceCache getAnimatableInstanceCache();
+}
+```
+
+**2. `GeoModel<T>` — confirmed exact, and note the asymmetry.** Three abstract methods, **not
+all taking the same parameter type** — `getModelResource`/`getTextureResource` take the
+`GeoRenderState`, but `getAnimationResource` takes the raw animatable `T` directly (verified,
+this is deliberate in the actual source, not a typo to correct):
+```java
+// software/bernie/geckolib/model/GeoModel.java, confirmed exact:
+public abstract class GeoModel<T extends GeoAnimatable> {
+    public abstract Identifier getModelResource(GeoRenderState renderState);
+    public abstract Identifier getTextureResource(GeoRenderState renderState);
+    public abstract Identifier getAnimationResource(T animatable);
+}
+```
+In practice, don't hand-implement these — subclass `DefaultedEntityGeoModel<T>` instead (also
+real, in the `5.4.5` jar), which implements all three for you from one constructor call and
+needs **zero** abstract-method overrides:
+```java
+public class SpiderQueenGeoModel extends DefaultedEntityGeoModel<SpiderQueenEntity> {
+    public SpiderQueenGeoModel() {
+        super(Identifier.of("baum2", "spider_queen"));
+    }
+}
+```
+
+**3. `GeoEntityRenderer<T, R>` — confirmed exact constructors, and `.withScale(...)` is
+chainable on the instance, confirmed not a super() param.**
+```java
+// software/bernie/geckolib/renderer/GeoEntityRenderer.java, confirmed exact class declaration:
+public class GeoEntityRenderer<T extends Entity & GeoAnimatable, R extends EntityRenderState & GeoRenderState>
+        extends EntityRenderer<T, R> implements GeoRenderer<T, Void, R> {
+
+    // Convenience ctor - auto-derives asset paths from the entity's own registry id:
+    public GeoEntityRenderer(EntityRendererFactory.Context context, EntityType<? extends T> entityType);
+
+    // Explicit-model ctor - use this one when supplying your own GeoModel instance:
+    public GeoEntityRenderer(EntityRendererFactory.Context context, GeoModel<T> model);
+
+    public GeoEntityRenderer<T, R> withScale(float scale);                        // chainable
+    public GeoEntityRenderer<T, R> withScale(float scaleWidth, float scaleHeight); // chainable
+}
+```
+Practical renderer, confirmed to compile against this shape:
+```java
+public class SpiderQueenEntityRenderer extends GeoEntityRenderer<SpiderQueenEntity, SpiderQueenRenderState> {
+    public SpiderQueenEntityRenderer(EntityRendererFactory.Context context) {
+        super(context, new SpiderQueenGeoModel());
+        this.withScale(3.0F); // called on the constructed instance, NOT passed into super(...)
+    }
+
+    // Override point for a custom render state class - confirmed exact signature below (part 4).
+    @Override
+    public SpiderQueenRenderState createRenderState(SpiderQueenEntity animatable, @Nullable Void relatedObject) {
+        return new SpiderQueenRenderState();
+    }
+}
+```
+Register it exactly the same way as today (unchanged, plain Fabric API, not a GeckoLib concern):
+`EntityRendererRegistry.register(ModEntities.SPIDER_QUEEN, SpiderQueenEntityRenderer::new)`.
+
+**4. `GeoRenderState` — confirmed genuinely minimal: one abstract method, everything else is
+`default`.** Read directly:
+```java
+// software/bernie/geckolib/renderer/base/GeoRenderState.java, confirmed exact — the ONLY
+// abstract method in the whole interface:
+Map<DataTicket<?>, Object> getDataMap();
+// addGeckolibData/hasGeckolibData/getGeckolibData/getOrDefaultGeckolibData/getPackedLight/
+// getPartialTick/getAnimatableAge are ALL default methods built on top of getDataMap() alone.
+```
+So a render state that already extends a vanilla `EntityRenderState` subclass (as this
+project's `SpiderQueenRenderState` already does) needs exactly one field + one method added,
+no helper base class needed and none exists:
+```java
+public class SpiderQueenRenderState extends LivingEntityRenderState implements GeoRenderState {
+    private final Map<DataTicket<?>, Object> geckolibData = new Reference2ObjectOpenHashMap<>();
+
+    @Override
+    public Map<DataTicket<?>, Object> getDataMap() {
+        return this.geckolibData;
+    }
+}
+```
+(`Reference2ObjectOpenHashMap` is `it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap` —
+already a transitive dependency, GeckoLib's own `GeoRenderState.Impl` uses the same class
+internally, confirmed in the same source file.)
+
+**5. `AnimationController` — confirmed exact constructor and predicate idiom, and the user's
+guessed idiom is correct for 5.4.x.**
+```java
+// software/bernie/geckolib/animation/AnimationController.java, confirmed exact (3 overloads, using this one):
+public AnimationController(String name, int transitionTicks, AnimationStateHandler<T> stateHandler);
+
+@FunctionalInterface
+public interface AnimationStateHandler<A extends GeoAnimatable> {
+    PlayState handle(AnimationTest<A> test); // test.animatable() returns the actual entity instance
+}
+```
+`AnimationTest<T>` (`software.bernie.geckolib.animation.state.AnimationTest`, a top-level
+record, not nested) exposes `.animatable()` returning the real `T` instance directly — so
+reading synced entity state (this project's existing `getLeapWindupTicks()` `TrackedData`
+accessor) needs no GeckoLib-specific data-ticket plumbing, just a direct call:
+```java
+@Override
+public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+    controllers.add(new AnimationController<>("leap_controller", 5, this::leapPredicate));
+}
+
+private static final RawAnimation IDLE_ANIM =
+        RawAnimation.begin().thenLoop("animation.spider_queen.idle");
+private static final RawAnimation LEAP_WINDUP_ANIM =
+        RawAnimation.begin().thenPlay("animation.spider_queen.leap_windup");
+
+private PlayState leapPredicate(AnimationTest<SpiderQueenEntity> test) {
+    if (test.animatable().getLeapWindupTicks() > 0) {
+        return test.setAndContinue(LEAP_WINDUP_ANIM);
+    }
+
+    return test.setAndContinue(IDLE_ANIM);
+}
+```
+**Confirmed: `RawAnimation.begin().thenPlay("animation.spider_queen.leap_windup")` passed to
+`test.setAndContinue(...)` inside the predicate is exactly the real 5.4.x idiom** —
+`AnimationTest.setAndContinue(RawAnimation)` is a real method, confirmed source: it calls
+`controller.setAnimation(animation)` then returns `PlayState.CONTINUE` — precisely the "shortcut
+helper" shape guessed. `AnimationController`'s constructor itself takes no entity/animatable
+reference at all (only `name`, `transitionTicks`, `stateHandler`) — simpler than it might sound
+by analogy to older versions that threaded the animatable through more places.
+
+**6. Runtime asset file layout for `5.4.5` — confirmed exact, and this is a real, concrete
+correction to the assumed layout.** Read directly from `GeckoLibResources.java`:
+```java
+public static final Identifier ANIMATIONS_PATH = GeckoLibConstants.id("geckolib/animations");
+public static final Identifier MODELS_PATH = GeckoLibConstants.id("geckolib/models");
+```
+These constants' **paths** (namespace is irrelevant here — only `.getPath()` is used, scanned
+across every namespace via `ResourceManager.findResources(path, ...)`) are the literal resource
+roots GeckoLib scans at reload time. **The expected folder names for `5.4.5` are `geckolib/
+models` and `geckolib/animations` — NOT the bare `geo`/`animations` (or `geckolib_models`/
+geckolib_animations`) folder names various tutorials for older GeckoLib major versions use.**
+Combined with `DefaultedEntityGeoModel`'s own path-building (`subtype()` returns `"entity"` for
+this class; confirmed via `DefaultedGeoModel.buildFormattedModelPath`/
+`buildFormattedTexturePath`/`buildFormattedAnimationPath`), **the exact real file paths for mod
+id `baum2`, entity `spider_queen` are**:
+```
+assets/baum2/geckolib/models/entity/spider_queen.geo.json
+assets/baum2/geckolib/animations/entity/spider_queen.animation.json
+assets/baum2/textures/entity/spider_queen.png
+```
+The texture path is the one that **does** match the original assumption and this project's
+existing convention exactly (`DefaultedGeoModel.buildFormattedTexturePath` builds a plain
+`textures/entity/<name>.png` `Identifier` with no `geckolib/` prefix — texture loading goes
+through vanilla's own texture manager, not GeckoLib's resource-reload cache, so it was never
+going to be affected by this). **Only the model and animation paths get the extra `geckolib/`
+prefix folder** — this is the one detail this research changed from the working assumption
+going in, confirmed by reading `GeckoLibResources`'s actual reload-listener code rather than
+inferring from an older tutorial. File extensions are enforced loosely by a regex
+(`GeckoLibResources.SUFFIX_STRIPPER`) that accepts `.geo.json`, `.animation.json`, or plain
+`.json`, but **`.geo.json`/`.animation.json` are the only ones that also pass GeckoLib's own
+folder-mismatch sanity check** (it throws if a model file's name ends in `.animation.json` or
+vice versa) — use those exact suffixes, matching every current GeckoLib example.
+
+### G. Real crash found and fixed after first live test: custom `GeoRenderState` subclasses must NOT re-declare `implements GeoRenderState` or override `getDataMap()`
+
+The first `runClient` test after the migration above crashed instantly on rendering Spider Queen:
+```
+java.lang.NullPointerException: Extracting render state for an entity in world
+	at java.base/java.util.Objects.requireNonNull(Objects.java:233)
+	at software.bernie.geckolib.animation.AnimationProcessor.extractControllerStates(AnimationProcessor.java:51)
+	at software.bernie.geckolib.renderer.base.GeoRendererInternals.fillRenderState(GeoRendererInternals.java:147)
+	at software.bernie.geckolib.renderer.GeoEntityRenderer.updateRenderState(GeoEntityRenderer.java:465)
+```
+i.e. `Objects.requireNonNull(renderState.getGeckolibData(DataTickets.ANIMATABLE_MANAGER))` found
+null, despite `captureDefaultRenderState` (which sets that exact ticket) running earlier in the
+very same `fillRenderState` call, on the very same `renderState` object. Root-caused by reading
+GeckoLib's actual Mixin source rather than re-deriving the call chain by hand a fourth time —
+`software/bernie/geckolib/mixin/client/EntityRenderStateMixin.java`:
+```java
+@Mixin(class_10017.class) // class_10017 = EntityRenderState
+public class EntityRenderStateMixin implements GeoRenderState {
+    @Unique private final Map<DataTicket<?>, Object> geckolib$data = new Reference2ObjectOpenHashMap<>();
+    @Unique @Override public <D> void addGeckolibData(DataTicket<D> dataTicket, D data) { this.geckolib$data.put(dataTicket, data); }
+    @Unique @Override public boolean hasGeckolibData(DataTicket<?> dataTicket) { ... }
+    @ApiStatus.Internal @Override public Map<DataTicket<?>, Object> getDataMap() { return this.geckolib$data; }
+    // getGeckolibData/getOrDefaultGeckolibData are NOT @Unique-overridden here - they stay pure
+    // GeoRenderState interface defaults, which call getDataMap() polymorphically.
+}
+```
+**GeckoLib already Mixins full `GeoRenderState` support directly into vanilla's own
+`EntityRenderState`/`LivingEntityRenderState` as real, concrete methods** — every
+`EntityRenderState` is automatically duck-typed as a `GeoRenderState`, confirmed by the official
+wiki's own recommended renderer example using plain `EntityRenderState` as the generic `R` with
+**no custom class at all**: `class ExampleEntityRenderer<R extends EntityRenderState &
+GeoRenderState> extends GeoEntityRenderer<ExampleEntity, R>`.
+
+The bug: this project's original `SpiderQueenRenderState extends LivingEntityRenderState
+implements GeoRenderState` redundantly re-declared the interface and overrode **only**
+`getDataMap()` with its own separate `Reference2ObjectOpenHashMap` field. Java's method
+resolution rule — *a concrete method inherited from a superclass always wins over an interface
+default with the same signature, but only for methods actually overridden in the subclass* —
+means:
+- `addGeckolibData` (the **write** path, called by `captureDefaultRenderState`) was **not**
+  overridden by this project's subclass, so it resolved to the Mixin's own concrete method on
+  the *superclass* → wrote into the Mixin's private `geckolib$data` field.
+- `getGeckolibData` (the **read** path, called by `extractControllerStates`) is a pure interface
+  default (not one of the Mixin's `@Unique` methods) that calls `getDataMap()` polymorphically →
+  resolved to *this subclass's own* `getDataMap()` override → read from a completely different,
+  permanently-empty map.
+
+Two different maps, write goes to one, read comes from the other — guaranteed null, every time,
+for any GeckoLib entity following this exact (plausible-looking, matches lots of older-version
+tutorials/blog posts) pattern. **Fix**: strip the custom render state down to just `extends
+LivingEntityRenderState` with an empty body — no `implements GeoRenderState`, no `getDataMap()`
+override, no custom field. Only add real overrides to a custom `GeoRenderState` subclass if you
+override **every** method that touches the data map consistently (or, simplest and safest: don't
+touch any of them and let the Mixin handle it entirely, which is what this project now does).
+**This is the single highest-value gotcha for the next mob that adopts GeckoLib in this project**
+— it will compile fine and pass `./gradlew build` either way; it only crashes at actual render
+time, so a live playtest genuinely was necessary to catch it (build success is not sufficient
+here, consistent with this project's standing "no GUI-automation tool" caveat).
+
+### H. A far more serious bug than the crash: the geo.json's own coordinate/rotation math was wrong, causing the whole model to render upside down / floating
+
+After part G's crash fix, the vanilla-accurate geometry (part B/17.1.2 in the style guide)
+rendered *without crashing*, but the user reported: "the spider floats and does not walk on
+legs... the whole spider would have to be rotated 180 degrees." This section exists so the next
+person who authors GeckoLib geometry in this project doesn't repeat the same multi-hour mistake.
+
+**What went wrong, plainly**: the original geo.json generator script derived its own
+Y-axis-reflection rotation-sign rule (vanilla's legacy Y-down model space vs. Bedrock's Y-up)
+purely from first-principles reasoning about coordinate reflections, then "self-checked" it by
+comparing its own reconstruction function against its own other function — both written from the
+*same* (as it turned out, incomplete) understanding. **That self-check passed with zero error
+and was still wrong**, because it validated internal consistency, not correctness against
+GeckoLib's actual behavior. A reflection-based sign-flip rule (negate the Euler angle that shares
+an axis with the reflected coordinate) is only valid for a *single-axis* rotation — vanilla
+spider legs use a *compound* yaw+roll rotation, and reflections do not decompose into simple
+per-Euler-angle sign flips for compound rotations in general. The only way to get this right is
+to either (a) read GeckoLib's actual loader source and confirm what it really does, or (b) do the
+derivation with real 3x3 rotation matrices (not individual angle signs) and extract equivalent
+Euler angles afterward. Both were ultimately necessary here.
+
+**What GeckoLib's loader actually does, confirmed by reading
+`software/bernie/geckolib/loading/object/BakedModelFactory.java`'s `constructBone`/
+`constructCube` directly (from the same downloaded `5.4.5` sources jar used throughout this
+section) — none of this is documented in the wiki or any tutorial found during this research**:
+
+```java
+// constructBone — bone pivot/rotation, confirmed exact:
+GeoBone newBone = new CuboidGeoBone(parent, bone.name(), childBones, cubes,
+    (float)-pivot.x, (float)pivot.y, (float)pivot.z,                          // pivot.x negated!
+    (float)Math.toRadians(-rotation.x), (float)Math.toRadians(-rotation.y),   // rot.x, rot.y negated!
+    (float)Math.toRadians(rotation.z));                                      // rot.z NOT negated
+
+// constructCube — cube origin, confirmed exact (note: SIZE-AWARE, not a simple negation):
+origin = new Vec3d(-(origin.x + size.x) / 16d, origin.y / 16d, origin.z / 16d);
+```
+
+and confirmed from `software/bernie/geckolib/util/RenderUtil.java`'s `translateAndRotateMatrixForBone`
+that the actual render-time rotation is applied in the order Z, then Y, then X (`poseStack
+.multiply(...)` called for Z first, Y second, X third — composing to `Rz·Ry·Rx` applied to a
+vertex, matching vanilla's own `rotationZYX` order and handedness exactly). So: GeckoLib
+negates **X** for both bone pivot and cube origin (with the cube-origin negation additionally
+being *size-aware*, i.e. `-(origin+size)`, not a plain `-origin` — this specific detail caused a
+second, separate near-miss during the fix, see below), and negates rotation.**x**/rotation.**y**
+(but not rotation.z) at load time, then renders with the same rotation order/handedness as
+vanilla.
+
+**Why this exists at all**: per Bedrock Wiki's own entity-coordinate documentation, "the entity
+coordinate system is rotated 180 degrees from the Minecraft world coordinate system" — this
+negation pattern is GeckoLib's fixed, built-in compensation for that convention difference. It
+is not something a modeler chooses or configures; it happens unconditionally for every GeckoLib
+entity model, and nothing in this project needs to (or should try to) work around it directly —
+just correctly account for it when deriving what values to write into the geo.json.
+
+**The fix method, step by step (this is the reusable recipe for the next mob)**:
+
+1. Build vanilla's own real rotation as an actual 3x3 matrix: `R_vanilla = Rz(roll) · Ry(yaw) ·
+   Rx(pitch)`, using vanilla's real per-part pitch/yaw/roll (read from the decompiled
+   `EntityModel`, never guessed).
+2. Decide which axis this project reflects for position (Y, to convert vanilla's legacy Y-down
+   convention to Bedrock's Y-up-from-feet — confirmed via Bedrock Wiki, see part B). Build the
+   reflection matrix `M_Y = diag(1, -1, 1)`.
+3. Compute the *target* rotation matrix as the similarity transform `R_desired = M_Y · R_vanilla
+   · M_Y` (this is the rigorous way to ask "what rotation, applied to a Y-reflected vector,
+   reproduces the Y-reflection of vanilla's own rotated vector" — **not** "flip whichever angles
+   look like they touch the Y axis," which is the shortcut that failed here).
+4. Extract standard `Rz·Ry·Rx` Euler angles (pitch, yaw, roll) from `R_desired` numerically (via
+   `arcsin`/`arctan2` on the matrix entries — a completely standard, textbook operation once you
+   have the matrix; verified in this session using `numpy`, installed fresh into the sandbox for
+   exactly this purpose since it wasn't already available).
+5. Invert GeckoLib's own confirmed load-time negation to solve for what to actually write in the
+   JSON: `rx_json = -pitch_desired`, `ry_json = -yaw_desired`, `rz_json = +roll_desired`.
+6. For position: pre-negate pivot.x (`-vanilla_px`) so GeckoLib's own negation cancels out and
+   restores the natural value; for cube origin.x, pre-apply the *same* size-aware formula
+   (`-(natural_min_x + size_x)`) — this works because the transform `f(v) = -(v+size)` is its own
+   inverse (`f(f(v)) = v`), confirmed algebraically before relying on it, not assumed.
+7. **Validate by comparing the full 8-corner box as a set (nearest-corner distance), not by
+   checking whether "the JSON origin corner" matches "vanilla's own origin corner" one-to-one.**
+   This distinction mattered here: X and Y each end up with *different* net corner-correspondence
+   behavior (X: the pre-negation in step 6 is specifically designed to cancel out, so the JSON
+   "origin" ends up corresponding to the *same* physical corner as vanilla's natural minimum,
+   no swap; Y: this project *deliberately* reflects Y, which *does* swap which physical corner
+   sits at the JSON "origin" field, since reflecting a range swaps which end is the minimum).
+   Combined, the JSON "origin" field's (x, y, z) triple ends up being a mix of different vanilla
+   corners per axis — a real, correct consequence of the math, not a bug — so checking "does this
+   one field match this one named vanilla corner" produces a false failure even when the
+   generated geometry is actually correct. Checking the whole box (all 8 corners as a set,
+   nearest-neighbor matched) is the only check that can't be fooled by this per-axis
+   correspondence mismatch, and is what this project's generator script now does.
+
+**Verification achieved before shipping the fix**: the corrected script's self-check reproduces
+vanilla's real 8-corner box shape (Y-reflected) for every leg to within floating-point rounding
+(~1e-4 units, attributable to `round(v, 3)` calls in the script's own cube-building helpers, not
+a residual formula error) — a materially stronger guarantee than the *first* "self-check," which
+also reported zero error while being completely wrong. **The lesson for any future from-scratch
+geometry/rotation derivation in this project: a self-check that only validates your own code
+against your own other code proves nothing about correctness against the real external system —
+it can only catch arithmetic slips within a wrong model.** Get the real system's actual behavior
+from its own source (or, failing that, from independent empirical testing) before trusting a
+self-consistency check.
+
 ## Open questions
+
+- **Fabric jar-in-jar (`include(...)`) version-conflict behavior across independently-installed
+  mods is undocumented.** Neither Fabric's own Loom docs nor GeckoLib's wiki state what happens
+  if this mod `include`s GeckoLib `5.4.5` and the player separately installs another mod that
+  `include`s a *different* GeckoLib version — genuinely not found documented anywhere
+  authoritative as of this research (2026-07-05). Low real-world probability while this project
+  is small/unpublished, but worth an empirical test (install two dummy mods jar-in-jar-ing
+  different GeckoLib patch versions into the same dev environment and see what Fabric Loader
+  actually does) before relying on it in a public release, rather than assuming it "just works."
+- **Whether a Sketchfab-style organic OBJ/glTF mesh can be represented at all in a Blockbench
+  format GeckoLib can export from (Mesh-element-per-format compatibility) has no single
+  quotable primary source**, only strong circumstantial confirmation (GeckoLib's own "cubes and
+  groups" statement, plus indirect Blockbench-plugin evidence — see the GeckoLib integration
+  section, part B, above). This narrow point (Blockbench UI behavior specifically) is still open;
+  the broader question ("does GeckoLib/vanilla support arbitrary mesh at all, does source format
+  matter, is there any other real path on this stack") is no longer open — see part B-2, resolved
+  2026-07-05 with direct engine-source confirmation and concrete library evidence. If the narrow
+  Blockbench-UI point is ever revisited, the fastest way to get a definitive answer is empirical,
+  not more searching: open the actual Sketchfab OBJ in Blockbench under the GeckoLib/"Modded
+  Entity" format directly and see whether the Mesh import tool is even offered/enabled for that
+  format — a two-minute check that would settle it conclusively.
+- **No maintained, documented Fabric library currently does arbitrary-mesh-with-skeletal-
+  animation entity rendering for Minecraft `1.21.11` specifically** (see part B-2 — MCglTF/
+  CustomglTF are multiple versions behind, Suspicious Shapes has no skeletal animation, ArmorStand/
+  BlazeRod is one version behind and explicitly not meant for reuse). This is a fast-moving
+  landscape (ArmorStand itself jumped from "1.21.5" to "1.21.8" support within its own recent
+  history) — worth a fresh five-minute check of Modrinth/CurseForge before concluding "still no
+  path" if this is ever revisited months from now, rather than trusting this snapshot indefinitely.

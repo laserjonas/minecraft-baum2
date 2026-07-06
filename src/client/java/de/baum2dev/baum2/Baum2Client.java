@@ -7,7 +7,6 @@ import net.minecraft.client.render.entity.model.ModelTransformer;
 import de.baum2dev.baum2.entity.DrevathisEntityModel;
 import de.baum2dev.baum2.entity.DrevathisEntityRenderer;
 import de.baum2dev.baum2.entity.HulkingCocoonStoneEntityModel;
-import de.baum2dev.baum2.entity.SpiderQueenEntityModel;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfZombiesEntityRenderer;
@@ -40,9 +39,10 @@ public class Baum2Client implements ClientModInitializer {
                 StoneOfZombiesEntityRenderer.LAYER, HulkingCocoonStoneEntityModel::getTexturedModelData);
         EntityRendererFactories.register(ModEntities.STONE_OF_ZOMBIES, StoneOfZombiesEntityRenderer::new);
 
-        EntityModelLayerRegistry.registerModelLayer(
-                SpiderQueenEntityRenderer.LAYER,
-                () -> SpiderQueenEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
+        // GeckoLib-based renderer: no EntityModelLayerRegistry call needed (GeckoLib resolves
+        // its own geo.json/animation.json/texture assets directly, see docs/fabric-modding.md's
+        // "GeckoLib integration" section, part D) - the old ModelTransformer.scaling(3.0F) call
+        // is now SpiderQueenEntityRenderer's own withScale(3.0F).
         EntityRendererFactories.register(ModEntities.SPIDER_QUEEN, SpiderQueenEntityRenderer::new);
 
         EntityModelLayerRegistry.registerModelLayer(

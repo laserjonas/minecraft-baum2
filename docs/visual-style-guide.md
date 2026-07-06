@@ -1374,12 +1374,10 @@ that's a deliberate design decision to raise with the user first, not an assumed
 
 ### 17.1 Why this shape/approach
 
-Unlike Stone of Spiders/Stone of Zombies (custom cuboid geometry, Section 13.2), Spider Queen
-**reuses vanilla's own `SpiderEntityModel` geometry unchanged**, scaled 3x via a
-`ModelTransformer` at model-layer registration (confirmed against decompiled `EntityModels`/
-`GiantEntityModel` — the same two-part "bigger dimensions + scaled shared model" mechanism
-vanilla's own Giant uses to look 6x a Zombie). Only the *texture* is original — this section's
-job is exclusively the re-theme, not new geometry.
+**Superseded 2026-07-05 — see 17.1.1 below.** Originally, Spider Queen reused vanilla's own
+`SpiderEntityModel` geometry unchanged, scaled 3x via a `ModelTransformer` at model-layer
+registration. Only the texture was original. This has since been rebuilt on GeckoLib with
+bespoke geometry — the paragraph above is kept for history, not current behavior.
 
 *Compliance note:* "giant reskinned version of a normal enemy, scaled up, as a boss" is a
 generic, widely-used monster-variant convention (colossal/elite versions of common enemies
@@ -1387,74 +1385,295 @@ appear across countless unrelated games, and vanilla Minecraft does this exact t
 Giant/Zombie) — genre convention, not IP. The palette, markings, and armor design below are
 original and were not modeled on any specific existing creature or game's actual design.
 
+### 17.1.1 GeckoLib rebuild (2026-07-05) — bespoke geometry, reference-informed, still original work
+
+Spider Queen was the first mob migrated to GeckoLib (see `docs/fabric-modding.md`'s "GeckoLib
+integration" section for the full technical research). Two motivations, addressed together:
+
+- **Animation quality**: the leap attack's wind-up/flight poses were previously hand-coded
+  per-tick angle math in `SpiderQueenEntityModel`/`SpiderQueenRenderState`. They're now real
+  keyframed GeckoLib animations (`spider_queen.animation.json`: `idle`, `walk`, `leap_windup`,
+  `leap_flight`), driven by an `AnimationController` reading the same already-synced
+  `LEAP_WINDUP_TICKS` plus a new `LEAP_FLIGHT_ACTIVE` synced flag. **Important, don't
+  misattribute this**: GeckoLib is a rendering/animation library only — the leap's actual
+  trajectory/physics (`SpiderQueenEntity.travel()`/`performLeapFlightStep()`) is completely
+  unchanged by this migration.
+- **Model quality**: the vanilla-derived geometry was flat/plain (a straight reskin, no
+  silhouette work). The new geometry is bespoke — 19 bones, 30 cuboids, a genuine two-segment
+  (upper+lower) leg per limb instead of vanilla's single straight-box legs, computed via real
+  trigonometry (not hand-guessed) for a much taller stance where each leg arcs up above body
+  height before angling back down to the ground, plus small frayed spike-tuft cuboids on the
+  abdomen and a painted eye cluster.
+
+**On the Sketchfab reference (read this before assuming it was imported):** the user found
+["Voided Spider" by RedVoid_](https://sketchfab.com/3d-models/voided-spider-08013f2480d949a18642507cf6d96693)
+(CC BY 4.0, commercial use + modification explicitly permitted, confirmed via Sketchfab's own
+API) and asked to use it for Spider Queen. **The mesh itself was not imported** — confirmed via
+research that neither vanilla's `EntityModel` nor GeckoLib's `GeoModel` can consume an arbitrary
+organic triangle mesh regardless of source format (glTF/OBJ/USDZ/FBX all normalize to a mesh;
+the target frameworks are strictly cuboid/bone hierarchies), and building a from-scratch
+glTF-mesh-plus-skeletal-animation entity renderer for Fabric 1.21.11 was assessed as a
+multi-week undertaking with no current maintained library support — out of scope for this pass.
+Instead, the reference's actual renders were viewed directly and used as a **silhouette/
+proportion reference only**: its dramatically tall leg stance (legs arc above body height, unlike
+vanilla's flat spread), angular multi-segment legs, and small frayed tendril/antenna tufts on the
+abdomen informed the new geometry's shape. **No pixels or mesh data were copied** — the shipped
+geometry (cuboid coordinates, computed via trigonometry) and texture (programmatic noise +
+edge-shading fills, same technique as every other placeholder texture in this document) are
+original work, keeping this compliant with this project's "no copied assets" rule. Colors were
+deliberately **not** changed to match the reference (which is black/red) — Mutant Ichor's
+established green palette (17.3, unchanged) was kept, since the reference's job was shape
+inspiration only, not a palette swap. Attribution recorded in `CREDITS.md` per the CC BY 4.0
+license's requirement, regardless of the "reference only" framing.
+
+*Compliance note (unchanged from above):* this remains an original, from-scratch model —
+computed geometry and a from-scratch texture, not an imported or traced asset.
+
+### 17.1.2 Reverted to vanilla-accurate geometry (2026-07-06) — the bespoke geometry above "didn't look like a spider," fixed by transcribing real vanilla proportions
+
+Direct user feedback after the first live test of 17.1.1's bespoke geometry: "the spider is not
+looking like a spider. It looks completely out of place... can we use the standard minecraft
+spider." The tall reference-inspired stance and 2-segment legs read as unrecognizable rather than
+"an improved spider." **Fixed by discarding the invented proportions entirely** and instead
+transcribing vanilla's own real `SpiderEntityModel.getTexturedModelData()` (read directly from
+this project's own decompiled Minecraft sources, not from memory) into GeckoLib's geo.json
+format bone-for-bone: same 8 single-segment legs (not 2-segment), same head/body0/body1 cuboid
+sizes, same per-leg pivot positions and rotation angles as real vanilla spiders — so the
+silhouette is now, deliberately, indistinguishable from a normal Minecraft spider (just 3x
+scaled, unchanged from before, and recolored — see 17.3).
+
+**Coordinate conversion, verified not guessed**: vanilla's legacy `ModelPart` format uses Y
+*down* from each part's own pivot; GeckoLib/Bedrock format uses Y *up* from the entity's feet
+(confirmed via Bedrock Wiki, not assumed). Both were also confirmed (Bedrock Wiki + this
+project's own `ModelPart.java`/JOML source) to apply bone rotations in the *same order* (Z then Y
+then X). Reflecting a single axis (Y) turns a right-handed system left-handed, so — derived via
+first-principles rotation-matrix algebra, not guessed — any rotation whose plane involves Y
+(rotations around X or Z) needs its angle **negated** to represent the same physical orientation
+after the flip; rotation around Y itself is unaffected. Concretely: vanilla pitch → `-pitch`,
+yaw → `yaw` (unchanged), roll → `-roll`. **This was numerically self-checked before writing the
+final geometry file**: a Python script reconstructed each of the 8 legs' endpoint positions two
+independent ways (vanilla's own rotation formula reflected, vs. the derived Bedrock pivot+rotation
+reconstruction) and asserted they matched to within 1e-6 units before proceeding — they matched
+exactly on the first attempt, which is the actual basis for confidence here, not just "the logic
+looks right."
+
+**Still genuinely original, not a copied asset**: only the *proportions/angles* (pure geometric
+facts about box sizes and joint angles, not copyrightable expression) were transcribed; the
+texture is a from-scratch programmatic noise+edge-shading atlas in this project's own colors (see
+17.3), not vanilla's own spider texture. GeckoLib's animation system (idle/walk/leap_windup/
+leap_flight, from 17.1.1) is retained — the bone *names* were updated to match vanilla's real leg
+names (`right_hind_leg`, `left_middle_front_leg`, etc., 8 single-segment legs instead of the old
+invented 16 two-segment ones) but the animation architecture and the leap's underlying physics
+are unaffected by this geometry swap.
+
 ### 17.2 Entity texture: `spider_queen.png`
 
+**Rebuilt 2026-07-06 alongside the vanilla-accurate geometry revert (17.1.2) — dimensions and
+palette below are current, superseding both the old vanilla-UV table and the 17.1.1 "Mutant
+Ichor" version.**
+
 - **File:** `assets/baum2/textures/entity/spider_queen.png`.
-- **Canvas:** **64x32 px, confirmed exactly matching vanilla's own UV layout** — verified by
-  reading `SpiderEntityModel.getTexturedModelData()` directly out of the decompiled
-  `minecraft-clientOnly-...-sources.jar` in `.gradle/loom-cache/minecraftMaven/` (not assumed):
-  `TexturedModelData.of(modelData, 64, 32)`. The Java model/renderer
-  (`SpiderQueenEntityRenderer.java`) reuses vanilla's `SpiderEntityModel` unmodified, so this
-  texture **must** fill the exact same UV regions vanilla's own spider texture uses — the model
-  was not redesigned, only re-themed, per the exact UV table below (derived directly from the
-  same source file's `ModelPartBuilder.cuboid(...)`/`.uv(...)` calls, not guessed):
+- **Canvas:** **120x72 px** — a programmatically-generated atlas, one small flat-color+noise
+  cell per cuboid (13 cells used of a 10x6 grid, 12x12 px each), not a hand-unwrapped box-UV
+  layout — smaller than 17.1.1's canvas since vanilla-accurate geometry has far fewer cuboids
+  (13 vs. 30). Each cuboid's 6 faces all point at the same cell with a darkened border (fake
+  ambient occlusion) and a lightened top edge (fake rim light); abdomen and eye cells additionally
+  get a bright highlight streak for a "shiny/glossy" read (see palette below). Generated by a
+  Python script (not committed — one-off tooling, same as every other prior boss's placeholder
+  texture).
 
-  | Part | UV origin | Cuboid size (dx,dy,dz) | Box region (x, y, w, h) |
-  |---|---|---|---|
-  | Legs (all 8, shared/mirrored) | (18, 0) | 16 x 2 x 2 | (18, 0, 36, 4) |
-  | Thorax (`body0`) | (0, 0) | 6 x 6 x 6 | (0, 0, 24, 12) |
-  | Head | (32, 4) | 8 x 8 x 8 | (32, 4, 32, 16) |
-  | Abdomen (`body1`) | (0, 12) | 10 x 8 x 12 | (0, 12, 44, 20) |
+### 17.3 Entity palette: "Widow" (boss's own texture — distinct from the armor's palette; see divergence note below)
 
-### 17.3 Entity palette: "Mutant Ichor" (boss's own texture — distinct from the armor's palette; see divergence note below)
-
-**Revised 2026-07-05 after playtesting.** The entity's own texture no longer uses "Royal
-Carapace" — that name and violet/gold palette now describes only the Queen Spider Set armor
-(Section 17.4, unchanged). Direct playtest feedback asked for the boss itself to read as "more
-green and more like a mutant spider," with a green smoke/aura (already implemented in Java via
-vanilla's `ParticleTypes.WITCH` swirl — not a texture concern). This section documents the new
-entity-only palette; Section 17.4 is untouched.
+**Revised twice on 2026-07-06.** First pass (superseding "Mutant Ichor" green entirely) after
+the vanilla-accurate geometry rebuild (17.1.2): user asked for "colored grey" with "shiny red
+eyes," a "shiny" red abdomen that's "kinda pulsing." **Second pass, immediately after**: the user
+sent a real reference photo of a garden-spider's mottled abdomen marking and said "the spider
+should have pattern like this. Do not use redstone red. Use the red from the spider's eyes. Also
+use it on the pattern back," and separately specified an exact primary hex, `#898989`. The
+palette below is the current, post-both-passes state — the "Redstone Widow" name and its darker/
+brighter red-family hexes from the first pass no longer exist in the shipped texture.
 
 | Role | Name | Hex | Notes |
 |---|---|---|---|
-| Carapace mid-tone | Mutant Ichor | `#4C6B5A` | Main body/head/leg front+side faces — a desaturated, sickly gray-teal green (not a clean/saturated "grass green") |
-| Carapace highlight | Mutant Ichor Pale | `#7FA893` | Top faces (thorax, abdomen, head) |
-| Carapace shadow | Mutant Ichor Dusk | `#263B30` | Bottom/back faces |
-| Joint/crack accent | Necrotic Vein | `#241626` | Near-black plum (not pure black) — leg joints and dark venous crack lines painted onto the carapace, the main "diseased" cue |
-| Vein accent, pale | Necrotic Vein Pale | `#4A2E4A` | Secondary/lighter vein-crack tone, used sparingly next to Necrotic Vein for a two-tone crack read |
-| Diseased blotch | Bile Blotch | `#B8C13A` | Sickly yellow-green pustule/blotch marks — irregular, asymmetrical placement (abdomen bulge, leg mottling) is what sells the "mutant" read over a flat green reskin |
-| Eye glow (painted, not vanilla overlay) | Toxic Eye | `#E8FF6B` | See eye note below |
-| Eye-socket base | Void Socket | `#100C14` | Dark base under the painted eye cluster |
+| Primary body color | Widow Grey | `#898989` | Head/thorax base color — exact hex per direct user spec |
+| Carapace highlight | Widow Grey Pale | `#B5B5B8` | Reserved for a future highlight pass — current texture uses the noise+rim-light technique instead |
+| Carapace shadow | Widow Grey Dusk | `#5A5A5D` | Legs and the abdomen's own base (slightly darker than the head/thorax, for contrast) |
+| Accent red | Widow Red | `#FF3B1E` | The **one** red used for both eyes and the abdomen pattern accents — deliberately the same hex in both places, not two related-but-different reds (the first pass's separate darker "abdomen red" and brighter "eye red" were merged into this single color per the user's explicit "use the red from the eyes" instruction) |
+| Eye socket | Widow Eye Socket | `#141212` | Dark base under the small bright-red eye cubes |
 
-*Compliance note:* "sickly/mutant green monster" is a broad, unclaimed genre convention (used
-across countless unrelated games and other media for corrupted/diseased/mutated creatures), not
-IP tied to any one game. This specific palette is also checked distinct from every *other* green
-already in this document — Section 15.2's "Toxic Bloom" (Stone of Zombies: `Blight Stone
-#435930` / `Plague Husk #7C8F49` / `Toxic Ooze #B8D888` / `Plague Glow #3DFF7E`) is a warm,
-yellow-olive/lime-leaning green family. Mutant Ichor is deliberately cooler and grayer (its blue
-channel sits noticeably higher relative to red/green than Toxic Bloom's at every matching role —
-e.g. mid-tone `#4C6B5A` vs. Blight Stone `#435930`), reading as "diseased gray-flesh" rather than
-"toxic plant bloom," so the mod's two green palettes stay visually distinguishable rather than
-being near-duplicates. Bile Blotch's yellow-green does sit in a similar family to Toxic Bloom's
-accents (both draw on the same "toxic yellow-green highlight" genre convention) but is used only
-as a sparse blotch accent, not either palette's dominant tone, so the two identities as a whole
-remain distinct. Necrotic Vein's near-black-plum hue is a new addition not reused from any other
-palette in this document (distinct from Royal Carapace's saturated violet family and from
-Chitin Void's neutral near-black).
+*Compliance note:* "grey spider with a red marking" is a broad genre/nature convention (evokes
+real widow spiders' red marking generally, not any specific game or a literal copy of the
+reference photo's own coloring — the photo was used for pattern/shape inspiration only, see
+below). Checked distinct from every other palette in this document: still the mod's only
+grey-dominant palette, and its red accent is a single flat hex rather than a multi-tone "family"
+the way every other palette in this document builds a red/green/violet family — a deliberate
+simplification per the "use the same red as the eyes" instruction, not an oversight.
 
-**On the eyes — no vanilla glow overlay anymore:** vanilla spiders normally get a glowing-eyes
-overlay from `SpiderEyesFeatureRenderer`, a separate fixed vanilla texture rendered additively on
-top of the shared spider head geometry. `SpiderQueenEntityRenderer` no longer attaches that
-feature renderer — it's generically bound to vanilla's own `SpiderEntityModel`/render-state type
-and isn't compatible with `SpiderQueenEntityModel`/`SpiderQueenRenderState`'s custom pair (needed
-for the leap-attack crouch pose; see that renderer's own class javadoc), so it was dropped rather
-than forced. This means Spider Queen has **no automatic eye-glow overlay at all** — the eye read
-has to be painted directly into `spider_queen.png`'s head UV region instead of relying on the
-vanilla overlay the way the old "Royal Carapace" version did. The current texture paints a dark
-`Void Socket` patch on the head's front face with a small irregular cluster of bright `Toxic Eye`
-(`#E8FF6B`) dots on top — a static painted glow (no actual light emission/glowing-in-the-dark;
-Minecraft texture pixels don't emit light on their own), but bright/saturated enough against the
-darker carapace to read as eyes at normal render distance.
+**Abdomen pattern — reworked from a flat block, then reworked again from a simple hourglass to
+an organic multi-blotch pattern.** First real fix: the abdomen was originally a solid flat red
+cuboid face; changed to a grey base with red confined to a **hand-drawn widow-hourglass marking**
+(two triangles meeting point-to-point). **Second fix, this same day**: the user sent a real photo
+of a garden spider (Araneus-type) and asked for "pattern like this" instead — its abdomen shows
+an irregular, organic cluster of blotches, not a clean geometric hourglass. The marking was
+redrawn as a small cluster of jittered, irregular polygon "blobs" (mirrored left-right for a
+natural symmetric look) plus a few small highlight dots down the spine, still confined to the
+"up" and "south" (Blockbench convention: `+Z`, the rear-facing tip) UV faces of the abdomen via a
+dedicated 32x32 texture region (up from 24x24, for more room to render the extra shapes clearly).
+**This stays a reference, not a copy**: only the general *organic, multi-blotch layout idea* came
+from the photo; the actual drawn shapes are procedurally jittered polygons in this project's own
+grey/red palette (not the photo's real cream/brown coloring), generated by a Python script, same
+"reference informs an original asset" boundary already established for the Sketchfab model in
+17.1.1 above.
+
+**Pulsing red glow, implemented in Java, not just texture:** a static texture alone can't
+"pulse." `SpiderQueenEntity.spawnPulsingAbdomenGlow()` spawns vanilla's own `DustParticleEffect`
+(the same particle type real redstone dust emits, though the *color* used is now `Widow Red`,
+not a "redstone-branded" hex — the particle *type* choice is a technical implementation detail,
+independent of the naming/color feedback above) clustered near the abdomen, with both particle
+count and color lerped via a sine wave over the entity's age for a genuine brightening/dimming
+cycle.
+
+**On the eyes — no vanilla glow overlay, same as before:** vanilla's `SpiderEyesFeatureRenderer`
+still isn't attached (bound to vanilla's own `SpiderEntityModel`/render-state type, incompatible
+with this project's custom GeckoLib-based renderer). The eye read comes from small bright
+`Widow Red` cubes placed directly on the head geometry's front face in the geo.json itself, a
+genuine 3D geometric detail, not a painted texture patch.
+
+**Redesigned from 2 eyes to 8, per direct feedback ("some eyes are missing, two eyes are not
+spider-like").** Two large forward-facing eyes read as a mammal face, not a spider — real
+spiders have a tight cluster of small eyes near the front-bottom of the cephalothorax, typically
+in two rows. Replaced with an 8-eye cluster: a posterior row of 4 smaller eyes and an anterior
+row of 4 slightly larger eyes, evenly spaced across a tight ~2.6-3.4 unit span, all small
+(0.55-0.75 units) rather than the old 1.6-unit pair.
+
+**Follow-up fix, same day: "that does not look like spider eyes."** The 8-eye cluster from the
+fix above still read wrong — each eye was a *flat, solid-color square* face, which looks like a
+tiled red keypad/QR pattern rather than eyes, no matter how small or how many. Fixed at the
+*texture* level, not the geometry: each eye cube now gets a dedicated small texture cell (via a
+new `alloc_eye_cell` helper) painted as a dark socket background with a small **round** red dot
+plus a tiny glossy highlight — the cube itself is still a flat-faced cuboid (Minecraft/GeckoLib
+can't render true curved geometry), but a round-painted texture on a small square face reads as
+an eye in a way a flat solid fill never can. General lesson for any future small "detail" cube
+in this project (eyes, spots, gems, etc.): a flat `alloc_cell` fill is fine for a large
+body-panel color, but for anything meant to read as a distinct *feature* rather than a body
+panel, paint an actual shape (round, in this case) into its own dedicated cell instead.
+
+**Real bug in that same fix: the round dots were drawn correctly but still didn't render** —
+the eyes showed as flat black squares in-game even after the texture change above. Root cause:
+the shared `face_uv()` helper caps its `uv_size` to `min(cube_size, CELL)`, which is harmless
+for a flat solid fill (any sampled sub-region of a uniform color is still that color) but wrong
+for a *painted* texture — for a tiny 0.55-0.75-unit eye cube, that only samples a sliver in the
+corner of the 12x12 texture cell, missing the drawn circle entirely and showing background only.
+Fixed by giving eye cubes their own UV-face construction that always samples the *full* cell
+(matching how the abdomen's marking cell already did this correctly via its own dedicated
+`uv_size`, not the generic capped helper).
+
+**Eyes redesigned a third time: from a uniform round-dot grid to a scattered, varied-size
+cluster.** After the round-dot fix above still didn't land ("can you make eyes like these?",
+pointing at the abdomen's own scattered blotch pattern from 17.1.2 in a screenshot), the eye
+cluster was rebuilt again: 9 small flat-colored cuboids (0.4-0.95 units, three `Widow Red`
+shades — base, brighter, darker) at randomized sizes and jittered positions within a tight
+cluster area, matching the same "organic, irregular, varied-size" quality that made the
+abdomen's own pattern read well, rather than either the 2-large-eye or the uniform-round-dot-grid
+attempts. Dropped the dedicated dark-socket-plus-round-dot texture from the previous fix (now
+unused code, removed) in favor of plain colored facets — consistent with the mod's own blocky
+aesthetic, and the thing the user pointed at approvingly was the *irregularity*, not roundness.
+
+**Real bug on that same attempt, fixed: the eyes merged into one blob.** Pure random placement
+(no minimum-spacing check) packed up to 9 eyes, some as large as 0.95 units, into a ~3.4x1.8
+cluster area — direct feedback ("eyes looks like they are merged together") confirmed by the
+screenshot showing overlapping red shapes rather than distinct eyes. Fixed with simple rejection
+sampling: each candidate eye re-rolls its position/size until it's far enough from every
+already-placed eye (center distance > half the summed sizes, plus a fixed `0.35` gap) to read as
+a separate shape, giving up on that slot after 200 failed attempts rather than looping forever
+(typically places 8 of the 9 requested eyes in the available cluster area — an acceptable, still
+fully spider-like result, not something to force to exactly 9 by shrinking the gap back down).
+
+**Head chamfer attempt 1 REVERTED — made it look worse, not better.** The corner-bevel technique
+described above (inset main cube + 4 cuboids rotated 45° at the vertical edges, using per-cube
+`rotation`+`pivot`) rendered as oversized, disconnected slabs sticking out from the head, not a
+subtle rounded edge — direct feedback: "looks more weird." Root cause not fully confirmed at the
+time: per-cube rotation+pivot is a different code path than the (rigorously matrix-verified)
+bone-level rotation used everywhere else in this file, and it hadn't been cross-checked
+numerically before use. Reverted to a plain cube rather than guess again immediately.
+
+**Head chamfer attempt 2 — investigated properly instead of giving up, reused the verified
+bone-level mechanism instead of the untested cube-level one.** Direct follow-up ("no possibility
+to improve?") prompted actually reading `GeoCube.java`'s own `render()`/`translateToPivotPoint()`
+methods rather than treating attempt 1's failure as a dead end. Confirmed: cube-level
+`pivot`/`rotation` really is a distinct, less-common code path (`translateToPivotPoint` divides
+`pivot()` by 16 at *render* time, separately from `origin()`'s own `/16` at *construction*
+time) — real, but not the actual bug found; what mattered was that this path had simply never
+been validated the way bone rotation had. Rather than debug the untested path further, the fix
+reuses the **already-proven bone-level rotation mechanism** (the same one the legs use) instead:
+each corner bevel is now its own small bone — a single square cuboid, full head height, rotated
+45° around Y — using the identical `pivot`/`rotation`-array pattern already confirmed correct.
+A pure Y-axis (yaw-only) rotation is also the simplest possible case for this project's
+Y-reflection rule: rotating purely around Y commutes with reflecting Y (they don't share an
+axis), so — unlike the legs' compound yaw+roll case — no sign correction is even needed, and for
+a square cross-section `+45`/`-45` look identical anyway, so this is doubly safe. The main head
+cube is left full-size (not inset) so this doesn't touch the already-working eye placement, which
+is anchored to the head's original front-face position — these bevels add a small diagonal facet
+at each vertical edge rather than a true geometric chamfer, a smaller, safer version of the
+original idea. **Verified before shipping**: computed each bevel cube's center offset from its
+own pivot through GeckoLib's actual confirmed transform (not assumed) — all four came out at
+~0 offset, confirming each bevel rotates cleanly in place at its corner rather than drifting, the
+same class of check (external verification, not self-consistency) established after the leap
+orientation bug.
+
+**Eyes: bumped up in size** ("eyes still small") — size range `0.4-0.8` → `0.7-1.3`, cluster
+span widened to match (`2.4` → `3.2`) so the bigger eyes still have room under the same
+minimum-spacing rule from the merged-eyes fix.
+
+**Eyes redesigned a fourth time, plus a new dark face-plate: "eyes still not looks dangerous."**
+Diagnosis: it wasn't count or spacing this time, it was contrast and structure. Two fixes
+together:
+- **Dark face-plate**: the head's front ("north", Blockbench convention `-Z`) face now gets its
+  own near-black `Face Shadow` (`#151212`) fill, distinct from the other 5 faces which stay
+  plain `Widow Grey` — bright red against near-black reads as far more menacing than red against
+  mid-grey, the same principle real/fictional predators' eye-shine relies on. Implemented as a
+  direct per-face UV override on the head's own cube (no new bone/cube needed).
+- **Primary + secondary eye structure**, replacing the fully-random scattered cluster: 2 larger
+  (`1.5` unit) bright `Widow Red` "primary" eyes placed symmetrically — the actual predatory
+  glare — plus 5-7 smaller (`0.45-0.75`) secondary eyes scattered below/around them (same
+  rejection-sampling spacing rule as the merged-eyes fix, now checked against the primaries too)
+  for the spider-appropriate many-eyes read. Pure randomness read as chaotic, not threatening;
+  a deliberate focal pair plus a supporting cluster reads as both "spider" and "dangerous."
+
+**Head corner-rounding — dropped, not reattempted a third time.** Both prior attempts (per-cube
+rotation/pivot, then a bone-based rebuild whose transform was verified numerically against
+GeckoLib's actual confirmed behavior before shipping) still read as wrong in-game — the first as
+"oversized disconnected slabs," the second as "head is malformed." The second attempt's *math*
+checked out (each bevel cube centered on its own pivot with ~0 offset, confirmed before
+shipping) — this means the remaining problem is aesthetic, not a transform bug, and isn't
+something more formula-verification can fix. Not worth a third attempt on a purely cosmetic
+request; the head is back to a plain, unmodified cube. Revisit only with an actual design idea
+for what "rounder" should look like on this silhouette, not another geometry-math pass.
+
+**Pulsing red particle "smoke" — removed entirely**, per direct feedback ("the red smoke should
+be removed... looks like trash"). `SpiderQueenEntity.spawnPulsingAbdomenGlow()` and its
+supporting constants/imports (`DustParticleEffect`, `MathHelper`, `ColorHelper`) are deleted
+outright, not disabled — nothing calls it, nothing references it. The abdomen's own texture
+marking (17.1.2/above) is unaffected; only the particle effect layered on top of it is gone.
+
+**Real bug found on the second live test, fixed: the eyes were invisible.** The first version
+placed the eye cubes at `head_z_front + 0.1` — since the head's front face sits at the *more
+negative* end of its Z-range (`hz+hoz = -11`), adding `+0.1` moved the eyes to `-10.9`, which is
+*behind* the front face, i.e. fully embedded inside the head's own solid opaque cuboid and
+therefore completely hidden. Fixed to `head_z_front - 0.15`, which actually protrudes past the
+front face. General lesson for this geo.json generator script: "in front of a face at the
+model's negative-Z end" means *subtracting* further, not adding — a `+` offset moves *into* the
+model, not away from it, whenever the reference face is on the negative side of that axis.
+
+**A far more serious bug, found on the same live test round, is documented separately in
+`docs/fabric-modding.md`'s "GeckoLib integration" section, part H: the entire model was upside
+down / floating, legs pointing up instead of down.** This wasn't a geometry-shape mistake like
+the ones above — it was a wrong understanding of how GeckoLib actually converts geo.json
+pivot/rotation values into rendered positions, root-caused by reading GeckoLib's real loader
+source code rather than continuing to guess. See that doc for the full technical writeup; the
+short version is that the geometry here has been regenerated with the corrected transform and
+numerically self-checked (comparing the full 8-corner box shape, not a single named corner)
+before being written.
 
 ### 17.4 Queen Spider Set armor — first boss-tier armor set
 
@@ -1548,6 +1767,53 @@ document): real hand-drawn surface detail (leg segmentation shading, carapace sh
 armor engraving) — this pass proves the UV layouts, establishes the palette, and gives the
 mod's first real boss and first armor set something considered to look at in-game, but a human
 artist pass would meaningfully raise the ceiling here given the "should look beautiful" bar.
+
+### 17.6 Visual redesign pass (2026-07-06) — pixel-art texture atlas, fangs, real leap animation
+
+The pass that ended the blind-iteration cycle documented in `docs/spider-queen-fable-handoff.md`.
+Key enabler: **`tools/render_geckolib_preview.py`** (generalized shortly after this pass from
+its original `render_spider_queen_preview.py` form; works for any GeckoLib model via
+`--model <name>`, with an auto-fitting camera), an offline renderer that draws the
+GeckoLib model + texture + animation poses to a contact-sheet PNG using GeckoLib 5.4.5's own
+transcribed transform/UV logic — every change below was *seen* before being shipped, instead of
+guessed at and confirmed via `runClient` screenshots after the fact.
+
+- **Texture** (`tools/gen_spider_queen.py`, rewritten): a packed pixel-art atlas (128x48, 2 px
+  per model unit) with per-face painting, replacing the old uniform noisy 12x12 cells (which
+  produced the rejected "grey box with legs" look, and had a real bug — every leg face sampled
+  its cell's top highlight strip, washing the legs out to near-white).
+  - *Face*: the full-black face plate and protruding eye-cubes are gone. The face is `#898989`
+    chitin with a dark **eye band** across the upper half holding a structured jumping-spider
+    eye arrangement — 2 large primaries (black socket, `#FF3B1E` body, hot core + glint),
+    2 medium outer eyes continuing around onto the side faces as lateral eyes, 2 small dim top
+    eyes. Below: mandible creases and fang-root shadows.
+  - *Legs*: dark `#5A5A5D` with two `#3A3A3E` joint rings, a slightly lighter femur segment,
+    bristle speckle, and near-black claw ends. Deliberately **longitudinally symmetric** (per-
+    face U direction flips between north/south faces, so an asymmetric strip would render
+    reversed on half the faces). A tried-and-removed variant had 1px red joint gleams — they
+    repeated across all four faces of all eight legs and read as scattered wound-splatter.
+  - *Abdomen*: base darkened one step (`#6E6E72`) so the rear reads heavy; the organic red
+    blotch marking (the one element that never drew negative feedback) is kept but now drawn
+    via a **mirror-symmetric overlay** (organic jitter, but bilaterally symmetric like a real
+    spider's marking — the previous fully-random placement read as ketchup splatter in preview).
+    Flanks get faint hair striping + two satellite dashes; rear face gets a wrapped-down blotch
+    and a spinneret hint.
+  - Palette unchanged in its pinned decisions: primary `#898989`, ONE red family (`#FF3B1E`
+    ± brightness). New neutrals only: `#6E6E72`, `#3A3A3E`, `#22..24`, bone-pale `#C6C2BA`
+    fang tips.
+- **Geometry**: vanilla-accurate skeleton kept, head stays a plain cube (per the two failed
+  chamfer attempts — the menace comes from the painted face now). One addition: two **fang
+  bones** (`left_fang`/`right_fang`, chelicerae, 1.5x4x1.5 each) parented to the `head` bone —
+  they follow head-turn automatically and are animated. GeckoLib's `GeometryTree` parent-field
+  support confirmed from its source.
+- **Animations** (`tools/gen_spider_queen_anims.py`, new — generates the animation JSON so the
+  8 legs' mirrored signs come from one gait table): `idle` = breathing bob + abdomen pulse +
+  slow head scan + creepy fang chew + one impatient front-leg tap; `walk` = alternating-
+  tetrapod gait with swing-phase leg lifts; **`leap_windup`** (0.75s, must stay equal to
+  `SpiderQueenEntity.LEAP_WINDUP_DURATION_TICKS`) = crouch + abdomen cock + face tilts onto
+  the target + front legs raised high in a threat pose + fang flare + tremor + final recoil;
+  **`leap_flight`** = nose-up launch snap with all legs swept trailing, then the front two leg
+  pairs whip forward mid-flight to grab, holding the final frame until landing.
 
 ---
 

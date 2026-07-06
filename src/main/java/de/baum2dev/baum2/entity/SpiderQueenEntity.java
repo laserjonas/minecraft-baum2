@@ -22,27 +22,45 @@ import net.minecraft.entity.data.TrackedDataHandlerRegistry;
 import net.minecraft.entity.mob.SpiderEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
-import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import de.baum2dev.baum2.registry.ModItems;
+import software.bernie.geckolib.animatable.GeoEntity;
+import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.animatable.manager.AnimatableManager;
+import software.bernie.geckolib.animation.AnimationController;
+import software.bernie.geckolib.animation.RawAnimation;
+import software.bernie.geckolib.animation.object.PlayState;
+import software.bernie.geckolib.animation.state.AnimationTest;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 /**
  * A mobile boss (unlike the stationary "Stone of" mini-bosses): a giant, mutated spider that
  * fights with a fast melee bite plus a long-range leap attack that closes almost any gap,
  * making kiting/fleeing far less effective than against a normal mob. Extends vanilla
- * SpiderEntity directly (not HostileEntity) to inherit wall-climbing, the spider model/
- * animation, and SpiderNavigation for free - only the goals, attributes, and drop are
- * overridden. Visual size (3x a normal spider) is baked into the registered EntityType's
- * dimensions plus a ModelTransformer.scaling(3.0F) applied to the shared vanilla spider model
- * at model-layer registration - the same two-part mechanism vanilla's own GiantEntity uses to
- * look 6x a zombie (confirmed via decompiled EntityModels.java - EntityAttributes.SCALE is a
- * different, newer per-instance mechanism, not what Giant/vanilla actually uses for this).
+ * SpiderEntity directly (not HostileEntity) to inherit wall-climbing and SpiderNavigation for
+ * free - only the goals, attributes, and drop are overridden. Visual size (3x a normal spider)
+ * is baked into the registered EntityType's dimensions plus a GeoEntityRenderer.withScale(3.0F)
+ * on the GeckoLib renderer (see SpiderQueenEntityRenderer) - the model/animation itself is now
+ * GeckoLib-driven (SpiderQueenGeoModel/spider_queen.geo.json/animation.json), not a reused
+ * vanilla SpiderEntityModel, following this project's GeckoLib migration (see
+ * docs/fabric-modding.md's "GeckoLib integration" section). GeckoLib is a rendering/animation
+ * library only - the leap's actual trajectory math below is completely unaffected by this and
+ * stays exactly as it was.
  */
-public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvider {
+public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvider, GeoEntity {
     private static final int LEVEL = 15;
+
+    private final AnimatableInstanceCache geoCache = GeckoLibUtil.createInstanceCache(this);
+
+    private static final RawAnimation IDLE_ANIM = RawAnimation.begin().thenLoop("animation.spider_queen.idle");
+    private static final RawAnimation WALK_ANIM = RawAnimation.begin().thenLoop("animation.spider_queen.walk");
+    private static final RawAnimation LEAP_WINDUP_ANIM =
+            RawAnimation.begin().thenPlay("animation.spider_queen.leap_windup");
+    private static final RawAnimation LEAP_FLIGHT_ANIM =
+            RawAnimation.begin().thenPlay("animation.spider_queen.leap_flight");
 
     /** How long the telegraphed wind-up before a leap lasts, in ticks - shared with the
      *  client-side model so its crouch pose interpolates over the exact same window. */
@@ -78,6 +96,12 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
 
     private static final TrackedData<Integer> LEAP_WINDUP_TICKS =
             DataTracker.registerData(SpiderQueenEntity.class, TrackedDataHandlerRegistry.INTEGER);
+    /** Synced so the client's GeckoLib animation predicate can tell "telegraphing" apart from
+     *  "actually airborne" - the old hand-coded model only ever needed the wind-up counter, but
+     *  a real leap_flight animation (see spider_queen.animation.json) needs its own signal since
+     *  leapFlightTicksRemaining itself is server-only physics state, never synced. */
+    private static final TrackedData<Boolean> LEAP_FLIGHT_ACTIVE =
+            DataTracker.registerData(SpiderQueenEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 
     private int leapCooldownTicks = 0;
 
@@ -118,16 +142,46 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
     protected void initDataTracker(DataTracker.Builder builder) {
         super.initDataTracker(builder);
         builder.add(LEAP_WINDUP_TICKS, 0);
+        builder.add(LEAP_FLIGHT_ACTIVE, false);
     }
 
     /** How many wind-up ticks remain before her next leap launches (0 = not preparing one) -
-     *  read client-side to drive the crouch/coil pose in SpiderQueenEntityModel. */
+     *  read client-side by the leap AnimationController to select the leap_windup animation. */
     public int getLeapWindupTicks() {
         return this.dataTracker.get(LEAP_WINDUP_TICKS);
     }
 
     private void setLeapWindupTicks(int ticks) {
         this.dataTracker.set(LEAP_WINDUP_TICKS, ticks);
+    }
+
+    /** Whether she's currently airborne mid-leap - read client-side by the leap
+     *  AnimationController to select the leap_flight animation. See {@link #LEAP_FLIGHT_ACTIVE}. */
+    public boolean isLeapFlightActive() {
+        return this.dataTracker.get(LEAP_FLIGHT_ACTIVE);
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return this.geoCache;
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        controllers.add(new AnimationController<>("leap_controller", 5, this::handleAnimationState));
+    }
+
+    private PlayState handleAnimationState(AnimationTest<SpiderQueenEntity> test) {
+        if (test.animatable().getLeapWindupTicks() > 0) {
+            return test.setAndContinue(LEAP_WINDUP_ANIM);
+        }
+        if (test.animatable().isLeapFlightActive()) {
+            return test.setAndContinue(LEAP_FLIGHT_ANIM);
+        }
+        if (test.isMoving()) {
+            return test.setAndContinue(WALK_ANIM);
+        }
+        return test.setAndContinue(IDLE_ANIM);
     }
 
     /**
@@ -149,10 +203,12 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
         this.leapFlightPrevFraction = 0.0;
         this.leapFlightPrevHeight = 0.0;
         this.leapFlightDirection = initialDirection;
+        this.dataTracker.set(LEAP_FLIGHT_ACTIVE, true);
     }
 
     void stopLeapFlight() {
         this.leapFlightTicksRemaining = 0;
+        this.dataTracker.set(LEAP_FLIGHT_ACTIVE, false);
     }
 
     int getLeapFlightTicksRemaining() {
@@ -212,20 +268,8 @@ public class SpiderQueenEntity extends SpiderEntity implements MonsterLevelProvi
     @Override
     public void tick() {
         super.tick();
-        if (getEntityWorld().isClient()) {
-            spawnMutantAuraParticles();
-        } else if (leapCooldownTicks > 0) {
+        if (!getEntityWorld().isClient() && leapCooldownTicks > 0) {
             leapCooldownTicks--;
-        }
-    }
-
-    /** Continuous green toxic-smoke aura, purely cosmetic - reinforces the "mutant" look. */
-    private void spawnMutantAuraParticles() {
-        for (int i = 0; i < 2; i++) {
-            double x = getX() + (this.random.nextDouble() - 0.5) * getWidth();
-            double y = getY() + this.random.nextDouble() * getHeight();
-            double z = getZ() + (this.random.nextDouble() - 0.5) * getWidth();
-            getEntityWorld().addParticleClient(ParticleTypes.WITCH, x, y, z, 0.0, 0.02, 0.0);
         }
     }
 

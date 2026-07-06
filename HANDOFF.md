@@ -6,14 +6,12 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 
 ## Current state
 
-This reflects `jonas_workbranch` (fast-forwarded into `master` too, both branches at the same
-commit as of the last push) after merging `origin/master` twice this session (Fischey's
-Vitals/Attribute/Character-Stats work, then his Combat System v1 + four mini-boss mobs), adding
-a Skill System + Class Sub-specializations on top, then a "Class Overhaul v2" pass (spell
-scaling, Mana costs, sub-spec spell forks, respec cooldowns), a same-session GUI follow-up
-(sub-specs and spells added to the Class tab), a Visual/Art Pass (8 sub-spec icons, two
-long-open palette decisions resolved), and the mod's **first custom `Block`** — "Rissobelisk,"
-the first World-Event block (`MASTERPROMPT.md`'s last remaining Priority 1 item) — see "Last
+This reflects `fischey_workbranch`, which fast-forward-merged `origin/master` (jonas's side —
+Skill System + Class Sub-specializations, "Class Overhaul v2," the Class-tab GUI follow-up, a
+Visual/Art Pass, and the mod's first custom `Block`, "Rissobelisk") and then, on top of that,
+this session's **GeckoLib migration** (Spider Queen rebuilt on GeckoLib — new bespoke geometry/
+animations for the leap attack, see "GeckoLib migration" section above for full detail; `master`
+is NOT yet fast-forwarded to include this latest work — see "Last change" below). See "Last
 change" below for detail on the merges and each feature pass.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
@@ -896,6 +894,266 @@ melee attack at all** — its entire kit is four skills, each its own `Goal`, pl
   balance-reviewer fixes above. **Not yet verified in an actual game session** — same caveat
   every other boss in this project carries (see "No GUI-automation tool" note below).
 
+### GeckoLib migration — Spider Queen rebuilt on GeckoLib (first mob to adopt it)
+
+Triggered by direct user feedback that hand-coded vanilla `EntityModel`/per-tick pose math was
+limiting mob quality, plus a specific ask to improve Spider Queen's leap attack. Extensive
+research (`fabric-docs-researcher`, persisted to `docs/fabric-modding.md`'s "GeckoLib
+integration" section, parts A-F) preceded implementation — see that doc for full detail;
+summarized here:
+
+- **What GeckoLib actually changes, and what it doesn't**: confirmed via GeckoLib's own docs and
+  source that it is a rendering/animation library only — it does not move entities, so **the
+  leap's actual trajectory/physics (`SpiderQueenEntity.travel()`/`performLeapFlightStep()`/
+  `LeapAttackGoal`) is 100% unchanged**. What changed is the *pose*: the wind-up crouch and
+  airborne pose are now real keyframed animations (`spider_queen.animation.json`) instead of
+  hand-coded per-tick angle math in a now-deleted `SpiderQueenEntityModel`.
+- **The user also found a Sketchfab model ("Voided Spider" by RedVoid_, CC BY 4.0) and asked to
+  use it for Spider Queen.** Direct mesh import was investigated and found **not feasible**:
+  neither vanilla's `EntityModel` nor GeckoLib's `GeoModel` can consume an arbitrary triangle
+  mesh regardless of source format (confirmed via GeckoLib's own docs plus real engine-source
+  verification that this is a cuboid/bone-hierarchy limitation, not a polycount one) — a genuine
+  glTF-mesh-plus-skeletal-animation Fabric renderer would be a multi-week from-scratch or
+  fork-an-abandoned-library undertaking (`MCglTF`/`CustomglTF` dead since 2023, `Suspicious
+  Shapes` has no skeletal animation, `BlazeRod` is player-model-only and undocumented for reuse)
+  — out of scope for this pass. Also checked and ruled out: "ModelEngine" (Ticxo's), which turned
+  out to be a Bukkit/Spigot/Paper **server plugin**, architecturally incompatible with a Fabric
+  client mod regardless of any of this. **Resolution, explicitly decided with the user**: the
+  Sketchfab renders were used as a **silhouette/proportion reference only** (its dramatically tall
+  leg stance, angular multi-segment legs, frayed abdomen tufts) to inform new original geometry —
+  no mesh or pixels were imported/copied. This keeps the work compliant with this project's
+  "no copied assets" rule while still capturing the visual improvement the user was after.
+  Attribution recorded in a new root `CREDITS.md` (CC BY 4.0 requires it regardless of the
+  reference-only framing) — new `jar { from("CREDITS.md") }` line in `build.gradle` bundles it
+  into the built mod.
+- **New bespoke geometry** (`assets/baum2/geckolib/models/entity/spider_queen.geo.json`,
+  generated via a one-off Python script for numeric consistency across 8 mirrored/rotated legs,
+  not committed): 19 bones, 30 cuboids — a genuine two-segment (upper+lower) leg per limb
+  (computed via real trigonometry: `θ1=55°` upper-leg lift, `θ2` equivalent via a `-130°` local
+  child rotation for the lower segment) instead of vanilla's single straight-box legs, producing
+  the reference-inspired tall stance where each leg arcs above body height before angling back
+  down. New texture (`spider_queen.png`, 120x120, up from the old 64x32 vanilla-UV-matched
+  canvas) uses a programmatic noise+edge-shading atlas (one small cell per cuboid, same
+  technique as this project's other placeholder textures) — colors unchanged, still "Mutant
+  Ichor" (green), deliberately not shifted to the reference's black/red since the reference's
+  job was shape only. Full detail: `docs/visual-style-guide.md` sections 17.1.1/17.2.
+- **New animations** (`assets/baum2/geckolib/animations/entity/spider_queen.animation.json`):
+  `idle` (subtle body bob), `walk` (simple alternating-side leg swing, not a full biological
+  tripod gait — a deliberate scope cut, see "Not yet done" below), `leap_windup` (crouch + leg
+  tension, duration kept in lockstep with `LEAP_WINDUP_DURATION_TICKS`), `leap_flight` (trailing/
+  splayed legs held during the airborne phase). A new synced `LEAP_FLIGHT_ACTIVE` `TrackedData
+  <Boolean>` was added (`SpiderQueenEntity`) so the client can tell "telegraphing" apart from
+  "actually airborne" — the old code only ever needed the wind-up counter.
+- **Dependency**: `software.bernie.geckolib:geckolib-fabric-1.21.11:5.4.5` via Cloudsmith's
+  Maven, `include()`d (jar-in-jar) so players don't need it installed separately. Verified
+  against the actual published jar (not the wiki, which currently shows a stale Maven group)
+  that this satisfies this project's pinned Loader/Fabric API/Java versions with no conflicts.
+  One open, unresolved risk flagged in `docs/fabric-modding.md`: Fabric's nested-jar mechanism
+  loads an `include`d dependency as a first-class mod on the shared classpath, and neither
+  Fabric's nor GeckoLib's docs state what happens if a different mod the player installs bundles
+  a different GeckoLib version — narrow, not encountered, not fully resolved.
+- **Migration mechanics** (for the next mob that adopts GeckoLib, so this doesn't need
+  re-deriving): `SpiderQueenEntity` now `implements GeoEntity` (adds an `AnimatableInstanceCache`
+  field via `GeckoLibUtil.createInstanceCache(this)`, `registerControllers(...)` wiring one
+  `AnimationController` whose predicate reads the synced wind-up/flight state, same
+  `getAnimatableInstanceCache()` accessor). `SpiderQueenEntityModel` (hand-coded vanilla-derived
+  class) is deleted, replaced by `SpiderQueenGeoModel extends DefaultedEntityGeoModel<...>` (zero
+  abstract overrides needed — resolves `geo.json`/`animation.json`/texture purely from the
+  entity's own registry name via convention, and auto-handles head-turning given a bone literally
+  named `"head"`). `SpiderQueenEntityRenderer` now `extends GeoEntityRenderer<...>`, scaled via
+  `.withScale(3.0F)` (GeckoLib's own equivalent of the old `ModelTransformer.scaling(3.0F)` —
+  GeckoLib doesn't use `EntityModelLayerRegistry` at all, so that registration call was removed
+  from `Baum2Client.java` entirely, not just changed). `SpiderQueenRenderState` is now an
+  **empty** `extends LivingEntityRenderState` — see the real crash below for why it must stay
+  empty, not gain a custom `GeoRenderState` implementation.
+- **Real crash found on the first live test, root-caused and fixed (not guessed)**: the game
+  crashed instantly on rendering Spider Queen —
+  `NullPointerException` in `AnimationProcessor.extractControllerStates`,
+  `Objects.requireNonNull(renderState.getGeckolibData(DataTickets.ANIMATABLE_MANAGER))` finding
+  null despite that exact data being set moments earlier in the very same render call. Root cause
+  (confirmed by reading GeckoLib's actual `EntityRenderStateMixin.java` source, not re-deriving
+  the call chain by hand again): **GeckoLib already Mixins full `GeoRenderState` support directly
+  into vanilla's `EntityRenderState` as concrete methods** — every `EntityRenderState`/
+  `LivingEntityRenderState` is automatically duck-typed as a `GeoRenderState`, confirmed by the
+  official wiki's own example using plain `EntityRenderState` with **no custom class at all**.
+  This project's original `SpiderQueenRenderState` redundantly re-declared `implements
+  GeoRenderState` and overrode **only** `getDataMap()`. Java's "a subclass's own override always
+  wins, but only for methods it actually overrides" rule then split the data path: `addGeckolibData`
+  (write, called by `captureDefaultRenderState`) wasn't overridden, so it resolved to the Mixin's
+  inherited concrete method → wrote into the Mixin's own private field; `getGeckolibData` (read,
+  called by `extractControllerStates`) is a pure interface default that calls `getDataMap()` →
+  resolved to *this subclass's* override → read from a different, permanently-empty map. Two
+  maps, write to one, read from the other, guaranteed null. **Fixed** by stripping
+  `SpiderQueenRenderState` down to an empty `extends LivingEntityRenderState` — no
+  `implements GeoRenderState`, no `getDataMap()` override, letting the Mixin handle everything.
+  Full writeup: `docs/fabric-modding.md`'s "GeckoLib integration" section, part G — **the single
+  highest-value gotcha for the next mob that adopts GeckoLib in this project**, since it compiles
+  and passes `./gradlew build` fine either way and only crashes at actual render time.
+- **Not yet done / scope cuts, flagged deliberately rather than silently skipped**: the `walk`
+  animation is a simple two-phase alternating-side swing, not a full per-leg biological gait —
+  reads as "walking" but is a simplification, worth a closer look after a real playtest. No
+  attempt was made to reproduce the Sketchfab reference's black/red glass-shard color scheme (by
+  design, see above). The exact rotation-sign conventions used for the mirrored leg trigonometry
+  (right-side `+angle`, left-side `-angle`) are reasoned from Bedrock's documented rotate-around-
+  pivot convention, not verified against a live render — **this project still has no live-render
+  tooling**, so, consistent with every other boss's numeric/geometric tuning in this document,
+  treat the stance/animation as reasoned-not-visually-confirmed until a real playtest happens.
+  `ip-naming-compliance-checker`/`balance-reviewer` were not re-run — no new names, and no
+  balance-relevant numeric changes (the leap's damage/range/cooldown are untouched).
+- Verified: `./gradlew build` passes clean after the full migration. **Not yet verified in an
+  actual game session** — same standing caveat as every other boss/feature in this document.
+
+### GeckoLib migration follow-up 1 — first live-test crash, root-caused and fixed
+
+The user ran `runClient` and the game crashed instantly rendering Spider Queen (`NullPointerException`
+in `AnimationProcessor.extractControllerStates`). Root-caused by reading GeckoLib's actual Mixin
+source rather than re-deriving the render call chain by hand: GeckoLib already Mixins full
+`GeoRenderState` support into vanilla's `EntityRenderState` as **concrete** methods; this
+project's custom `SpiderQueenRenderState` redundantly re-declared `implements GeoRenderState` and
+overrode only `getDataMap()`, which (per Java's "subclass override wins, but only for methods
+actually overridden" rule) split writes (resolved to the Mixin's inherited concrete
+`addGeckolibData`, writing to the Mixin's own field) from reads (a pure interface default calling
+`getDataMap()`, resolved to this project's own always-empty override) — two disconnected maps,
+guaranteed null. **Fixed** by stripping `SpiderQueenRenderState` to an empty `extends
+LivingEntityRenderState` — the Mixin already handles everything, no custom implementation needed
+or wanted. Full writeup: `docs/fabric-modding.md`'s GeckoLib section, part G — **the single
+highest-value gotcha for the next mob that adopts GeckoLib in this project**, since it compiles
+fine either way and only crashes at actual render time. Verified: `./gradlew build` passes;
+user confirmed the crash itself is fixed.
+
+### GeckoLib migration follow-up 2 — bespoke geometry reverted to vanilla-accurate, palette reworked to grey/redstone-red
+
+With the crash fixed, the user could actually see Spider Queen for the first time and reported
+the bespoke 17.1.1-era geometry "is not looking like a spider... completely out of place," asking
+to "use the standard minecraft spider" instead (tripled in size, unchanged), "colored grey and
+shiny red eyes," with the abdomen "also shiny red but... kinda pulsing," and "the red similar
+like redstone."
+
+- **Geometry**: discarded the invented tall/2-segment-leg proportions entirely and transcribed
+  vanilla's own real `net.minecraft.client.render.entity.model.SpiderEntityModel
+  .getTexturedModelData()` — read directly from this project's own decompiled Minecraft sources,
+  not from memory — into GeckoLib's geo.json format bone-for-bone (8 real single-segment legs,
+  real head/body0/body1 cuboid sizes, real per-leg pivot/rotation angles). The coordinate-system
+  conversion (vanilla's legacy Y-down-from-pivot vs. GeckoLib/Bedrock's Y-up-from-feet, and the
+  resulting sign flip needed on rotations that touch the Y axis — pitch/roll negated, yaw
+  unchanged — derived from first-principles rotation-matrix algebra) was **numerically
+  self-checked in the generator script itself** before writing the final file: reconstructed each
+  leg's endpoint two independent ways and asserted they matched to 1e-6 units, which they did on
+  the first attempt. Full derivation: `docs/visual-style-guide.md` section 17.1.2.
+- **Animations updated to match**: the old `spider_queen.animation.json` referenced the deleted
+  2-segment leg bone names — regenerated against the new real vanilla leg names
+  (`right_hind_leg`, `left_middle_front_leg`, etc.), same 4 animations (`idle`/`walk`/
+  `leap_windup`/`leap_flight`), same architecture, no change to the leap's actual physics.
+- **Palette replaced**: "Mutant Ichor" (green) → new **"Redstone Widow"** palette (grey body,
+  shiny redstone-red eyes and abdomen) — full hex table in `docs/visual-style-guide.md` section
+  17.3. The "pulsing" ask specifically can't be done with a static texture alone: `SpiderQueenEntity
+  .spawnPulsingAbdomenGlow()` (replacing the old green `ParticleTypes.WITCH` aura) spawns
+  vanilla's own `DustParticleEffect` — literally redstone dust's own particle, directly
+  satisfying "the red similar like redstone" — near the abdomen, with count and color lerped by a
+  sine wave over the entity's age for a genuine brightening/dimming cycle, not a flat color.
+- Verified: `./gradlew build` passes clean after both the geometry and animation regeneration.
+
+### GeckoLib migration follow-up 3 — two more real bugs from the second live test: invisible eyes, and abdomen was a flat red block instead of a marking
+
+The user actually saw the vanilla-accurate geometry render (screenshot) and reported two things:
+"No Eyes" and "the red body part should more like a have pattern instead a full red block."
+
+- **Invisible eyes, root-caused, not guessed**: the eye cubes were placed at `head_front_z +
+  0.1`. Since the head's front face sits at the *more negative* end of its Z-range, `+0.1` moved
+  the eyes to a Z value that's *behind* that face — fully embedded inside the head's own solid
+  opaque geometry, hence completely invisible. **Fixed** to `head_front_z - 0.15` (actually
+  protruding past the face). Noted in `docs/visual-style-guide.md` 17.3 as a general lesson for
+  this generator script: near a face on the negative-Z side, `+` moves *into* the model, not
+  away from it.
+- **Abdomen recolored from a flat red block to a pattern**: base color changed to the same grey
+  used for the legs, with the red confined to a hand-drawn widow-hourglass marking (two triangles
+  meeting point-to-point) painted onto just the top and rear-facing UV cells via a dedicated
+  24x24 texture region — on-theme with the "Redstone Widow" name (real black widow spiders have
+  exactly this marking on an otherwise dark abdomen, not a solid red underside).
+- **A real packing bug was found and fixed while building the marking texture, worth noting for
+  future atlas-generator scripts in this project**: the first attempt reserved space for the new
+  24x24 marking region by skipping 2 slots in the linear per-cell counter, which only accounted
+  for the extra *width* the bigger region needed, not the extra *row of height* — silently
+  overlapping and corrupting whatever cell a later cube's color happened to land on directly
+  below it in the atlas. Fixed by reserving the marking region in its own dedicated strip below
+  the regular grid entirely, decoupled from the linear counter, rather than trying to make one
+  counter track two different cell sizes.
+- Verified: `./gradlew build` passes clean after this pass too. **Not yet re-verified in an
+  actual game session** for this exact round — same standing caveat, though the eye/abdomen
+  fixes are both root-caused from a real screenshot rather than guessed blind, same as every
+  other fix in this document that came from actual user-provided evidence.
+
+### GeckoLib migration follow-up 4 — the real bug: the whole model was upside down / floating, plus a full palette/pattern rework
+
+Same live-test round as follow-up 3. Beyond the invisible eyes and flat-red abdomen, the user
+also reported the actual root problem: "the spider floats and does not walk on legs... the whole
+spider would have to be rotated 180 degrees." This turned out to be a genuinely serious bug, not
+a small tuning miss — full technical writeup in `docs/fabric-modding.md`'s GeckoLib section, part
+H, since it's the single most valuable lesson for the next mob that adopts GeckoLib in this
+project. Summary:
+
+- **Root cause**: this project's own geo.json generator script had derived its own rotation-sign
+  rule for converting vanilla's legacy Y-down model space into Bedrock's Y-up convention, purely
+  from first-principles reasoning, and "validated" it with a self-check that compared the
+  script's own reconstruction function against another function it *also* wrote — both based on
+  the same incomplete understanding. **That self-check passed with zero error and was still
+  wrong**, because reflections don't decompose into simple per-Euler-angle sign flips for
+  *compound* (yaw+roll) rotations the way they do for single-axis ones — this needed the same
+  kind of "we validated something, but not against reality" lesson `merge-integration-reviewer`
+  and other reviewers in this project exist to catch, just for geometry math instead of code.
+- **Real fix**: read GeckoLib's actual `BakedModelFactory.constructBone`/`constructCube` loader
+  source directly (confirmed: it negates pivot.x and cube-origin.x — the cube one is size-aware,
+  `-(origin+size)`, not a plain negation — and negates rotation.x/rotation.y but *not*
+  rotation.z, all undocumented in any wiki/tutorial found), then re-derived the correct rotation
+  using actual 3x3 rotation matrices (`R_desired = M_Y · R_vanilla · M_Y`, a similarity
+  transform) rather than guessing angle signs, extracting equivalent Euler angles numerically
+  (`numpy`, installed fresh for this purpose). Verified this time by comparing the **full
+  8-corner box as a set** (nearest-corner matching) rather than "does the JSON origin corner
+  match vanilla's own origin corner" — the single-corner comparison is a **guaranteed false
+  failure** here even for correct geometry, since X and Y each have different net
+  corner-correspondence behavior after their respective fixes/reflections, and no longer
+  correspond to one single named vanilla corner as a unit. This new self-check passes to
+  floating-point rounding precision (~1e-4, from `round(v,3)` calls, not a residual error).
+- **In the same round, the user also sent a real reference photo** (a garden spider's mottled
+  abdomen marking) and asked for "pattern like this," explicitly said "do not use redstone red,"
+  and asked to reuse the eyes' own red for the abdomen pattern too, plus specified an exact
+  primary body hex (`#898989`). Palette fully reworked: primary grey pinned to that exact hex,
+  the earlier "Redstone Widow" name and its multi-tone red family dropped in favor of one single
+  `Widow Red` (`#FF3B1E`) reused for both eyes and the abdomen pattern, and the abdomen marking
+  redrawn from a clean two-triangle hourglass into a small cluster of irregular, jittered
+  polygon blotches (mirrored left-right) inspired by the reference photo's organic layout — colors
+  and actual pixel data are still this project's own procedural output, not copied from the
+  photo (same "reference informs an original asset" boundary as the Sketchfab model). Full
+  detail: `docs/visual-style-guide.md` section 17.3.
+- Verified: `./gradlew build` passes clean after this pass. **Not yet re-verified in an actual
+  game session** — but this is the first round in this whole GeckoLib effort where the fix is
+  backed by a numerically self-checked match against GeckoLib's *actual confirmed* behavior
+  (read from its real source) rather than a self-consistency check against this project's own
+  assumptions, so confidence is meaningfully higher than the "reasoned, not verified" caveat
+  usually implies.
+
+### GeckoLib migration follow-up 5 — several more visual-polish rounds on Spider Queen's face/eyes/head, and a head-rounding feature ultimately abandoned
+
+Full detail in `docs/visual-style-guide.md` section 17.3 (this is a visual-polish history, not
+more geometry-math bugs — worth reading there if picking up further work on this mob's face).
+Summary of what actually shipped, in order: eyes went from a flat-texture bug (drawn correctly
+but never actually sampled onto the tiny cube face — a real UV-sizing bug, fixed) → merged
+together (no minimum-spacing check, fixed with rejection sampling) → too small (sizes bumped up)
+→ "not dangerous" (redesigned again: a near-black face-plate on the head's front face for
+contrast, plus a deliberate 2-large-"primary"-eyes-plus-scattered-secondary-cluster structure,
+replacing pure randomness). **Head corner-rounding was attempted twice and abandoned both
+times** — the first attempt used GeckoLib's per-cube rotation/pivot (an untested code path) and
+produced oversized disconnected slabs; the second properly reused the already-verified
+bone-level rotation mechanism instead (each bevel became its own small bone, numerically
+confirmed centered on its own pivot before shipping) and *still* looked wrong in-game
+("malformed"). That second result is the important data point: **the geometry math was
+verified correct, and it still looked bad** — meaning this specific cosmetic goal isn't a math
+problem to keep re-solving, and further attempts should start from an actual design idea for
+what "rounder" should look like on this silhouette, not another transform-verification pass. The
+head is currently a plain, unmodified cube. Also removed entirely this round: the pulsing red
+particle "smoke" effect (`spawnPulsingAbdomenGlow` and its supporting code deleted outright, not
+disabled) per direct feedback that it "looks like trash."
+
 - Repo: https://github.com/laserjonas/minecraft-baum2 (public).
 - **Branches**: `jonas_workbranch` has merged `origin/master` twice this session and is now
   ahead of it by this merge plus the Skill System/Sub-specialization commits and the Class
@@ -1019,6 +1277,73 @@ content was an `Entity` or `Item`).
 - **Build passes; the fixes above are build-verified but not yet re-confirmed in a live
   session** (the client run after fixing them closed at the main menu without a world being
   joined) — see "Next recommended step".
+
+## Last change (on `fischey_workbranch`)
+
+**Spider Queen visual redesign + real leap animations (2026-07-06, uncommitted working-tree
+change at the time of writing).** Executed the redesign `docs/spider-queen-fable-handoff.md`
+asked for — full design detail in `docs/visual-style-guide.md` section 17.6. Highlights:
+
+- **New capability that changes how visual work happens here: `tools/render_geckolib_preview.py`**
+  (born as `render_spider_queen_preview.py`, then generalized in the same session: any GeckoLib
+  model via `--model <name>` file-discovery, animation short-name lookup without a hardcoded
+  prefix, camera auto-fitted from the posed model's bounding box — future GeckoLib mobs get
+  this workflow for free; vanilla-`ModelPart` mobs would need a GeckoLib migration first)
+  renders the GeckoLib model + texture + any animation pose to a PNG contact sheet, using
+  GeckoLib 5.4.5's own transform/UV/animation-sign logic transcribed from its sources jar (in
+  the Gradle cache) — model/texture/animation changes can now be SEEN and iterated on without
+  booting the game. This directly solved what the handoff doc called the core problem (every
+  prior visual judgment was made blind). Rendering the old committed model with it immediately
+  showed why it read as "a grey box with legs" — including a real texture bug (every leg face
+  sampled its atlas cell's top highlight strip, washing the legs out to near-white).
+- **Texture**: `tools/gen_spider_queen.py`'s texture half rewritten — packed pixel-art atlas
+  (128x48, 2px/model-unit, per-face painting): structured jumping-spider eye layout painted on
+  the face (eye-cubes + full-black face plate removed), banded legs with claw tips, mirror-
+  symmetric abdomen marking (kept, refined), chitin shading everywhere. Pinned palette
+  decisions unchanged (`#898989` primary, one red family `#FF3B1E`).
+- **Geometry**: vanilla-accurate skeleton kept, head stays a plain cube; two fang bones
+  (chelicerae) added as children of `head` (GeckoLib parent-bone support confirmed from
+  source). Coordinate-math self-check still PASSes; no Java changes needed anywhere.
+- **Animations**: `spider_queen.animation.json` regenerated via new
+  `tools/gen_spider_queen_anims.py` (one gait table → mirrored keyframes for all 8 legs +
+  2 fangs; sign conventions documented in its docstring, verified against GeckoLib source and
+  visually in the preview renderer): real idle (breathing/head scan/fang chew/leg tap),
+  alternating-tetrapod walk, a genuinely telegraphed leap wind-up (crouch, abdomen cock,
+  raised-front-legs threat pose, fang flare, tremor, recoil — 0.75s, must stay equal to
+  `SpiderQueenEntity.LEAP_WINDUP_DURATION_TICKS`), and a two-stage leap flight (legs swept
+  trailing at launch, front pairs whip forward mid-flight to grab, holds last frame).
+- **Verified**: generator self-check PASS, `./gradlew build` passes, every pose reviewed in the
+  preview renderer. **Not yet user-confirmed in a live session** — that is the next step
+  (`./gradlew runClient`, `/summon baum2:spider_queen`, watch idle/walk, then get hit by the
+  leap). The old red-particle-smoke removal and every other prior rejection remains respected.
+
+Previous change on this branch, kept for context:
+
+**GeckoLib migration — Spider Queen rebuilt on GeckoLib, then two live-test follow-up fixes**,
+full detail in "Current state" above under the three "GeckoLib migration..." sections. Short
+version: fast-forward-merged `origin/master` (jonas's Skill System/Class Overhaul v2/Rissobelisk
+work, zero conflicts) and pushed, then added GeckoLib as a dependency and rebuilt Spider Queen's
+model/animation on it to improve the leap attack's wind-up/flight pose quality (the leap's actual
+physics are unchanged — GeckoLib is rendering/animation only). A Sketchfab spider model the user
+found was investigated for possible reuse, found not importable as a mesh into either vanilla's
+or GeckoLib's cuboid/bone-only model systems, and used instead as a proportions/silhouette
+reference only (attribution recorded in new `CREDITS.md` per its CC BY 4.0 license).
+
+**Then two real, user-reported problems on the first actual live tests** (both now fixed): (1)
+an instant crash rendering Spider Queen — root-caused to this project's custom
+`SpiderQueenRenderState` fighting GeckoLib's own Mixin-injected `GeoRenderState` support instead
+of just using it, fixed by emptying that class out; (2) once rendering worked, the bespoke
+17.1.1-era geometry "doesn't look like a spider," fixed by discarding the invented proportions
+and transcribing vanilla's own real spider geometry bone-for-bone instead (self-checked
+numerically, not just visually assumed-correct), plus a full palette rework to grey/shiny
+redstone-red per explicit user spec, including a genuinely pulsing (not static) redstone-dust
+particle glow on the abdomen. Verified: `./gradlew build` passes clean after every step. **Not
+yet re-verified in an actual game session** for this latest geometry/palette pass specifically —
+no live-render tooling exists in this environment, same standing caveat as every other boss in
+this document, though confidence is higher than usual here given the geometry is a verified
+transcription of known-correct vanilla proportions rather than an invented shape. `master` is not
+yet fast-forwarded to include any of this work (only the earlier jonas-merge portion is on
+`master`) — next step for whoever picks this up is to decide when to push that.
 
 ## Last change (on `jonas_workbranch`, fast-forwarded into `master`)
 

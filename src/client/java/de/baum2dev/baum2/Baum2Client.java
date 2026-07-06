@@ -10,7 +10,6 @@ import de.baum2dev.baum2.entity.HulkingCocoonStoneEntityModel;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntityRenderer;
 import de.baum2dev.baum2.entity.StoneOfZombiesEntityRenderer;
-import de.baum2dev.baum2.entity.ZombieColossusEntityModel;
 import de.baum2dev.baum2.entity.ZombieColossusEntityRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.registry.ModEntities;
@@ -45,9 +44,8 @@ public class Baum2Client implements ClientModInitializer {
         // is now SpiderQueenEntityRenderer's own withScale(3.0F).
         EntityRendererFactories.register(ModEntities.SPIDER_QUEEN, SpiderQueenEntityRenderer::new);
 
-        EntityModelLayerRegistry.registerModelLayer(
-                ZombieColossusEntityRenderer.LAYER,
-                () -> ZombieColossusEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
+        // GeckoLib-based, like Spider Queen: no model-layer registration, scale lives in the
+        // renderer's own withScale(3.0F).
         EntityRendererFactories.register(ModEntities.ZOMBIE_COLOSSUS, ZombieColossusEntityRenderer::new);
 
         EntityModelLayerRegistry.registerModelLayer(

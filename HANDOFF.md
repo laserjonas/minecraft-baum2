@@ -1280,8 +1280,65 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
-**Spider Queen visual redesign + real leap animations (2026-07-06, uncommitted working-tree
-change at the time of writing).** Executed the redesign `docs/spider-queen-fable-handoff.md`
+**Zombie Colossus GeckoLib rework + new "Earthquake" skill (2026-07-06).** Full visual detail
+in `docs/visual-style-guide.md` section 18.7. **User-confirmed in-game ("the zombie model
+itself looks really good" → after one fix, "perfect!")** — the one round of visual feedback was
+the club's rest carry direction (was back-over-the-shoulder, now forward-down at the hip; the
+swing-pose keyframes were offset-compensated so impacts are unchanged). Summary:
+
+- **Second GeckoLib mob** (same pipeline as Spider Queen's redesign below): old hand-written
+  `ZombieColossusEntityModel` deleted; new bespoke muscular geometry + pixel-art texture from
+  `tools/gen_zombie_colossus.py` (Ashen Brute palette kept - Section 18.3 is ratified), full
+  animation set from `tools/gen_zombie_colossus_anims.py` (idle/walk/smash/rage/leap_windup/
+  leap_flight/earthquake), every pose verified in `tools/render_geckolib_preview.py` before
+  shipping. **The Colossal Warclub is real model geometry now** (a `club` bone on the right
+  forearm; two-segment arms so elbows bend) - the entity equips no ItemStack anymore
+  (`initEquipment` is deliberately empty; the guaranteed club drop in `dropLoot` is
+  unchanged, and the item icon was not touched).
+- **Animation/server timing contracts** (documented in the anim generator's docstring, the
+  Goals must stay in lockstep): smash damage now lands 6 ticks after the swing starts
+  (was: instant on a 0.8s-later-looking swing); rage strikes at 8/13/17 ticks after its
+  trigger; leap windup 10 ticks / flight 14 ticks (flight now synced via a new
+  `LEAP_FLIGHT_ACTIVE` TrackedData; the old `RAGE_WINDUP_TICKS` TrackedData is gone -
+  GeckoLib's own trigger sync covers one-shot anims: `triggerableAnim` + `triggerAnim`, a
+  mechanism Spider Queen didn't need but is now proven here).
+- **New skill "Earthquake"** (user spec: 100 damage, 18s cooldown; radius 9 was my choice):
+  goal priority 1, 0.75s sky-high wind-up telegraph, then an AoE slam - damage + upward buck
+  to all players in radius, expanding `DUST_PILLAR` ground-particle rings (no blocks modified)
+  + velocity jolts for 0.6s so the shake is physically felt, mace-heavy-smash + explosion
+  sound. `ip-naming-compliance-checker`: **clear** (generic dictionary word, code-internal
+  only today; suggested picking a more distinctive fantasy name if it ever gets a UI string).
+- **`balance-reviewer` findings on the reworked kit** (it simulated the actual goal-priority
+  arbitration tick-by-tick):
+  1. **Fixed in the same pass**: `ColossusAttackGoal`'s cooldown lived on the Goal instance
+     and reset to 0 in `start()` every time rage/leap/earthquake preempted and returned
+     control - quietly inflating real burst beyond the "100 dmg / 2s" spec. Moved to an
+     entity-level `attackCooldownTicks` ticked centrally (same as the other three), and a
+     `stop()` override now drops any in-flight delayed strike so it can't fire stale on
+     resume.
+  2. **Open judgment call (lethality cliff)**: worst-case opening burst in tight melee
+     (earthquake slam + rage combo + one base attack ≈ 500 dmg in ~3.4s, only the quake
+     telegraphed) kills a fresh 500-HP character with essentially no error budget, while an
+     Endurance-built 2480-HP character gets a sane ~34s fight - much steeper than Spider
+     Queen (lvl 15, 75-dmg max hit) for a 10-level gap. Nothing gates who can reach this
+     boss. Confirm intended or add gating/scaling.
+  3. **Open judgment call (range asymmetry)**: a player camping just outside the 4.5 melee
+     range can dodge every base attack for free (6-tick damage delay + only +1.0 range grace
+     vs. sprint speed) and outrun Earthquake's 9-block radius during its 0.75s windup, while
+     a point-blank player can escape neither - ranged-adjacent play trivializes, tight melee
+     risks near-instant death. Confirm this is the intended identity for a slow heavy brute.
+  4. Cleared: the shake-phase velocity jolts are too small to exploit or ledge-shove; the
+     boss freezing for the full 2.2s earthquake animation on a dodged slam is a fair miss
+     punish, noted as intentional-feeling.
+- Build passes; model/carry confirmed by the user in-game. Fine-grained per-attack playtest
+  (rage combo timing feel, Earthquake damage/jolts from the receiving end) has not been
+  itemized point-by-point - treat as "no reported breakage," same convention as every other
+  boss here.
+
+Previous change on this branch, kept for context:
+
+**Spider Queen visual redesign + real leap animations (2026-07-06, committed as `92f9794`
+and pushed, user-confirmed in-game: "Looks very good").** Executed the redesign `docs/spider-queen-fable-handoff.md`
 asked for — full design detail in `docs/visual-style-guide.md` section 17.6. Highlights:
 
 - **New capability that changes how visual work happens here: `tools/render_geckolib_preview.py`**

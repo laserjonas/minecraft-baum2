@@ -2098,6 +2098,49 @@ model's texture *and* the palette, not just a re-theme of borrowed geometry. Its
 regal, ancient-evil register** - deliberately distinct from Zombie Colossus's brutish/feral
 "Ashen Brute" register (Section 18.3), even though both are "boss" tier.
 
+### 18.7 GeckoLib rework (2026-07-06): bespoke muscular model, real geometry club, full animation set, Earthquake skill
+
+The user asked for a full visual rework ("the current model is ugly... giant zombie with big
+muscle... the big club should be also reworked... everything visually more beautiful,
+animation, model"). Zombie Colossus is now the second GeckoLib mob (after Spider Queen,
+Section 17.6), built with the same see-before-you-ship pipeline
+(`tools/render_geckolib_preview.py`) - every shape/pose below was reviewed as a rendered image
+before landing.
+
+- **Geometry** (`tools/gen_zombie_colossus.py`, new; old `ZombieColossusEntityModel.java`
+  deleted): original muscular biped, no vanilla-biped part reuse - boulder skin-capped
+  shoulders, barrel chest with a hunched upper-back mass, underbite jaw with painted tusks
+  (Bone `#D8CFC0`), oversized gorilla forearms on **two-segment arms** (shoulder bone ->
+  forearm child, so elbows bend in animations - single-stick limbs were a root cause of the
+  old "very static" read), thick wrap-clad pillar legs with forward feet. **The Colossal
+  Warclub is real model geometry now** - a `club` bone parented to `right_forearm` (shaft +
+  lumpy two-cube head + two studs, Section 18.4's exact wood/stud/smear palette), carried
+  angled forward-down-outward at the hip, ready to swing (a first back-over-the-shoulder
+  carry was user-rejected: "the weapon is showing in the wrong direction") - replacing the
+  old scaled held-`ItemStack` render (the
+  entity now equips nothing; the item drop is unchanged). The item icon
+  (`colossal_warclub.png`) was NOT retouched - Section 18.4's approved icon still matches the
+  new 3D club's palette.
+- **Texture**: pixel-art atlas (246x72, 2px/unit, per-face painting), Section 18.3's ratified
+  "Ashen Brute" palette unchanged - ashen-hide head/back/shoulders with scars + crude
+  stitches, exposed red-brown musculature (fiber striations, chunky pec masses, 2x3 ab grid
+  with wound-edge creases, a torn skin patch on the back), tattered leg wraps with ragged
+  alpha-notched hems, asymmetric dull-amber eyes (one large, one dim) under a heavy brow.
+- **Animations** (`tools/gen_zombie_colossus_anims.py`, new): idle (breathing, slow scan,
+  club shoulder-bounce), heavy stomping walk (footfall body dips, counter-swinging arms, club
+  inertia wobble), `smash` (club overhead -> slam, impact keyed to the server's 6-tick damage
+  delay), `rage` (two-handed overhead combo, three impacts keyed to the goal's exact
+  8/13/17-tick strikes), `leap_windup`/`leap_flight` (crouch-coil, then club raised airborne),
+  and `earthquake` (see below). One-shots are GeckoLib server-triggered animations; leap poses
+  are state-driven off synced TrackedData - both mechanisms documented in the entity class.
+- **New skill "Earthquake"** (user-specified: 100 damage, 18s cooldown): sky-high two-handed
+  wind-up (0.75s telegraph), then the club slams the ground - all players within 9 blocks take
+  the hit and get bucked upward, and for the next 0.6s expanding rings of `DUST_PILLAR`
+  particles erupt from the actual ground blocks (the mob-independent "ground jumping" particle
+  vanilla's mace smash uses - purely cosmetic, no blocks are modified) while players in the
+  radius get small velocity jolts so the shaking is physically felt. Sound: heavy mace
+  ground-smash + low explosion. Skill name is currently code-internal only (no UI string).
+
 ### 19.1 Why this palette direction
 
 Every hostile-mob/boss palette already in this document leans on one of: sickly/toxic green

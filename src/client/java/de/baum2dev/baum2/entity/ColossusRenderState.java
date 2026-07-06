@@ -1,22 +1,16 @@
 package de.baum2dev.baum2.entity;
 
-import net.minecraft.client.render.entity.state.ZombieEntityRenderState;
+import net.minecraft.client.render.entity.state.LivingEntityRenderState;
 
 /**
- * Adds the leap and rage wind-up countdowns (synced from {@code ZombieColossusEntity} via
- * {@code getLeapWindupTicks()}/{@code getRageWindupTicks()}) so the model can play real telegraph
- * poses - a crouch-and-coil before the leap, an overhead club-raise before the rage combo -
- * instead of standing frozen during those wind-ups. Same pattern {@code SpiderQueenRenderState}
- * already established for her leap crouch, just with two counters instead of one since this boss
- * has two separate telegraphed attacks.
- *
- * <p>Extends {@code ZombieEntityRenderState} (not plain {@code LivingEntityRenderState}, unlike
- * {@code SpiderQueenRenderState}) because this boss's model still drives its base walk/attack
- * animation through the real {@code AbstractZombieModel}/{@code BipedEntityModel} inheritance
- * chain (see {@link ZombieColossusEntityModel}), which needs the zombie-specific {@code attacking}
- * field plus every armed/biped field {@code ZombieEntityRenderState} already carries.
+ * Render state for the GeckoLib-based Zombie Colossus renderer. Deliberately EMPTY, exactly
+ * like SpiderQueenRenderState (see that class's javadoc for the full story): GeckoLib's own
+ * EntityRenderStateMixin already injects working GeoRenderState support into every vanilla
+ * EntityRenderState - re-declaring "implements GeoRenderState" or overriding getDataMap() here
+ * causes a real, already-diagnosed crash (two out-of-sync data maps). The old version's
+ * leapWindupTicks/rageWindupTicks fields are gone: animation selection happens in
+ * ZombieColossusEntity's own GeckoLib controller from synced entity data, not in the render
+ * state.
  */
-public class ColossusRenderState extends ZombieEntityRenderState {
-    public int leapWindupTicks;
-    public int rageWindupTicks;
+public class ColossusRenderState extends LivingEntityRenderState {
 }

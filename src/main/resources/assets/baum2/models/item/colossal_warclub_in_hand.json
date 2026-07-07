@@ -1,0 +1,475 @@
+{
+  "parent": "minecraft:item/handheld",
+  "texture_size": [
+    32,
+    32
+  ],
+  "textures": {
+    "club": "baum2:item/colossal_warclub_3d",
+    "particle": "baum2:item/colossal_warclub_3d"
+  },
+  "elements": [
+    {
+      "from": [
+        6.5,
+        -4.5,
+        6.5
+      ],
+      "to": [
+        9.5,
+        -3.0,
+        9.5
+      ],
+      "rotation": {
+        "origin": [
+          8,
+          8,
+          8
+        ],
+        "axis": "z",
+        "angle": -45
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        },
+        "south": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        },
+        "east": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        },
+        "west": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        },
+        "up": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        },
+        "down": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        }
+      }
+    },
+    {
+      "from": [
+        6.9,
+        -4.0,
+        6.9
+      ],
+      "to": [
+        9.1,
+        15.0,
+        9.1
+      ],
+      "rotation": {
+        "origin": [
+          8,
+          8,
+          8
+        ],
+        "axis": "z",
+        "angle": -45
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#club"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#club"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#club"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#club"
+        },
+        "up": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        },
+        "down": {
+          "uv": [
+            11,
+            6,
+            14,
+            7.5
+          ],
+          "texture": "#club"
+        }
+      }
+    },
+    {
+      "from": [
+        4.5,
+        13.0,
+        4.5
+      ],
+      "to": [
+        11.5,
+        21.0,
+        11.5
+      ],
+      "rotation": {
+        "origin": [
+          8,
+          8,
+          8
+        ],
+        "axis": "z",
+        "angle": -45
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            2,
+            0,
+            9,
+            8
+          ],
+          "texture": "#club"
+        },
+        "south": {
+          "uv": [
+            2,
+            0,
+            9,
+            8
+          ],
+          "texture": "#club"
+        },
+        "east": {
+          "uv": [
+            2,
+            0,
+            9,
+            8
+          ],
+          "texture": "#club"
+        },
+        "west": {
+          "uv": [
+            2,
+            0,
+            9,
+            8
+          ],
+          "texture": "#club"
+        },
+        "up": {
+          "uv": [
+            2,
+            8,
+            9,
+            15
+          ],
+          "texture": "#club"
+        },
+        "down": {
+          "uv": [
+            2,
+            8,
+            9,
+            15
+          ],
+          "texture": "#club"
+        }
+      }
+    },
+    {
+      "from": [
+        6.5,
+        17.0,
+        6.0
+      ],
+      "to": [
+        12.0,
+        22.5,
+        11.5
+      ],
+      "rotation": {
+        "origin": [
+          8,
+          8,
+          8
+        ],
+        "axis": "z",
+        "angle": -45
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            9,
+            0,
+            14.5,
+            5.5
+          ],
+          "texture": "#club"
+        },
+        "south": {
+          "uv": [
+            9,
+            0,
+            14.5,
+            5.5
+          ],
+          "texture": "#club"
+        },
+        "east": {
+          "uv": [
+            9,
+            0,
+            14.5,
+            5.5
+          ],
+          "texture": "#club"
+        },
+        "west": {
+          "uv": [
+            9,
+            0,
+            14.5,
+            5.5
+          ],
+          "texture": "#club"
+        },
+        "up": {
+          "uv": [
+            9,
+            0,
+            14.5,
+            5.5
+          ],
+          "texture": "#club"
+        },
+        "down": {
+          "uv": [
+            9,
+            0,
+            14.5,
+            5.5
+          ],
+          "texture": "#club"
+        }
+      }
+    },
+    {
+      "from": [
+        7.1,
+        17.0,
+        2.7
+      ],
+      "to": [
+        8.9,
+        18.8,
+        4.5
+      ],
+      "rotation": {
+        "origin": [
+          8,
+          8,
+          8
+        ],
+        "axis": "z",
+        "angle": -45
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "south": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "east": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "west": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "up": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "down": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        }
+      }
+    },
+    {
+      "from": [
+        11.5,
+        14.5,
+        7.1
+      ],
+      "to": [
+        13.3,
+        16.3,
+        8.9
+      ],
+      "rotation": {
+        "origin": [
+          8,
+          8,
+          8
+        ],
+        "axis": "z",
+        "angle": -45
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "south": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "east": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "west": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "up": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        },
+        "down": {
+          "uv": [
+            9,
+            6,
+            11,
+            8
+          ],
+          "texture": "#club"
+        }
+      }
+    }
+  ]
+}

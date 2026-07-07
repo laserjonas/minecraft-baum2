@@ -1280,6 +1280,19 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Colossal Warclub: 3D in-hand item model (2026-07-06, follow-up to the boss rework below).**
+The club a PLAYER holds is now a real 3D cuboid model matching the boss's club design
+(`tools/gen_colossal_warclub_item.py` -> `models/item/colossal_warclub_in_hand.json` +
+`textures/item/colossal_warclub_3d.png`, ~1.7 blocks long in hand), using the
+element-rotation-onto-the-sword-diagonal trick so stock `item/handheld` display transforms
+apply. `items/colossal_warclub.json` now selects by display context (vanilla trident.json's
+exact schema): GUI/ground/fixed/on_shelf keep the previously approved flat icon, hands get the
+3D model. Details in `docs/visual-style-guide.md` 18.4 addendum. Build passes; **needs one
+in-game look** (hold the club in first + third person; the context-select JSON is
+runtime-validated only).
+
+Previous change on this branch:
+
 **Zombie Colossus GeckoLib rework + new "Earthquake" skill (2026-07-06).** Full visual detail
 in `docs/visual-style-guide.md` section 18.7. **User-confirmed in-game ("the zombie model
 itself looks really good" → after one fix, "perfect!")** — the one round of visual feedback was

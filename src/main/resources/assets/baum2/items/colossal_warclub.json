@@ -1,6 +1,19 @@
 {
   "model": {
-    "type": "minecraft:model",
-    "model": "baum2:item/colossal_warclub"
+    "type": "minecraft:select",
+    "property": "minecraft:display_context",
+    "cases": [
+      {
+        "when": ["gui", "ground", "fixed", "on_shelf"],
+        "model": {
+          "type": "minecraft:model",
+          "model": "baum2:item/colossal_warclub"
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "baum2:item/colossal_warclub_in_hand"
+    }
   }
 }

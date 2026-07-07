@@ -1,22 +1,15 @@
 package de.baum2dev.baum2.entity;
 
-import net.minecraft.client.render.entity.state.BipedEntityRenderState;
+import net.minecraft.client.render.entity.state.LivingEntityRenderState;
 
 /**
- * Carries the four per-skill telegraph/duration counters (synced from
- * {@code DrevathisEntity.getDashWindupTicks()}/{@code getChainEffectTicks()}/
- * {@code getWaveCastTicks()}/{@code getThunderChannelTicks()}) so the model can play a distinct
- * pose for every skill - "every skill must be animated" per the design brief, extending the same
- * pattern {@code ColossusRenderState} established with two counters to all four here.
- *
- * <p>Extends {@code BipedEntityRenderState} (not plain {@code LivingEntityRenderState}) because
- * {@code DrevathisEntityModel} extends {@code BipedEntityModel<DrevathisRenderState>} directly,
- * and {@code BipedEntityRenderer.updateBipedRenderState(...)} (used the same way
- * {@code ZombieColossusEntityRenderer} already uses it) requires exactly this type.
+ * Render state for the GeckoLib-based Drevathis renderer. Deliberately EMPTY, exactly like
+ * SpiderQueenRenderState/ColossusRenderState (see their javadocs for the full story):
+ * GeckoLib's own EntityRenderStateMixin already injects working GeoRenderState support into
+ * every vanilla EntityRenderState - re-declaring "implements GeoRenderState" or overriding
+ * getDataMap() here causes a real, already-diagnosed crash (two out-of-sync data maps). The
+ * old version's four per-skill counters are gone: animation selection happens in
+ * DrevathisEntity's own GeckoLib controller from synced entity data / triggered animations.
  */
-public class DrevathisRenderState extends BipedEntityRenderState {
-    public int dashWindupTicks;
-    public int chainEffectTicks;
-    public int waveCastTicks;
-    public int thunderChannelTicks;
+public class DrevathisRenderState extends LivingEntityRenderState {
 }

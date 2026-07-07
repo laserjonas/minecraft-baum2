@@ -2805,6 +2805,11 @@ public interface AttackBlockCallback {
 
 ## Custom two-handed held-item rendering (bespoke `FeatureRenderer`, extra scale/position) — researched 2026-07-05
 
+> **Superseded (2026-07-07):** the Drevathis rework migrated the boss to GeckoLib and modeled
+> the blade as real geometry (a `blade` bone), deleting `DrevathisHeldWeaponFeatureRenderer`.
+> The research below stays for reference (it's the only documented path for scaled two-handed
+> *ItemStack* rendering on a vanilla-model mob), but no live code uses it anymore.
+
 Researched ahead of a new `DrevathisEntity` boss (extends `HostileEntity`, `BipedEntityModel`-
 based custom model) whose held mainhand weapon needs to render **independently scaled larger**
 than a normal one-handed item (an extra multiplier on top of the boss's own body scale) and

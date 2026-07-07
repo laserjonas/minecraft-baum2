@@ -1,46 +1,26 @@
 package de.baum2dev.baum2.entity;
 
-import net.minecraft.client.render.entity.BipedEntityRenderer;
 import net.minecraft.client.render.entity.EntityRendererFactory;
-import net.minecraft.client.render.entity.MobEntityRenderer;
-import net.minecraft.client.render.entity.model.EntityModelLayer;
-import net.minecraft.util.Identifier;
+import org.jetbrains.annotations.Nullable;
+import software.bernie.geckolib.renderer.GeoEntityRenderer;
 
 /**
- * Extends {@code MobEntityRenderer} directly (not {@code BipedEntityRenderer}), same reasoning
- * as {@code ZombieColossusEntityRenderer}: this class calls
- * {@code BipedEntityRenderer.updateBipedRenderState(...)} itself instead. Adds
- * {@link DrevathisHeldWeaponFeatureRenderer} instead of vanilla's {@code HeldItemFeatureRenderer}
- * (see that class's javadoc) so the mainhand sword renders oversized and two-handed rather than
- * at vanilla's normal one-hand offset/scale.
+ * GeckoLib renderer for the reworked Drevathis (third GeckoLib boss after Spider Queen and
+ * Zombie Colossus), replacing the old MobEntityRenderer + hand-written DrevathisEntityModel +
+ * DrevathisHeldWeaponFeatureRenderer stack. The cursed blade is real geometry in the GeckoLib
+ * model now (a "blade" bone on the right forearm), so no held-item feature is attached - the
+ * entity equips nothing (see DrevathisEntity.dropLoot for the item drop). withScale(1.8F)
+ * replaces the old ModelTransformer.scaling(1.8F) model-layer transform, matching the
+ * unchanged 1.08x3.24 hitbox.
  */
-public class DrevathisEntityRenderer extends MobEntityRenderer<DrevathisEntity, DrevathisRenderState, DrevathisEntityModel> {
-    public static final EntityModelLayer LAYER = new EntityModelLayer(Identifier.of("baum2", "drevathis"), "main");
-    private static final Identifier TEXTURE = Identifier.of("baum2", "textures/entity/drevathis.png");
-    private static final float SHADOW_RADIUS = 0.5F;
-
+public class DrevathisEntityRenderer extends GeoEntityRenderer<DrevathisEntity, DrevathisRenderState> {
     public DrevathisEntityRenderer(EntityRendererFactory.Context context) {
-        super(context, new DrevathisEntityModel(context.getPart(LAYER)), SHADOW_RADIUS);
-        this.addFeature(new DrevathisHeldWeaponFeatureRenderer<>(this));
+        super(context, new DrevathisGeoModel());
+        this.withScale(1.8F);
     }
 
     @Override
-    public Identifier getTexture(DrevathisRenderState state) {
-        return TEXTURE;
-    }
-
-    @Override
-    public DrevathisRenderState createRenderState() {
+    public DrevathisRenderState createRenderState(DrevathisEntity animatable, @Nullable Void relatedObject) {
         return new DrevathisRenderState();
-    }
-
-    @Override
-    public void updateRenderState(DrevathisEntity entity, DrevathisRenderState state, float tickDelta) {
-        super.updateRenderState(entity, state, tickDelta);
-        BipedEntityRenderer.updateBipedRenderState(entity, state, tickDelta, this.itemModelResolver);
-        state.dashWindupTicks = entity.getDashWindupTicks();
-        state.chainEffectTicks = entity.getChainEffectTicks();
-        state.waveCastTicks = entity.getWaveCastTicks();
-        state.thunderChannelTicks = entity.getThunderChannelTicks();
     }
 }

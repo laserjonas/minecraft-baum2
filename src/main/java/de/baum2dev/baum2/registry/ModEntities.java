@@ -8,6 +8,7 @@ import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
+import de.baum2dev.baum2.entity.DarkWaveProjectileEntity;
 import de.baum2dev.baum2.entity.DrevathisEntity;
 import de.baum2dev.baum2.entity.SpiderQueenEntity;
 import de.baum2dev.baum2.entity.StoneOfSpidersEntity;
@@ -74,6 +75,19 @@ public class ModEntities {
                     .dimensions(1.08F, 3.24F)
                     .eyeHeight(2.916F)
                     .build(DREVATHIS_KEY)
+    );
+
+    /** Drevathis's basic-attack projectile. MISC spawn group (not a mob); rendered as nothing
+     *  client-side (EmptyEntityRenderer) - the visible wave is server-spawned particles. */
+    public static final RegistryKey<EntityType<?>> DARK_WAVE_KEY =
+            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "dark_wave"));
+
+    public static final EntityType<DarkWaveProjectileEntity> DARK_WAVE = Registry.register(
+            Registries.ENTITY_TYPE,
+            DARK_WAVE_KEY,
+            EntityType.Builder.<DarkWaveProjectileEntity>create(DarkWaveProjectileEntity::new, SpawnGroup.MISC)
+                    .dimensions(1.0F, 1.0F)
+                    .build(DARK_WAVE_KEY)
     );
 
     public static void registerAttributes() {

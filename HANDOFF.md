@@ -1280,6 +1280,91 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Drevathis: complete rework (2026-07-07) — GeckoLib demon-lord model, new 4-skill kit,
+per-player storm passive, blade item rework.** User brief: total freedom to remodel; "a demon
+which is born to kill you, bigger than the player, black blade with dark smoke (also the
+droppable player item, proportional), all attacks GeckoLib-animated" + exact skill specs.
+Visual detail in `docs/visual-style-guide.md` **Section 19.7** (supersedes 19.1-19.6; new
+"Umbral Sovereign" palette). Build passes; **needs an in-game look + playtest** (spawn
+`baum2:drevathis`, check model/animations/each skill/the storm passive, and hold the dropped
+blade in first/third person).
+
+- **Third GeckoLib boss** (pipeline: `tools/gen_drevathis.py` model+texture,
+  `tools/gen_drevathis_anims.py` six animations, every pose preview-verified). Old
+  `DrevathisEntityModel`/`DrevathisHeldWeaponFeatureRenderer` deleted;
+  renderer/render-state/geo-model follow the Colossus pattern exactly (empty render state -
+  crash gotcha documented there). The black blade is a real `blade` bone on the right forearm
+  (base rotation [24,0,14]); its "dark smoke" is a server-side SMOKE/SQUID_INK wreath
+  (`tickBladeSmoke()`), scaled down in the new `items/CursedBladeItem.inventoryTick()` for the
+  player-held drop.
+- **Old kit deleted** (Dash of Death / Chain of Death / Wave of Darkness / Thunder of
+  Darkness + Darkness aura). `combat/DarkWaveEffect` is KEPT - the blade item's on-hit proc
+  (`DrevathisCursedBladeHandler`, unchanged) still uses it; the boss no longer does.
+- **New kit** (all numbers user-specified unless marked assumption):
+  - *Passive "Sovereign's Storm"*: players within 100 blocks get a personal thunderstorm
+    (dark sky/rain/thunder) via per-player `GameStateChangeS2CPacket`s - client illusion only,
+    re-sent every second so it wins against real weather broadcasts, restored on leaving the
+    aura and in `remove()` (boss death/discard). Random thunder rolls + no real lightning.
+  - *Basic attack*: NO melee (ATTACK_DAMAGE 0). Throws a `DarkWaveProjectileEntity`
+    (`baum2:dark_wave`, EmptyEntityRenderer + server particle crescent): 50 dmg, 2s CD, 0.85
+    blocks/tick straight line aimed at cast-time position - dodgeable by strafing. Launch at
+    tick 6 of the 0.6s throw_wave animation (timing contracts in the anims generator).
+  - *Curse Ground*: 15s CD, 1.6s channel (blade raised then scythed into the ground, zone
+    erupts at tick 20): 8-block zone for 8s (radius/duration = my assumption), burn 10 dmg
+    per second-tick with fire-resistance counterplay (BurnDamageManager's convention,
+    implemented inline because that manager's refresh semantics don't fit a standing zone) +
+    exact -25% move speed via attribute modifier (`baum2:drevathis_dread_slow`,
+    ADD_MULTIPLIED_TOTAL -0.25; vanilla Slowness has no 25% step). Zone state lives on the
+    ENTITY (outlives the goal); slow add/remove is one central per-tick reconciliation
+    (`tickDreadSlow`) shared with The End is Near so overlapping sources can't double-apply
+    or leak the modifier.
+  - *Stampede*: 18s CD, three horns-first charge passes (direction locked per pass, direct
+    per-tick velocity - navigation is too clumsy at 0.85 blocks/tick), 50 dmg + skyward
+    launch per hit, one hit per player PER PASS (spec's "up to 3 hits"), dark burst on
+    impact; `stampede_run` anim loops via synced STAMPEDE_ACTIVE TrackedData.
+  - *The End is Near*: 36s CD, triggers at <=5 blocks, 5s channel (= the 5.0s end_channel
+    anim, arms spread skyward, trembling): pull 0.09 blocks/tick every 2nd tick within 9
+    blocks + the shared -25% slow; walking out still beats the pull (escape hatch per spec).
+    Fire comets every 8 ticks land 1.5-4.5 blocks OFF a random player (visible 12-tick
+    FLAME/SMOKE fall, then 30 dmg in 2.2 blocks - comet damage is my assumption, spec gave
+    none). Channel end: anyone still inside takes 100 dmg + 2s of terror (random velocity
+    shoves every 5 ticks + Nausea/Darkness - closest server-side approximation of "runs in
+    random directions"; true movement control would need a client mixin).
+- Misc: `entity.baum2.drevathis` / `entity.baum2.dark_wave` / `item.baum2.drevathis_cursed_blade`
+  lang entries added (the first and last were MISSING before this rework - raw keys showed
+  in-game). Old duplicate `src/client/resources/.../drevathis.png` deleted (caused a jar
+  duplicate-entry build failure; GeckoLib boss textures live in `src/main/resources`). New
+  flat icon + 3D in-hand model for the blade (`tools/gen_drevathis_blade_item.py`,
+  display-context select like the warclub). `docs/fabric-modding.md`'s two-handed
+  held-item-rendering section marked superseded.
+- `ip-naming-compliance-checker`: **clear** on all new names ("Curse Ground", "Stampede",
+  "The End is Near", "dark wave", "Sovereign's Storm", "Umbral Sovereign", "Voidsteel" - all
+  generic/original; "Sovereign's Storm" flagged only for a routine re-check if it ever
+  becomes a UI string).
+- `balance-reviewer` (it re-simulated goal arbitration, dodge windows, and escape math):
+  - **Applied fix 1**: cooldown arming was inconsistent (wave/curse armed at the effect tick,
+    stampede/end in `stop()`) - preemption could silently swallow wave/curse casts with no
+    cooldown cost. All four goals now arm their cooldown in `stop()`.
+  - **Applied fix 2**: comets launched after channel-tick 88 could never land (the goal's
+    `stop()` cleared them mid-air) - launches now cut off at `CHANNEL - FALL` ticks.
+  - **Confirmed clean**: no kiting dead zone (ApproachGoal covers all trigger-range gaps
+    including 20-24); The End is Near escape math checks out (even from 1 block away, slowed
+    WALKING clears the 9-block edge with ~1.3s of the 5s channel to spare); dark wave
+    confirmed strafe-dodgeable at every range; no unavoidable 100-to-0 combo; blade drop
+    unaffected; curse burn's fire-resistance counterplay correct from the start.
+  - **Open judgment call 1 (stacking window)**: the Curse Ground ZONE outlives its goal (8s),
+    so The End is Near can start inside a live zone -> overlapping burn + pull + comets +
+    finale reaches ~190-220 of 500 HP in one window. Not lethal, each piece still dodgeable,
+    but an unintended overlap - options: shorter zone life, or gate End Is Near while a zone
+    is live. Left as-is pending user decision.
+  - **Open judgment call 2 (tier shape)**: Drevathis (L40) has a LOWER practical unavoidable
+    DPS ceiling than the L25 Colossus, because every attack is a dodge/positioning check by
+    design ("no melee at all" per the user spec) while the Colossus has a raw 50 dmg/s melee
+    tick. Skill-check boss vs. brawler boss - flagged so the tier pacing is a conscious
+    choice, not an accident. HP/level ratio stayed flat at 30 (1200/40, same as 750/25).
+
+Previous change on this branch:
+
 **Colossal Warclub: 3D in-hand item model (2026-07-06, follow-up to the boss rework below).**
 The club a PLAYER holds is now a real 3D cuboid model matching the boss's club design
 (`tools/gen_colossal_warclub_item.py` -> `models/item/colossal_warclub_in_hand.json` +

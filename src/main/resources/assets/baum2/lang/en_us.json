@@ -14,5 +14,8 @@
   "entity.baum2.zombie_colossus": "Zombie Colossus",
   "item.baum2.colossal_warclub": "Colossal Warclub",
   "block.baum2.rissobelisk": "Rissobelisk",
-  "item.baum2.risssplitter": "Risssplitter"
+  "item.baum2.risssplitter": "Risssplitter",
+  "entity.baum2.drevathis": "Drevathis",
+  "entity.baum2.dark_wave": "Dark Wave",
+  "item.baum2.drevathis_cursed_blade": "Drevathis's Cursed Blade"
 }

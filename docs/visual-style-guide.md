@@ -2414,6 +2414,65 @@ execution built from it did.
 
 ---
 
+### 19.7 Full rework (2026-07-07): GeckoLib demon-lord model + "Umbral Sovereign" palette — SUPERSEDES 19.1-19.6
+
+The complete Drevathis rework (user brief: "a demon which is born to kill you, bigger than the
+player, black blade with dark smoke, all attacks GeckoLib-animated") replaced the old
+BipedEntityModel robe-sovereign design entirely. **Sections 19.1-19.6 above are historical**:
+the "Abyssal Sovereign" palette (19.3), the robed model (19.2), and the v2 flat blade sprite
+(19.4) no longer ship. What ships now:
+
+**Model** (tools/gen_drevathis.py -> drevathis.geo.json, 13 bones / 38 cubes, ~31 units to the
+skull, ~36 with horns, renderer withScale(1.8F) on the unchanged 1.08x3.24 hitbox): hulking
+horned demon - swept-back ridged temple horns (2 stepped cubes each, bone-rotated), boulder
+shoulders with two-step bone spikes, gaunt plated chest with an ember sternum crack, corded
+two-segment arms ending in clawed fists, digitigrade-suggesting stepped legs (thigh/set-back
+shin/cloven hoof), barbed two-bone tail, and the CURSED BLADE AS REAL GEOMETRY (a "blade" bone
+on the right forearm, carried tip-up-outward at base rotation [24, 0, 14]).
+
+**Animations** (tools/gen_drevathis_anims.py -> drevathis.animation.json): idle (breath + tail
+sway), walk (0.9s prowl), throw_wave (0.6s palm-thrust, projectile spawns tick 6), curse_ground
+(1.6s sky-raise -> ground-scythe, zone erupts tick 20), stampede_run (0.5s horns-first gallop
+loop, state-driven), end_channel (5.0s arms-spread-skyward tremble -> collapse burst). The
+script's docstring records the blade-alignment gotcha (canceling the base rotation does NOT
+track a raised arm) and all server-timing contracts.
+
+**Palette: "Umbral Sovereign"** (original; replaces "Abyssal Sovereign"):
+
+| Role | Name | Hex | Notes |
+|---|---|---|---|
+| Hide shadow | Umbral Hide Deep | `#1B1418` | speckle/shadow tone |
+| Hide mid-tone | Umbral Hide | `#2B2027` | dominant body fill (violet-tinted near-black) |
+| Hide highlight | Umbral Hide Lit | `#3E2E38` | muscle striations |
+| Bone plate | Dread Plate | `#4A3B3E` | chest/shoulder/brow plates |
+| Bone plate lit | Dread Plate Lit | `#5E4C4E` | plate top edges |
+| Horn/keratin dark | Horn Dusk | `#2E2620` | horn ring bands, hooves |
+| Horn/keratin mid | Horn | `#55483F` | horn fill, small teeth |
+| Horn/keratin lit | Horn Pale | `#6E6157` | horn tips, fangs, claws |
+| Glow (signature) | Sovereign Ember | `#FF7A26` | eyes, sternum crack (ORANGE - not Spider Queen's `#FF3B1E` red, not Ashen Brute's dull amber `#D9C24A`) |
+| Glow core | Ember Core | `#FFB84D` | brightest 1-2 px per glow feature |
+| Glow deep | Ember Deep | `#C6431C` | skin fissures, crack falloff |
+| Blade black | Voidsteel | `#0C0A10` | blade fill - pure blacks, NO ember (the blade is darkness, the body is fire) |
+| Blade sheen | Voidsteel Grey | `#232030` | diagonal sheen streaks, spine |
+| Blade edge | Voidsteel Edge | `#4E4A5E` | cold grey-violet edge light |
+| Grip dark/lit | - | `#1C1410`/`#33261D` | leather grip bands |
+
+The "dark smoke" of the blade is runtime particles, not texture: SMOKE+SQUID_INK wreath at the
+carry position, server-spawned (DrevathisEntity.tickBladeSmoke() on the boss; scaled-down in
+CursedBladeItem.inventoryTick() for the player-held drop).
+
+**Item assets** (tools/gen_drevathis_blade_item.py): new flat 16x16 icon (black greatsword on
+the sword diagonal, Voidsteel Edge light, two smoke wisps) for gui/ground/fixed/on_shelf, plus
+a 5-element 3D in-hand model (~1.65 blocks, -45deg-Z diagonal authoring, stock item/handheld
+transforms) - same display-context-select pattern the Colossal Warclub established.
+
+**Skill VFX color language** (all vanilla particles, no custom types): dark wave = SQUID_INK +
+SCULK_SOUL crescent; Curse Ground = SQUID_INK/ASH carpet + SOUL_FIRE_FLAME boundary ring +
+FLAME burn ticks; Stampede = SQUID_INK ground rip + SQUID_INK/SCULK_SOUL burst on hit; The End
+is Near = SCULK_SOUL boundary + inward-drifting SQUID_INK + FLAME/LAVA/LARGE_SMOKE comets +
+SONIC_BOOM finale. Passive storm: per-player weather packets (rain + thunder gradients 1.0),
+no visual assets at all.
+
 ## 20. World-event landmark visual identity: "Rissobelisk" (`baum2:rissobelisk`)
 
 The mod's **first custom `Block`** (everything visual before this section was either an
@@ -2673,6 +2732,12 @@ literally a fragment of the obelisk's own stone/crack material, not a separate d
 ---
 
 ## Changelog
+
+- **2026-07-07** — Added Section 19.7: full Drevathis rework (GeckoLib demon-lord model with
+  the blade as real geometry, six-animation set, "Umbral Sovereign" palette superseding 19.3's
+  "Abyssal Sovereign", new flat icon + 3D in-hand model for Drevathis's Cursed Blade, and the
+  vanilla-particle VFX color language for the reworked skill kit + per-player storm passive).
+  Sections 19.1-19.6 are retained as historical record only.
 
 - **2026-07-05** — Added Section 20.6 (bugfix follow-up): "Risssplitter" (`baum2:risssplitter`,
   the crafting material the Rissobelisk world-event block drops) had been registered as a plain

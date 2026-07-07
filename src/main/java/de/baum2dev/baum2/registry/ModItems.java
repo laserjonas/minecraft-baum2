@@ -2,6 +2,7 @@ package de.baum2dev.baum2.registry;
 
 import java.util.Map;
 
+import de.baum2dev.baum2.items.CursedBladeItem;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroups;
@@ -128,6 +129,7 @@ public class ModItems {
      * combat/DrevathisCursedBladeHandler): total ATTACK_DAMAGE = 1.0 (innate unarmed base) +
      * 0.0 (Wood's own bonus) + (-1.0) = 0.0; total ATTACK_SPEED = 4.0 (base) + (-3.5) = 0.5,
      * matching the design brief's "0 Base Stats" / "0.5 Attacks per second" exactly.
+     * CursedBladeItem adds the boss blade's dark-smoke wreath while held (Drevathis rework).
      */
     public static final RegistryKey<Item> DREVATHIS_CURSED_BLADE_KEY =
             RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "drevathis_cursed_blade"));
@@ -135,7 +137,7 @@ public class ModItems {
     public static final Item DREVATHIS_CURSED_BLADE = Registry.register(
             Registries.ITEM,
             DREVATHIS_CURSED_BLADE_KEY,
-            new Item(new Item.Settings().registryKey(DREVATHIS_CURSED_BLADE_KEY).sword(ToolMaterial.WOOD, -1.0F, -3.5F))
+            new CursedBladeItem(new Item.Settings().registryKey(DREVATHIS_CURSED_BLADE_KEY).sword(ToolMaterial.WOOD, -1.0F, -3.5F))
     );
 
     public static void registerItemGroups() {

@@ -642,6 +642,73 @@ boilerplate (instance cache + one idle controller); waves/drops/immobility code 
   change in this project (a GeckoLib render-state mistake only crashes at render time, not at
   build time), so `/summon` both stones before trusting it; see "Next recommended step" 2.
 
+### Stone ladder (2026-07-09, same day, follow-up) — one stone per vanilla monster, 33 total, fully config-driven
+
+Immediate follow-up user request: "for every monstery entity add a stone... make the level/
+name meaning which makes sense; ignore boss monsters; probably every 5 levels; you may
+rebalance existing stones." Implemented as a **config-table system**, not 31 new classes:
+
+- **`entity/FallenCometStoneEntity.java` (new)** — THE stone class, replacing the deleted
+  `StoneOfSpidersEntity`/`StoneOfZombiesEntity`: same wave math (one wave per full 10% max-HP
+  lost, cumulative, max 10), death-cascade, no-despawn/immobile behavior, GeoEntity idle —
+  everything per-stone (level, health = 20×level, wave composition, drops, optional ambient
+  particle) injected via **`entity/FallenCometStoneDefinition.java` (new record)**.
+- **`registry/FallenCometStones.java` (new)** — the whole table: 33 stones, levels 5-95 in
+  5-level steps (two per tier from 20 up), one per **normal vanilla hostile monster**
+  (authoritative roster read from the decompiled 1.21.11 `EntityType` registry — includes the
+  post-training-data mobs `parched`, `camel_husk`, `zombie_nautilus`). **Excluded, with
+  reasons in the class javadoc**: bosses (Ender Dragon/Wither/Warden/Elder Guardian per the
+  brief), Guardian (flops helplessly on land; Zombie Nautilus covers the niche with real
+  on-land behavior), Creaking (invulnerability is heart-block-bound), Giant/Illusioner/Zombie
+  Horse (unused leftovers), Zombie Villager (gameplay duplicate of Zombie). Drops are themed
+  vanilla loot ("paid in the monster's own currency" — blaze rods, shulker shells, a totem
+  from Evokers...); the two original stones keep their custom weapon drops and exact waves.
+- **Registration is 3 loops** (`ModEntities.FALLEN_COMET_STONES` map, `registerAttributes`,
+  `Baum2Client`) — adding stone #34 = one table row + one palette in
+  `tools/gen_fallen_comet_stone.py` + one lang entry.
+- **Two deliberate mechanical rebalances (new behavior, affects the original stones too)**:
+  (1) stones are now **immune to explosions** (else Stone of Creepers' own waves / Stone of
+  Ghasts' fireballs damage the stone → self-triggering wave chain with no player involved)
+  and **fire-immune** via `makeFireImmune()` (Blaze/Magma Cube waves must not burn their own
+  stone); (2) **wave mobs immediately target whoever damaged the stone**, including
+  neutral-until-provoked mobs (Endermen, Zombified Piglins) via the real `Angerable` anger
+  mechanic (`setAngerDuration` + `setAngryAt(LazyEntityReference.of(...))` — the 1.21.11
+  anger API, verified from decompiled source), and Piglins/Hoglins/Brutes spawn
+  zombification-immune so nether-mob waves don't dissolve mid-fight in the overworld.
+- 31 new palettes (6 roles each) pinned in `docs/visual-style-guide.md` **13.6/13.7** — one
+  visual family, per-monster color accent; known glow-hue crowding documented there.
+- **`ip-naming-compliance-checker`: all 31 names clear** — verified zero lexical overlap with
+  Metin2's actual stone names (abstract nouns: "Metin of Sorrow/Greed/Soul/..."), and the
+  names are literally the vanilla mobs each stone spawns. It logged one system-level
+  observation for the humans (not a rename issue): the stationary-leveled-stone-spawns-waves
+  *mechanic* is structurally closer to Metin2's core loop than the generic-mechanics examples
+  CLAUDE.md lists as safe — the pattern was already established/accepted with the original two
+  stones, so this batch adds variety, not new resemblance; flagged for awareness, decision
+  stays with the contributors.
+- **`balance-reviewer` ran over the full table; findings triaged as follows.** FIXED: (a) a
+  real cross-system XP gap — `MobDeathHandler`'s old `instanceof HostileEntity` check paid
+  zero XP for Slimes/Magma Cubes/Ghasts/Phantoms/Shulkers/Hoglins/Camel Husks/Zombie
+  Nautiluses (8 of 33 stones' waves were XP-dead); eligibility is now `instanceof Monster OR
+  spawn group == MONSTER`, which also means those mobs now grant XP *everywhere*, not just at
+  stones; (b) add-count inversion — level-5 Silverfish stone was the single swarmiest stone
+  in the game (50 worst-case adds), trimmed 5→4/wave (Endermites 4→3); (c) Slime/Magma Cube
+  waves now spawn at fixed size 2 — consistent pressure, one bounded split generation (split
+  children still escape the death-cascade; known, documented, size-capped leak). RULED
+  INTENDED, docs updated: the killing blow's own wave thresholds spawn nothing (rewards
+  overpowering a stone; a post-death wave would orphan adds past the cascade — the class
+  javadoc now explains this instead of claiming "worst case exactly 10 waves"); stones have
+  no offense of their own at any level (the original "objective/totem" design, re-confirmed).
+  LOGGED, NOT FIXED (decisions needed before stones ever spawn naturally): guaranteed
+  rare-item drops (Evoker totem, Piglin Brute netherite scrap, Shulker shells) are
+  deterministic no-cooldown farms once spawning isn't command-gated — decide chance-based vs.
+  cooldown then; Camel Husk may barely fight (mount hierarchy) and Zombie Nautilus is
+  brain-driven so `setTarget` aggro may not stick — both are explicit playtest items;
+  "burn the stone, ignore the adds" is the XP-optimal strategy since cascade kills grant
+  nothing (correct anti-exploit, but it means waves gate difficulty, not reward).
+- Build passes (re-verified after the balance fixes); `stone_of_blazes` texture
+  preview-verified. **Same live-client caveat as the section above, now ×33** — spot-check
+  several stones across tiers, not just the original two.
+
 ### Spider Queen — first mobile boss, first armor set (`baum2:spider_queen`)
 
 Level 15, 350 HP giant (3x-scale) spider boss with a fast melee bite (10 dmg, 2 attacks/sec)
@@ -1321,6 +1388,29 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Stone ladder (2026-07-09, second commit of the day) — 33 fallen-comet stones, one per
+normal vanilla hostile monster, config-driven.** User brief: "for every monstery entity add a
+stone; make level/name which makes sense; ignore boss monsters; probably every 5 levels; you
+may rebalance existing stones." Full detail in the "Stone ladder" section above and
+`docs/visual-style-guide.md` 13.6/13.7. Key facts: one generic `FallenCometStoneEntity` +
+`FallenCometStoneDefinition` record replaces the two hand-written stone classes (deleted);
+the whole family lives in `registry/FallenCometStones.java` (levels 5-95 in 5-steps, HP =
+20×level, themed vanilla drops); registration/attributes/renderers are 3 loops; 31 new
+palettes/textures via `tools/gen_fallen_comet_stone.py`. Rebalances: stones
+explosion+fire-immune; wave mobs insta-aggro the attacker (real Angerable anger API);
+Piglin/Hoglin waves zombification-immune; Slime/Magma Cube waves fixed size 2;
+`MobDeathHandler` XP eligibility widened from `instanceof HostileEntity` to Monster-or-
+MONSTER-spawn-group (fixed a real gap: 8 stones' wave mobs paid zero XP — affects all mob
+kills mod-wide, not just stones). `ip-naming-compliance-checker`: all 31 names clear (one
+system-level Metin2-mechanic-resemblance observation logged for the humans, see the section
+above). `balance-reviewer`: findings triaged fixed/intended/logged in the section above —
+notably the guaranteed rare drops (totem/netherite scrap/shulker shells) need a decision
+before stones ever spawn naturally. Merged to `master` as a fast-forward (no divergent work
+on the other side). **Live-client spot-check across tiers still pending** — see "Next
+recommended step" 2.
+
+Previous change, same day:
+
 **Fallen Comet Stone rework (2026-07-09) — both stone mini-bosses remodeled as a crashed
 comet on GeckoLib, via one shared reusable template.** User brief: "remodel these stones,
 make it more accurate like a comet which has fallen down; create a template stone; use
@@ -1929,14 +2019,17 @@ can't destroy it, XP is granted on destruction.
    attack speed can contribute at high Dexterity investment, or accept this as the mod's
    intended "gear matters a lot" power curve. The Colossal Warclub (low speed) is a useful
    counter-example that this isn't unavoidable — see "Zombie Colossus" above.
-2. **In-game verification of all five bosses** (none have been played, only built) — see each
-   mob's own section above for its exact playtest checklist: `/summon baum2:stone_of_spiders`,
-   `baum2:stone_of_zombies`, `baum2:spider_queen`, `baum2:zombie_colossus`, `baum2:drevathis`.
-   **Both stone bosses now render via the new GeckoLib fallen-comet-stone template
-   (2026-07-09, preview-verified only)** — when summoning them, additionally confirm: the
-   tilted comet + crater renders at all (a render-state mistake crashes only at render time),
-   the three shards orbit smoothly, the buried base doesn't z-fight badly on flat ground, and
-   each stone shows its own palette (chartreuse veins vs. toxic-green veins).
+2. **In-game verification of all bosses** (none have been played, only built) — see each
+   mob's own section above for its exact playtest checklist: `/summon baum2:spider_queen`,
+   `baum2:zombie_colossus`, `baum2:drevathis`, and the stone family.
+   **All 33 stones render via the GeckoLib fallen-comet-stone template (2026-07-09,
+   preview-verified only)** — spot-check several across tiers (e.g. `/summon
+   baum2:stone_of_silverfish`, `baum2:stone_of_creepers`, `baum2:stone_of_blazes`,
+   `baum2:stone_of_ravagers` plus the original two): the tilted comet + crater renders at all
+   (a render-state mistake crashes only at render time), the three shards orbit smoothly,
+   each stone shows its own palette, waves aggro the attacker immediately (including
+   Endermen/Zombified Piglins), Creeper explosions and Blaze fire do NOT damage their own
+   stone, and Piglin/Hoglin waves don't zombify in the overworld.
    Also **confirm combat actually feels right** on any mob — attack something and check
    damage/attack-speed/crits are happening, not just that nothing crashes — and confirm the new
    "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds still work correctly

@@ -26,13 +26,13 @@ public class Baum2Client implements ClientModInitializer {
         SpellCastKeyBindings.register();
         MobNameplateHud.register();
 
-        // Both stone mini-bosses share the GeckoLib fallen-comet-stone template (one
-        // geometry + idle animation, per-stone texture) - no model-layer registration
-        // needed, GeckoLib resolves its own assets (see docs/fabric-modding.md part D).
-        EntityRendererFactories.register(ModEntities.STONE_OF_SPIDERS,
-                context -> new FallenCometStoneEntityRenderer<>(context, "stone_of_spiders"));
-        EntityRendererFactories.register(ModEntities.STONE_OF_ZOMBIES,
-                context -> new FallenCometStoneEntityRenderer<>(context, "stone_of_zombies"));
+        // Every fallen-comet-stone mini-boss shares the GeckoLib template (one geometry +
+        // idle animation, per-stone texture named after the entity) - no model-layer
+        // registration needed, GeckoLib resolves its own assets (docs/fabric-modding.md
+        // part D). One loop covers all stones in the FallenCometStones definition table.
+        ModEntities.FALLEN_COMET_STONES.forEach((definition, type) ->
+                EntityRendererFactories.register(type,
+                        context -> new FallenCometStoneEntityRenderer<>(context, definition.name())));
 
         // GeckoLib-based renderer: no EntityModelLayerRegistry call needed (GeckoLib resolves
         // its own geo.json/animation.json/texture assets directly, see docs/fabric-modding.md's

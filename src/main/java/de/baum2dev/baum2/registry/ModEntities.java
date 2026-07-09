@@ -1,5 +1,8 @@
 package de.baum2dev.baum2.registry;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.SpawnGroup;
@@ -10,34 +13,44 @@ import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
 import de.baum2dev.baum2.entity.DarkWaveProjectileEntity;
 import de.baum2dev.baum2.entity.DrevathisEntity;
+import de.baum2dev.baum2.entity.FallenCometStoneDefinition;
+import de.baum2dev.baum2.entity.FallenCometStoneEntity;
 import de.baum2dev.baum2.entity.SpiderQueenEntity;
-import de.baum2dev.baum2.entity.StoneOfSpidersEntity;
-import de.baum2dev.baum2.entity.StoneOfZombiesEntity;
 import de.baum2dev.baum2.entity.ZombieColossusEntity;
 
 public class ModEntities {
 
-    public static final RegistryKey<EntityType<?>> STONE_OF_SPIDERS_KEY =
-            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "stone_of_spiders"));
+    /**
+     * Every fallen-comet-stone mini-boss, registered from the {@link FallenCometStones#ALL}
+     * definition table (insertion-ordered so /summon tab-completion groups sensibly). All
+     * stones share one entity class/geometry/renderer and differ by definition + texture.
+     * makeFireImmune(): a meteor that survived atmospheric entry doesn't burn - concretely,
+     * Stone of Blazes/Stone of Magma Cubes must not be killable by their own waves' fire
+     * (the matching explosion immunity for Creeper/Ghast waves lives in
+     * FallenCometStoneEntity.damage()).
+     */
+    public static final Map<FallenCometStoneDefinition, EntityType<FallenCometStoneEntity>> FALLEN_COMET_STONES =
+            registerFallenCometStones();
 
-    public static final EntityType<StoneOfSpidersEntity> STONE_OF_SPIDERS = Registry.register(
-            Registries.ENTITY_TYPE,
-            STONE_OF_SPIDERS_KEY,
-            EntityType.Builder.create(StoneOfSpidersEntity::new, SpawnGroup.MONSTER)
-                    .dimensions(3.0F, 3.0F)
-                    .build(STONE_OF_SPIDERS_KEY)
-    );
-
-    public static final RegistryKey<EntityType<?>> STONE_OF_ZOMBIES_KEY =
-            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "stone_of_zombies"));
-
-    public static final EntityType<StoneOfZombiesEntity> STONE_OF_ZOMBIES = Registry.register(
-            Registries.ENTITY_TYPE,
-            STONE_OF_ZOMBIES_KEY,
-            EntityType.Builder.create(StoneOfZombiesEntity::new, SpawnGroup.MONSTER)
-                    .dimensions(3.0F, 3.0F)
-                    .build(STONE_OF_ZOMBIES_KEY)
-    );
+    private static Map<FallenCometStoneDefinition, EntityType<FallenCometStoneEntity>> registerFallenCometStones() {
+        Map<FallenCometStoneDefinition, EntityType<FallenCometStoneEntity>> stones = new LinkedHashMap<>();
+        for (FallenCometStoneDefinition definition : FallenCometStones.ALL) {
+            RegistryKey<EntityType<?>> key =
+                    RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", definition.name()));
+            EntityType<FallenCometStoneEntity> type = Registry.register(
+                    Registries.ENTITY_TYPE,
+                    key,
+                    EntityType.Builder
+                            .<FallenCometStoneEntity>create(
+                                    (entityType, world) -> new FallenCometStoneEntity(entityType, world, definition),
+                                    SpawnGroup.MONSTER)
+                            .dimensions(3.0F, 3.0F)
+                            .makeFireImmune()
+                            .build(key));
+            stones.put(definition, type);
+        }
+        return java.util.Collections.unmodifiableMap(stones);
+    }
 
     public static final RegistryKey<EntityType<?>> SPIDER_QUEEN_KEY =
             RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "spider_queen"));
@@ -91,8 +104,8 @@ public class ModEntities {
     );
 
     public static void registerAttributes() {
-        FabricDefaultAttributeRegistry.register(STONE_OF_SPIDERS, StoneOfSpidersEntity.createStoneOfSpidersAttributes());
-        FabricDefaultAttributeRegistry.register(STONE_OF_ZOMBIES, StoneOfZombiesEntity.createStoneOfZombiesAttributes());
+        FALLEN_COMET_STONES.forEach((definition, type) ->
+                FabricDefaultAttributeRegistry.register(type, FallenCometStoneEntity.createAttributes(definition)));
         FabricDefaultAttributeRegistry.register(SPIDER_QUEEN, SpiderQueenEntity.createSpiderQueenAttributes());
         FabricDefaultAttributeRegistry.register(ZOMBIE_COLOSSUS, ZombieColossusEntity.createZombieColossusAttributes());
         FabricDefaultAttributeRegistry.register(DREVATHIS, DrevathisEntity.createDrevathisAttributes());

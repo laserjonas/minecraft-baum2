@@ -118,7 +118,7 @@ public class MobNameplateHud {
 
     /**
      * No general mob-leveling system exists yet - defaults to "Lvl. 1" unless the entity
-     * implements MonsterLevelProvider (see StoneOfSpidersEntity for the first real example).
+     * implements MonsterLevelProvider (see FallenCometStoneEntity for the real examples).
      */
     private static String getMonsterLevelText(LivingEntity entity) {
         int level = entity instanceof MonsterLevelProvider leveled ? leveled.getMonsterLevel() : 1;

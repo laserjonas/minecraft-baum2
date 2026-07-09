@@ -24,7 +24,8 @@ import de.baum2dev.baum2.registry.ModItems;
 
 /**
  * Tracks a Rissobelisk's own hit-point pool, wave-spawn thresholds, and spawned-mob cascade -
- * direct structural port of {@code entity.StoneOfSpidersEntity}'s own fields/logic, since a
+ * direct structural port of the stone mini-bosses' fields/logic (now
+ * {@code entity.FallenCometStoneEntity}), since a
  * Block has no built-in health/damage() to hook into (see docs/fabric-modding.md "Custom
  * Blocks and BlockEntitys"). Plain fields, not the Attachment API - this is a from-scratch
  * BlockEntity this project owns, so there's no persistence-safety win to reach for it here.

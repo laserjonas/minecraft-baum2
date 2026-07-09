@@ -50,28 +50,65 @@ SEED = 20260709
 PIX = 2  # texture pixels per model unit
 
 # ============================================================================
-# Palettes - both are the ratified stone palettes from docs/visual-style-guide.md
-# (13.3 Fused Stone/Larval Glow, 15.2 Blight Stone/Plague Glow). The comet rework
-# drops the old husk/silk roles (the shape is pure rock now) and finally uses the
-# "Pale" highlight hexes 13.3/15.2 reserved for a non-placeholder pass.
+# Palettes - one per stone mini-boss; KEYS MUST MATCH FallenCometStones.ALL's
+# definition names exactly (the PNG is copied to textures/entity/<key>.png).
+# Role order: ROCK_SHADOW, ROCK, ROCK_PALE, FISSURE, GLOW, GLOW_DIM.
+# stone_of_spiders / stone_of_zombies are the ratified palettes from
+# docs/visual-style-guide.md 13.3 (Fused Stone/Larval Glow) and 15.2 (Blight
+# Stone/Plague Glow); every other row is that stone's own original identity,
+# derived from its monster's vanilla color language (rock family tinted toward
+# the mob's body, glow toward its most recognizable accent). Several glow hues
+# are near-neighbors by necessity (many green/blue mobs) - the rock tint is the
+# primary differentiator there; see docs/visual-style-guide.md 13.7.
 # ============================================================================
+ROLE_NAMES = ("ROCK_SHADOW", "ROCK", "ROCK_PALE", "FISSURE", "GLOW", "GLOW_DIM")
+
+
+def pal(*hexes):
+    assert len(hexes) == 6
+    return {name: ((h >> 16) & 0xFF, (h >> 8) & 0xFF, h & 0xFF)
+            for name, h in zip(ROLE_NAMES, hexes)}
+
+
 PALETTES = {
-    "stone_of_spiders": {
-        "ROCK_SHADOW": (0x3A, 0x36, 0x2E),
-        "ROCK": (0x5C, 0x57, 0x4A),
-        "ROCK_PALE": (0x7A, 0x75, 0x66),
-        "FISSURE": (0x2A, 0x25, 0x1C),
-        "GLOW": (0xC4, 0xE0, 0x64),
-        "GLOW_DIM": (0x6E, 0x8A, 0x2E),
-    },
-    "stone_of_zombies": {
-        "ROCK_SHADOW": (0x26, 0x30, 0x1F),
-        "ROCK": (0x43, 0x59, 0x30),
-        "ROCK_PALE": (0x64, 0x7A, 0x47),
-        "FISSURE": (0x17, 0x20, 0x0F),
-        "GLOW": (0x3D, 0xFF, 0x7E),
-        "GLOW_DIM": (0x1B, 0x8A, 0x45),
-    },
+    # tier 5-15
+    "stone_of_silverfish":        pal(0x4A4A52, 0x6E6E78, 0x92929E, 0x26262C, 0xC8D4E8, 0x6E7A94),
+    "stone_of_endermites":        pal(0x3A2E44, 0x54425F, 0x6F5A7E, 0x1E1426, 0xC77FE8, 0x7B3FA0),
+    "stone_of_spiders":           pal(0x3A362E, 0x5C574A, 0x7A7566, 0x2A251C, 0xC4E064, 0x6E8A2E),
+    "stone_of_skeletons":         pal(0x4E4A40, 0x787265, 0xA29A88, 0x2A2620, 0xE8E2C8, 0x948E6E),
+    # tier 20-45
+    "stone_of_zombies":           pal(0x26301F, 0x435930, 0x647A47, 0x17200F, 0x3DFF7E, 0x1B8A45),
+    "stone_of_the_parched":       pal(0x4E4636, 0x746A52, 0x9C9070, 0x28221A, 0xF0E0A0, 0xA89858),
+    "stone_of_cave_spiders":      pal(0x2E3A38, 0x435754, 0x5F7A75, 0x15201E, 0x4FE0C4, 0x2A8A76),
+    "stone_of_the_drowned":       pal(0x2C3E44, 0x40606A, 0x5C8894, 0x14242A, 0x62D8E8, 0x2E7E8E),
+    "stone_of_zombie_nautiluses": pal(0x2A3A36, 0x3E5650, 0x587670, 0x121E1B, 0xE0A8C0, 0x8E5876),
+    "stone_of_husks":             pal(0x4A4030, 0x6E5F45, 0x94805F, 0x261F14, 0xE8C468, 0x94793A),
+    "stone_of_strays":            pal(0x3C4450, 0x56626F, 0x7A8896, 0x1E242C, 0xB8E8F0, 0x5E8FA6),
+    "stone_of_the_bogged":        pal(0x34382A, 0x4C543C, 0x687252, 0x191D12, 0x8FA63C, 0x4F5E20),
+    "stone_of_camel_husks":       pal(0x483A2C, 0x6A5640, 0x8E7458, 0x241C12, 0xD8A868, 0x8E6830),
+    # tier 50-65
+    "stone_of_creepers":          pal(0x3E4A3A, 0x566853, 0x748A6F, 0x1E2419, 0xF0F4E0, 0x8A9478),
+    "stone_of_piglins":           pal(0x4A2E2A, 0x6E4239, 0x8E5A4C, 0x26120E, 0xF0C048, 0x9E7820),
+    "stone_of_witches":           pal(0x3A2C3E, 0x554060, 0x74587E, 0x1C1220, 0xE060D0, 0x8A3480),
+    "stone_of_breezes":           pal(0x3A3E4E, 0x525A70, 0x707A94, 0x1A1E28, 0xB8C4F8, 0x6A7AA8),
+    "stone_of_slimes":            pal(0x3A4A34, 0x52684A, 0x6E8A62, 0x1C2618, 0x8EE85E, 0x4A9430),
+    "stone_of_hoglins":           pal(0x4A332E, 0x6E4A40, 0x926355, 0x261510, 0xF09858, 0xA05A28),
+    "stone_of_phantoms":          pal(0x2E3248, 0x424866, 0x5C648A, 0x141728, 0x96F0A8, 0x46945C),
+    "stone_of_zombified_piglins": pal(0x44322E, 0x5E4A42, 0x7A6154, 0x221512, 0xE8D890, 0x8E824A),
+    # tier 70-80
+    "stone_of_endermen":          pal(0x241C2C, 0x362A42, 0x4A3A5A, 0x100A16, 0xD24AF0, 0x7C24A0),
+    "stone_of_magma_cubes":       pal(0x2E1E1A, 0x46302A, 0x5E443A, 0x140C0A, 0xFF8830, 0xA84A10),
+    "stone_of_pillagers":         pal(0x3A3E3A, 0x545954, 0x707670, 0x1C1E1C, 0x48B8A8, 0x247E70),
+    "stone_of_blazes":            pal(0x3A2E20, 0x564430, 0x745C40, 0x1A130C, 0xFFD838, 0xB08608),
+    "stone_of_vindicators":       pal(0x3E3830, 0x5A5248, 0x7A7062, 0x1E1A14, 0xC8CCD8, 0x787E8E),
+    "stone_of_ghasts":            pal(0x4E4A4A, 0x787070, 0xA09898, 0x282424, 0xF06060, 0x942E2E),
+    # tier 85-95
+    "stone_of_vexes":             pal(0x3E4450, 0x5A6274, 0x7A8498, 0x1E222A, 0x8CB4E8, 0x5678A8),
+    "stone_of_wither_skeletons":  pal(0x26262A, 0x3A3A40, 0x525258, 0x0E0E12, 0xD8D8E0, 0x76767E),
+    "stone_of_shulkers":          pal(0x463A4E, 0x645472, 0x857495, 0x221A28, 0xE8C8F8, 0x9A6EB8),
+    "stone_of_evokers":           pal(0x34343C, 0x4C4C58, 0x686876, 0x18181E, 0xFFE070, 0xB89428),
+    "stone_of_piglin_brutes":     pal(0x3E2622, 0x5E3A32, 0x7E4E42, 0x1E0F0C, 0xFFB020, 0xA86A00),
+    "stone_of_ravagers":          pal(0x3C3630, 0x58504A, 0x766A60, 0x1C1815, 0xE84848, 0x8E2020),
 }
 
 

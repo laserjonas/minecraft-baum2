@@ -1139,6 +1139,64 @@ now), and the previously "reserved" Fused Stone Pale highlight is finally in use
   Textures are pixel-art at 2 px per model unit (~250x182 atlas), same placeholder tier as
   the other GeckoLib bosses' generated atlases.
 
+### 13.6 One stone per vanilla monster (2026-07-09) — the full stone ladder
+
+The template proved itself immediately: the stone family was expanded from 2 to **33 stones —
+one per normal vanilla hostile monster** (bosses and a few broken-on-land/unused mobs
+excluded; full roster + exclusion reasoning in `registry/FallenCometStones.java`'s javadoc),
+on a difficulty ladder in 5-level steps (levels 5-95, two stones per tier from level 20 up).
+Every stone uses the Section 13.5 geometry/idle animation unchanged; each has only its own
+palette (Section 13.7) and texture. Visual-consistency rule: this is deliberately ONE visual
+family — the Section 1.2 "bespoke palette per boss" rule is applied *within* a fixed 6-role
+template (rock triplet, fissure, glow pair), so 33 stones read as one coherent system with a
+per-monster color accent, not 33 unrelated designs.
+
+### 13.7 Stone palette table (all 33, pinned)
+
+Roles per row: rock shadow/mid/pale, fissure, glow core, glow dim — same painting treatment
+for every stone (`tools/gen_fallen_comet_stone.py` is the single source of truth; this table
+mirrors it). Rock family is tinted toward the monster's body color, glow toward its most
+recognizable accent. **Known, accepted crowding**: several glow hues are near-neighbors
+(three pale blues: Strays/Breezes/Vexes; several greens: Zombies/Slimes/Bogged/Creepers/
+Phantoms; two golds: Piglins/Evokers/Piglin Brutes) — the rock tint is the primary
+differentiator there, acceptable at placeholder tier and flagged for any future real-art pass.
+
+| Stone | Rock (shadow/mid/pale) | Fissure | Glow (core/dim) |
+|---|---|---|---|
+| Silverfish | `4A4A52` `6E6E78` `92929E` | `26262C` | `C8D4E8` / `6E7A94` |
+| Endermites | `3A2E44` `54425F` `6F5A7E` | `1E1426` | `C77FE8` / `7B3FA0` |
+| Spiders (13.3) | `3A362E` `5C574A` `7A7566` | `2A251C` | `C4E064` / `6E8A2E` |
+| Skeletons | `4E4A40` `787265` `A29A88` | `2A2620` | `E8E2C8` / `948E6E` |
+| Zombies (15.2) | `26301F` `435930` `647A47` | `17200F` | `3DFF7E` / `1B8A45` |
+| The Parched | `4E4636` `746A52` `9C9070` | `28221A` | `F0E0A0` / `A89858` |
+| Cave Spiders | `2E3A38` `435754` `5F7A75` | `15201E` | `4FE0C4` / `2A8A76` |
+| The Drowned | `2C3E44` `40606A` `5C8894` | `14242A` | `62D8E8` / `2E7E8E` |
+| Zombie Nautiluses | `2A3A36` `3E5650` `587670` | `121E1B` | `E0A8C0` / `8E5876` |
+| Husks | `4A4030` `6E5F45` `94805F` | `261F14` | `E8C468` / `94793A` |
+| Strays | `3C4450` `56626F` `7A8896` | `1E242C` | `B8E8F0` / `5E8FA6` |
+| The Bogged | `34382A` `4C543C` `687252` | `191D12` | `8FA63C` / `4F5E20` |
+| Camel Husks | `483A2C` `6A5640` `8E7458` | `241C12` | `D8A868` / `8E6830` |
+| Creepers | `3E4A3A` `566853` `748A6F` | `1E2419` | `F0F4E0` / `8A9478` |
+| Piglins | `4A2E2A` `6E4239` `8E5A4C` | `26120E` | `F0C048` / `9E7820` |
+| Witches | `3A2C3E` `554060` `74587E` | `1C1220` | `E060D0` / `8A3480` |
+| Breezes | `3A3E4E` `525A70` `707A94` | `1A1E28` | `B8C4F8` / `6A7AA8` |
+| Slimes | `3A4A34` `52684A` `6E8A62` | `1C2618` | `8EE85E` / `4A9430` |
+| Hoglins | `4A332E` `6E4A40` `926355` | `261510` | `F09858` / `A05A28` |
+| Phantoms | `2E3248` `424866` `5C648A` | `141728` | `96F0A8` / `46945C` |
+| Zombified Piglins | `44322E` `5E4A42` `7A6154` | `221512` | `E8D890` / `8E824A` |
+| Endermen | `241C2C` `362A42` `4A3A5A` | `100A16` | `D24AF0` / `7C24A0` |
+| Magma Cubes | `2E1E1A` `46302A` `5E443A` | `140C0A` | `FF8830` / `A84A10` |
+| Pillagers | `3A3E3A` `545954` `707670` | `1C1E1C` | `48B8A8` / `247E70` |
+| Blazes | `3A2E20` `564430` `745C40` | `1A130C` | `FFD838` / `B08608` |
+| Vindicators | `3E3830` `5A5248` `7A7062` | `1E1A14` | `C8CCD8` / `787E8E` |
+| Ghasts | `4E4A4A` `787070` `A09898` | `282424` | `F06060` / `942E2E` |
+| Vexes | `3E4450` `5A6274` `7A8498` | `1E222A` | `8CB4E8` / `5678A8` |
+| Wither Skeletons | `26262A` `3A3A40` `525258` | `0E0E12` | `D8D8E0` / `76767E` |
+| Shulkers | `463A4E` `645472` `857495` | `221A28` | `E8C8F8` / `9A6EB8` |
+| Evokers | `34343C` `4C4C58` `686876` | `18181E` | `FFE070` / `B89428` |
+| Piglin Brutes | `3E2622` `5E3A32` `7E4E42` | `1E0F0C` | `FFB020` / `A86A00` |
+| Ravagers | `3C3630` `58504A` `766A60` | `1C1815` | `E84848` / `8E2020` |
+
 ---
 
 ## 14. Weapon visual identity: "Gold Sword" (`baum2:gold_sword`)

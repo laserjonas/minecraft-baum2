@@ -13,8 +13,8 @@ the **GeckoLib migrations/reworks** (Spider Queen, Zombie Colossus, Drevathis, b
 mini-bosses remodeled as a shared "Fallen Comet Stone" template, and the 33-stone ladder) and
 — newest — **Heimgrund, the mod's starting dimension** (finite authored world, protected
 village hub, zone-tiered daylight monster spawns, respawning stone slots; see the "Heimgrund"
-section above). `master` is fast-forwarded to match this branch as of the Stone-ladder commit;
-Heimgrund is not merged to `master` yet. See "Last change" below for detail.
+section above). `master` is fast-forwarded to match this branch including the Heimgrund
+commit. See "Last change" below for detail.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly

@@ -1100,6 +1100,45 @@ source material was used.
   proves the UV layout and gives *something* to look at in-game, per this agent's own scope
   limits (a text-based agent doesn't fake detailed pixel art as final).
 
+### 13.5 "Fallen Comet Stone" rework (2026-07-09) — shared GeckoLib template, supersedes 13.1/13.2/13.4
+
+The cocoon-husk shape above was replaced per user direction ("more accurate, like a comet
+which has fallen down") with a shared **fallen comet stone** template used by every stone
+mini-boss — Sections 13.1, 13.2, and 13.4 above are kept for history only;
+`HulkingCocoonStoneEntityModel` is deleted. Section 13.3's palette **remains the ratified
+Stone of Spiders palette** — the rework changes shape, not color identity — with two role
+changes: the husk/silk roles (Cocoon Husk*/Spun Silk) are retired (the shape is pure rock
+now), and the previously "reserved" Fused Stone Pale highlight is finally in use.
+
+- **Shape concept (original design, not sourced from any game)**: a tall angular monolith
+  tilted ~23° off vertical with its lower end buried below ground level (the entity's
+  sub-ground cubes clip into the terrain and sell the impact), built from five staggered
+  cubes across three chained bones (`comet`/`comet_mid`/`comet_top`, each adding a small
+  extra bend so the column reads as one jagged crystal, not a stacked pyramid); a rubble/
+  crater ring plus two upturned rim slabs around the impact point; glowing energy veins up
+  the rock faces with heat pooling near the buried end; and three small glow-rimmed shards
+  that float around the stone. "Meteorite/comet monolith embedded in a crater" is a
+  genre-generic fantasy trope; every measurement, the crater layout, the vein painting, and
+  the palette are this project's own.
+- **Idle animation** (`animation.fallen_comet_stone.idle`, 12s seamless loop): the monolith
+  itself never moves (it's a crashed rock) — the three shards orbit it (parent `shards` bone,
+  one revolution per loop) while bobbing and self-spinning at staggered phases/speeds.
+- **Template contract** (how the next stone boss gets its skin): geometry and animation are
+  ONE shared pair of files for all stone bosses —
+  `assets/baum2/geckolib/models/entity/fallen_comet_stone.geo.json` +
+  `geckolib/animations/entity/fallen_comet_stone.animation.json` — resolved via
+  `FallenCometStoneGeoModel`'s `withAltModel`/`withAltAnimations`; only the texture is
+  per-entity (`textures/entity/<entity_name>.png`). A new stone needs: a 6-role palette
+  (ROCK_SHADOW/ROCK/ROCK_PALE/FISSURE/GLOW/GLOW_DIM) added to
+  `tools/gen_fallen_comet_stone.py`, a rerun of that script, and a renderer registration —
+  no new geometry, animation, model, or renderer classes. The generator reseeds its RNG per
+  palette so every variant's atlas layout is pixel-identical.
+- **Files**: generator `tools/gen_fallen_comet_stone.py` (geometry + animation + all stone
+  textures in one script); preview via
+  `python tools/render_geckolib_preview.py --model fallen_comet_stone --tex stone_of_spiders.png`.
+  Textures are pixel-art at 2 px per model unit (~250x182 atlas), same placeholder tier as
+  the other GeckoLib bosses' generated atlases.
+
 ---
 
 ## 14. Weapon visual identity: "Gold Sword" (`baum2:gold_sword`)
@@ -1271,6 +1310,17 @@ traced, extracted, or downloaded source material was used.
 - **No Java/model changes required** — confirmed the UV table above is pixel-identical to
   Section 13.4's, so `HulkingCocoonStoneEntityModel`'s existing `.uv(...)` calls line up with
   this new texture exactly as they do with `stone_of_spiders.png`.
+
+### 15.4 "Fallen Comet Stone" rework (2026-07-09) — same template as Section 13.5
+
+Stone of Zombies was reworked together with Stone of Spiders onto the shared fallen-comet-
+stone GeckoLib template — see Section 13.5 for the full shape/animation/template contract;
+Sections 15.1 and 15.3 above are history only. Section 15.2's "Toxic Bloom" palette remains
+the ratified identity (same role mapping as 13.5: husk/ooze roles retired, Blight Stone Pale
+now in use). Its texture is generated from the identical atlas layout as
+`stone_of_spiders.png` by the same `tools/gen_fallen_comet_stone.py` run, so the two stones
+stay reskins of one geometry exactly as before — just comet-shaped now. The entity's own
+client-side `LARGE_SMOKE` ambient particle loop is unchanged and now reads as impact smoke.
 
 ---
 

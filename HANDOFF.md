@@ -9,10 +9,10 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 This reflects `fischey_workbranch`, which fast-forward-merged `origin/master` (jonas's side —
 Skill System + Class Sub-specializations, "Class Overhaul v2," the Class-tab GUI follow-up, a
 Visual/Art Pass, and the mod's first custom `Block`, "Rissobelisk") and then, on top of that,
-this session's **GeckoLib migration** (Spider Queen rebuilt on GeckoLib — new bespoke geometry/
-animations for the leap attack, see "GeckoLib migration" section above for full detail; `master`
-is NOT yet fast-forwarded to include this latest work — see "Last change" below). See "Last
-change" below for detail on the merges and each feature pass.
+the **GeckoLib migrations/reworks** (Spider Queen, Zombie Colossus, Drevathis, and — newest —
+both stone mini-bosses remodeled as a shared "Fallen Comet Stone" template; see the rework
+sections above). `master` is fast-forwarded to match this branch as of the Fallen Comet Stone
+commit. See "Last change" below for detail on the merges and each feature pass.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -577,8 +577,9 @@ near-exact sibling of Stone of Spiders — reviewed here mainly for what's diffe
 
 - **Shared geometry refactor**: `StoneOfSpidersEntityModel` renamed to
   `HulkingCocoonStoneEntityModel` since both stone bosses share the exact same 7-cuboid
-  geometry — only the texture differs. Any future stone-shaped mini-boss should follow this
-  pattern.
+  geometry — only the texture differs. **Superseded 2026-07-09**: that class is deleted; the
+  shared model is now the GeckoLib "Fallen Comet Stone" template — see the rework section
+  below.
 - **Zombie waves**: same trigger math as Stone of Spiders, but each wave spawns 2 normal
   zombies + 1 baby zombie. Worst case still 30 total adds — flagged by `balance-reviewer` as a
   judgment call (HP/level ratio scaled consistently with Stone of Spiders, add-pressure per
@@ -600,6 +601,46 @@ near-exact sibling of Stone of Spiders — reviewed here mainly for what's diffe
 - Visual identity: `docs/visual-style-guide.md` Sections 15-16 — new "Toxic Bloom" palette,
   explicitly distinct from Stone of Spiders'.
 - Verified: build passes clean. **Not yet verified in an actual game session.**
+
+### Fallen Comet Stone rework (2026-07-09) — both stone bosses remodeled as a crashed comet, on GeckoLib, via one shared template
+
+User request: remodel Stone of Spiders/Stone of Zombies to look like "a comet which has
+fallen down," as a reusable template for future stones, using GeckoLib. (The user's visual
+reference was a Metin2 screenshot — the asset itself was NOT copied per the IP rules; only
+the generic "tilted crashed rock with a glowing impact aura" concept was kept, with a fully
+original design.) **Mechanics untouched** — both entities only gained the standard GeoEntity
+boilerplate (instance cache + one idle controller); waves/drops/immobility code is unchanged.
+
+- **New shape**: a ~3-block jagged monolith tilted ~23° with its lower end buried (sub-ground
+  cubes deliberately clip into the terrain — "embedded by impact"), crater rubble ring + two
+  upturned rim slabs, glowing energy veins with heat pooling near the buried end, and three
+  glow-rimmed shards that orbit/bob/self-spin in a 12s idle loop (a crashed rock can't walk;
+  the shards are what make it read alive). Full design + palette-role notes in
+  `docs/visual-style-guide.md` 13.5/15.4; both stones keep their ratified palettes (13.3
+  Fused Stone/Larval Glow, 15.2 Blight Stone/Plague Glow).
+- **Template contract** (adding a third stone boss later): ONE shared geometry+animation pair
+  (`assets/baum2/geckolib/{models,animations}/entity/fallen_comet_stone.*`) for all stones,
+  per-stone texture only. New stone = new 6-role palette in `tools/gen_fallen_comet_stone.py`
+  (regenerates all textures with a pixel-identical atlas layout, asserted in-script) + a
+  `FallenCometStoneEntityRenderer<>(context, "<entity_name>")` registration + the GeoEntity
+  boilerplate referencing `FallenCometStoneAnimations.IDLE`. No new
+  geometry/animation/model/renderer classes.
+- **Java**: new shared client classes `FallenCometStoneGeoModel` (uses `DefaultedGeoModel`'s
+  real `withAltModel`/`withAltAnimations` — confirmed against GeckoLib 5.4.5 sources — so the
+  model/animation paths point at the shared files while the texture stays per-entity by
+  convention), `FallenCometStoneEntityRenderer` (generic over `HostileEntity & GeoEntity`; no
+  `withScale`, geometry is authored at full size), `FallenCometStoneRenderState` (empty on
+  purpose, per the documented part-G crash), and main-side `FallenCometStoneAnimations` (the
+  shared idle `RawAnimation` constant, so a typo can't desync one stone). Deleted:
+  `HulkingCocoonStoneEntityModel`, `StoneOfSpidersEntityRenderer`,
+  `StoneOfZombiesEntityRenderer`; `Baum2Client`'s two `EntityModelLayerRegistry` calls are
+  gone (GeckoLib needs none). No head bone in the geometry on purpose — a rock must not track
+  the player.
+- **Verified**: `./gradlew build` passes; model/animation/both textures visually verified via
+  `tools/render_geckolib_preview.py` (shape, tilt, vein glow, shard orbit at t=0/3/6/9s, both
+  palettes). **Not yet verified in a live client** — same standing caveat as every renderer
+  change in this project (a GeckoLib render-state mistake only crashes at render time, not at
+  build time), so `/summon` both stones before trusting it; see "Next recommended step" 2.
 
 ### Spider Queen — first mobile boss, first armor set (`baum2:spider_queen`)
 
@@ -1280,6 +1321,23 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Fallen Comet Stone rework (2026-07-09) — both stone mini-bosses remodeled as a crashed
+comet on GeckoLib, via one shared reusable template.** User brief: "remodel these stones,
+make it more accurate like a comet which has fallen down; create a template stone; use
+GeckoLib; mechanics keep the same." Full detail in the "Fallen Comet Stone rework" section
+above and `docs/visual-style-guide.md` 13.5/15.4. Key facts: mechanics untouched (entities
+only gained GeoEntity boilerplate); one shared geo+idle-animation pair
+(`fallen_comet_stone.*`) for all stone bosses, per-stone texture only; new
+`tools/gen_fallen_comet_stone.py` generates geometry, animation, and every stone texture
+(pixel-identical atlas layout across palettes, asserted); old `HulkingCocoonStoneEntityModel`
++ both per-stone renderers deleted. Build passes; model/animation/both palettes
+preview-verified offline; **not yet seen in a live client** (a GeckoLib render-state mistake
+only crashes at render time) — `/summon` both stones, see "Next recommended step" 2. Merged
+to `master` as a fast-forward (no divergent work existed on the other side, so no
+merge-integration review was applicable).
+
+Previous change, kept for context:
+
 **Drevathis: complete rework (2026-07-07) — GeckoLib demon-lord model, new 4-skill kit,
 per-player storm passive, blade item rework.** User brief: total freedom to remodel; "a demon
 which is born to kill you, bigger than the player, black blade with dark smoke (also the
@@ -1874,6 +1932,11 @@ can't destroy it, XP is granted on destruction.
 2. **In-game verification of all five bosses** (none have been played, only built) — see each
    mob's own section above for its exact playtest checklist: `/summon baum2:stone_of_spiders`,
    `baum2:stone_of_zombies`, `baum2:spider_queen`, `baum2:zombie_colossus`, `baum2:drevathis`.
+   **Both stone bosses now render via the new GeckoLib fallen-comet-stone template
+   (2026-07-09, preview-verified only)** — when summoning them, additionally confirm: the
+   tilted comet + crater renders at all (a render-state mistake crashes only at render time),
+   the three shards orbit smoothly, the buried base doesn't z-fight badly on flat ground, and
+   each stone shows its own palette (chartreuse veins vs. toxic-green veins).
    Also **confirm combat actually feels right** on any mob — attack something and check
    damage/attack-speed/crits are happening, not just that nothing crashes — and confirm the new
    "Class" tab in `CharacterStatsScreen` and V/B spell-cast keybinds still work correctly

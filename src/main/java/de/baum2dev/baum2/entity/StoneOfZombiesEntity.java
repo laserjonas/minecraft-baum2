@@ -19,14 +19,20 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import de.baum2dev.baum2.registry.ModItems;
+import software.bernie.geckolib.animatable.GeoEntity;
+import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.animatable.manager.AnimatableManager;
+import software.bernie.geckolib.animation.AnimationController;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 /**
- * A stationary mini-boss: a giant cocoon stone (same shape/size as Stone of Spiders, see
- * HulkingCocoonStoneEntityModel) infested with zombies instead of spiders. Every 10% of max
- * health lost spawns a wave of 2 zombies + 1 baby zombie near itself; killing the stone kills
- * every zombie it has spawned so far. Drops a Poison Dagger on death.
+ * A stationary mini-boss: a fallen comet stone (same shared GeckoLib template as Stone of
+ * Spiders, see FallenCometStoneAnimations - only the texture differs) infested with zombies
+ * instead of spiders. Every 10% of max health lost spawns a wave of 2 zombies + 1 baby zombie
+ * near itself; killing the stone kills every zombie it has spawned so far. Drops a Poison
+ * Dagger on death.
  */
-public class StoneOfZombiesEntity extends HostileEntity implements MonsterLevelProvider {
+public class StoneOfZombiesEntity extends HostileEntity implements MonsterLevelProvider, GeoEntity {
     private static final int LEVEL = 20;
     private static final float HEALTH_STEP_RATIO = 0.10F;
     private static final int ZOMBIES_PER_WAVE = 2;
@@ -36,6 +42,8 @@ public class StoneOfZombiesEntity extends HostileEntity implements MonsterLevelP
 
     private int zombieWavesTriggered = 0;
     private final Set<UUID> spawnedZombieIds = new HashSet<>();
+
+    private final AnimatableInstanceCache geoCache = GeckoLibUtil.createInstanceCache(this);
 
     public StoneOfZombiesEntity(EntityType<? extends HostileEntity> entityType, World world) {
         super(entityType, world);
@@ -146,5 +154,16 @@ public class StoneOfZombiesEntity extends HostileEntity implements MonsterLevelP
     @Override
     public int getMonsterLevel() {
         return LEVEL;
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        controllers.add(new AnimationController<>("main", 0,
+                test -> test.setAndContinue(FallenCometStoneAnimations.IDLE)));
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return this.geoCache;
     }
 }

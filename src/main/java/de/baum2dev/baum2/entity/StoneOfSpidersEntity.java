@@ -18,13 +18,20 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import de.baum2dev.baum2.registry.ModItems;
+import software.bernie.geckolib.animatable.GeoEntity;
+import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.animatable.manager.AnimatableManager;
+import software.bernie.geckolib.animation.AnimationController;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 /**
- * A stationary mini-boss: a giant spider-egg cocoon that cannot move. Every time it loses
- * another 10% of its max health it spawns a wave of 3 spiders near itself; killing the stone
- * kills every spider it has spawned so far. Drops a Gold Sword on death.
+ * A stationary mini-boss: a fallen comet stone crawling with spider energy - it cannot move.
+ * Every time it loses another 10% of its max health it spawns a wave of 3 spiders near
+ * itself; killing the stone kills every spider it has spawned so far. Drops a Gold Sword on
+ * death. Rendered via the shared GeckoLib fallen-comet-stone template (one geometry/idle
+ * animation for every stone boss, per-stone texture - see FallenCometStoneAnimations).
  */
-public class StoneOfSpidersEntity extends HostileEntity implements MonsterLevelProvider {
+public class StoneOfSpidersEntity extends HostileEntity implements MonsterLevelProvider, GeoEntity {
     private static final int LEVEL = 10;
     private static final float HEALTH_STEP_RATIO = 0.10F;
     private static final int SPIDERS_PER_WAVE = 3;
@@ -33,6 +40,8 @@ public class StoneOfSpidersEntity extends HostileEntity implements MonsterLevelP
 
     private int spiderWavesTriggered = 0;
     private final Set<UUID> spawnedSpiderIds = new HashSet<>();
+
+    private final AnimatableInstanceCache geoCache = GeckoLibUtil.createInstanceCache(this);
 
     public StoneOfSpidersEntity(EntityType<? extends HostileEntity> entityType, World world) {
         super(entityType, world);
@@ -121,5 +130,16 @@ public class StoneOfSpidersEntity extends HostileEntity implements MonsterLevelP
     @Override
     public int getMonsterLevel() {
         return LEVEL;
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        controllers.add(new AnimationController<>("main", 0,
+                test -> test.setAndContinue(FallenCometStoneAnimations.IDLE)));
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return this.geoCache;
     }
 }

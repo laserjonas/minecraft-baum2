@@ -1,14 +1,11 @@
 package de.baum2dev.baum2;
 
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry;
 import net.minecraft.client.render.entity.EmptyEntityRenderer;
 import net.minecraft.client.render.entity.EntityRendererFactories;
 import de.baum2dev.baum2.entity.DrevathisEntityRenderer;
-import de.baum2dev.baum2.entity.HulkingCocoonStoneEntityModel;
+import de.baum2dev.baum2.entity.FallenCometStoneEntityRenderer;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
-import de.baum2dev.baum2.entity.StoneOfSpidersEntityRenderer;
-import de.baum2dev.baum2.entity.StoneOfZombiesEntityRenderer;
 import de.baum2dev.baum2.entity.ZombieColossusEntityRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.registry.ModEntities;
@@ -29,13 +26,13 @@ public class Baum2Client implements ClientModInitializer {
         SpellCastKeyBindings.register();
         MobNameplateHud.register();
 
-        EntityModelLayerRegistry.registerModelLayer(
-                StoneOfSpidersEntityRenderer.LAYER, HulkingCocoonStoneEntityModel::getTexturedModelData);
-        EntityRendererFactories.register(ModEntities.STONE_OF_SPIDERS, StoneOfSpidersEntityRenderer::new);
-
-        EntityModelLayerRegistry.registerModelLayer(
-                StoneOfZombiesEntityRenderer.LAYER, HulkingCocoonStoneEntityModel::getTexturedModelData);
-        EntityRendererFactories.register(ModEntities.STONE_OF_ZOMBIES, StoneOfZombiesEntityRenderer::new);
+        // Both stone mini-bosses share the GeckoLib fallen-comet-stone template (one
+        // geometry + idle animation, per-stone texture) - no model-layer registration
+        // needed, GeckoLib resolves its own assets (see docs/fabric-modding.md part D).
+        EntityRendererFactories.register(ModEntities.STONE_OF_SPIDERS,
+                context -> new FallenCometStoneEntityRenderer<>(context, "stone_of_spiders"));
+        EntityRendererFactories.register(ModEntities.STONE_OF_ZOMBIES,
+                context -> new FallenCometStoneEntityRenderer<>(context, "stone_of_zombies"));
 
         // GeckoLib-based renderer: no EntityModelLayerRegistry call needed (GeckoLib resolves
         // its own geo.json/animation.json/texture assets directly, see docs/fabric-modding.md's

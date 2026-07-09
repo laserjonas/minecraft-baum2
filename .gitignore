@@ -27,3 +27,6 @@ crash-reports/
 .env.*
 
 baum2_key*
+# Regenerable preview renders from tools/ scripts (gen_village.py, render_geckolib_preview.py)
+tools/preview*.png
+preview.png

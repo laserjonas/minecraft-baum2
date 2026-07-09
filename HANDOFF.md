@@ -1500,6 +1500,32 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Road network rework (2026-07-09, follow-up to the 4th playtest screenshot).** User: roads
+must never cross lakes (the ford still read as wrong — "just around the lake"), the network
+must cover the WHOLE map ("balanced"), and every road must end at a cave or a stone spot.
+Changes:
+1. **A*-routed roads** (`ZoneLayout.routeRoads()`, runs once at class init, fully
+   deterministic): every edge of the road network is routed on a 2-block grid around
+   obstacles — lakes (+4-block margin), the mountain ring (except the final approach to a
+   cave POI), and the village interior. Fords are REMOVED: a road geometrically cannot touch
+   water anymore. Routed segments are chunk-bucketed (same trick as the cave spheres) so the
+   per-column isPath test stays cheap during generation.
+2. **Balanced 6-POI ring network**: stone hot spot (S), west stone cluster (SW), NEW west
+   grand cave mouth (W, second carveTunnel), NEW north stone cluster (N, forced meadow),
+   desert pocket (NE), east grand cave mouth (E) — connected as a CLOSED loop around the map
+   (incl. an SE edge; without it the ring was a C-shape) plus the two village-gate spokes.
+   Every edge terminates at a cave or stone POI (user rule). Slot table stays 30: rings
+   5+3+3 silverfish + 3 zombies, scattered 7 silverfish + 9 zombies.
+3. **`world/MapExporter.java` (new dev tool) + `/baum2 world map` (op)**: renders the whole
+   authored layout (zones/roads/POIs/beaches, mountains height-shaded) to heimgrund_map.png
+   from pure ZoneLayout math — THE way to sanity-check map changes now; both the open-C
+   problem and the routed-around-lakes behavior were caught/confirmed on the rendered map
+   before any client session.
+Verified: build passes; fresh world boots; 30 slots; exported map confirms roads avoid all
+water, ring closes, all six POIs connected. In-client: walk a road end-to-end next session.
+
+Previous change, same day:
+
 **Ford/branch/shore fixes (2026-07-09, follow-up to the 3rd playtest screenshot).** The
 previous pass's path-through-lake handling produced a walled dirt DAM towering over the water
 (the dry corridor kept full meadow height), and the uniform beach easing left 1-2-block

@@ -251,11 +251,13 @@ public final class StoneSlotManager {
     private static List<StoneSlot> generateSlots() {
         Random random = Random.create(ZoneLayout.FIXED_SEED ^ 0x57_0E5L);
         List<StoneSlot> slots = new ArrayList<>();
-        // The three path destinations get deliberate stone rings; the rest is scattered.
+        // The stone-POI destinations of the road network get deliberate rings; the rest
+        // is scattered between the roads.
         ring(slots, "stone_of_silverfish", ZoneLayout.STONE_HOTSPOT_X, ZoneLayout.STONE_HOTSPOT_Z, 5, 16);
         ring(slots, "stone_of_silverfish", ZoneLayout.WEST_CLUSTER_X, ZoneLayout.WEST_CLUSTER_Z, 3, 14);
+        ring(slots, "stone_of_silverfish", ZoneLayout.NORTH_CLUSTER_X, ZoneLayout.NORTH_CLUSTER_Z, 3, 14);
         ring(slots, "stone_of_zombies", ZoneLayout.DESERT_POCKET_X, ZoneLayout.DESERT_POCKET_Z, 3, 14);
-        scatter(slots, random, "stone_of_silverfish", 10, ZoneLayout.Zone.MEADOW);
+        scatter(slots, random, "stone_of_silverfish", 7, ZoneLayout.Zone.MEADOW);
         scatter(slots, random, "stone_of_zombies", 9, ZoneLayout.Zone.DESERT);
         return List.copyOf(slots);
     }

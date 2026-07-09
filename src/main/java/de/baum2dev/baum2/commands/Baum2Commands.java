@@ -40,6 +40,7 @@ import de.baum2dev.baum2.progression.PlayerProgressData;
 import de.baum2dev.baum2.skills.Spell;
 import de.baum2dev.baum2.skills.SpellCaster;
 import de.baum2dev.baum2.world.Baum2WorldKeys;
+import de.baum2dev.baum2.world.MapExporter;
 import de.baum2dev.baum2.world.StoneSlotManager;
 
 public class Baum2Commands {
@@ -123,6 +124,9 @@ public class Baum2Commands {
                             context.getSource(),
                             context.getSource().getPlayer()
                         ))
+                    )
+                    .then(CommandManager.literal("map")
+                        .executes(context -> worldMapCommand(context.getSource()))
                     )
                 )
                 .then(CommandManager.literal("stones")
@@ -461,6 +465,18 @@ public class Baum2Commands {
     }
 
     private static final int TILE_SIZE = 48;
+
+    /** Renders the authored map layout (zones/roads/POIs) to heimgrund_map.png - dev tool. */
+    private static int worldMapCommand(ServerCommandSource source) {
+        try {
+            java.io.File out = MapExporter.export(new java.io.File("."));
+            source.sendFeedback(() -> Text.literal("Wrote " + out.getAbsolutePath()), true);
+            return 1;
+        } catch (java.io.IOException e) {
+            source.sendError(Text.literal("Map export failed: " + e.getMessage()));
+            return 0;
+        }
+    }
 
     /** Debug view of the Heimgrund stone-slot table (position, state, respawn countdown). */
     private static int stonesListCommand(ServerCommandSource source) {

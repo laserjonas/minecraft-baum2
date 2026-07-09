@@ -101,25 +101,63 @@ public final class ZoneLayout {
     public static final int DESERT_POCKET_RADIUS = 30;
     public static final int DESERT_POCKET_APRON_RADIUS = 8;
 
-    /** Main routes from the village gates + branches that fork off them (user request). */
-    private static final int[][] SOUTH_PATH = {{0, 23}, {12, 120}, {STONE_HOTSPOT_X, STONE_HOTSPOT_Z}};
-    private static final int[][] EAST_PATH = {{23, 0}, {130, -12}, {260, 8}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}};
-    private static final int[][] WEST_BRANCH = {{12, 120}, {-60, 150}, {WEST_CLUSTER_X, WEST_CLUSTER_Z}};
-    private static final int[][] DESERT_BRANCH = {{130, -12}, {185, -80}, {DESERT_POCKET_X, DESERT_POCKET_Z}};
-    private static final int[][][] ALL_PATHS = {SOUTH_PATH, EAST_PATH, WEST_BRANCH, DESERT_BRANCH};
-    private static final double PATH_HALF_WIDTH = 1.6;
-    /** Wider dry corridor around a path where it crosses a would-be lake (the ford margin). */
-    private static final double PATH_LAKE_CLEAR_WIDTH = 3.5;
+    /** New (4th playtest): a second stone cluster due north, balancing the compass. */
+    public static final int NORTH_CLUSTER_X = -40;
+    public static final int NORTH_CLUSTER_Z = -240;
+    public static final int NORTH_CLUSTER_CLEAR_RADIUS = 24;
+    public static final int NORTH_CLUSTER_APRON_RADIUS = 8;
 
-    /** True if (x,z) lies on one of the authored pathways (mains or branches). */
+    /** New (4th playtest): a second grand cave mouth due west, balancing the east one. */
+    public static final int WEST_CAVE_X = -378;
+    public static final int WEST_CAVE_Z = -30;
+    public static final int WEST_CAVE_APRON_RADIUS = 10;
+
+    /**
+     * The road NETWORK (4th playtest: paths must cover the whole map, never cross water,
+     * and every road must end at a cave or a stone spot). Edges connect the six POIs into
+     * a ring around the map plus the two village-gate spokes; each edge is ROUTED around
+     * lakes at class-init time by A* over the deterministic terrain (2-block grid, lakes
+     * with margin and the mountain ring as obstacles), so no path ever enters water.
+     */
+    private static final int[][][] ROAD_EDGES = {
+            // village gates -> nearest POI
+            {{0, 24}, {STONE_HOTSPOT_X, STONE_HOTSPOT_Z}},           // south gate -> stone hot spot
+            {{24, 0}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},             // east gate -> east cave
+            // the ring road, POI to POI around the compass
+            {{STONE_HOTSPOT_X, STONE_HOTSPOT_Z}, {WEST_CLUSTER_X, WEST_CLUSTER_Z}},
+            {{WEST_CLUSTER_X, WEST_CLUSTER_Z}, {WEST_CAVE_X, WEST_CAVE_Z}},
+            {{WEST_CLUSTER_X, WEST_CLUSTER_Z}, {NORTH_CLUSTER_X, NORTH_CLUSTER_Z}},
+            {{NORTH_CLUSTER_X, NORTH_CLUSTER_Z}, {DESERT_POCKET_X, DESERT_POCKET_Z}},
+            {{DESERT_POCKET_X, DESERT_POCKET_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
+            {{DESERT_POCKET_X, DESERT_POCKET_Z}, {24, 0}},           // pocket also links to the east spoke
+            // closes the ring through the southeast quadrant (it was a C-shape without this)
+            {{STONE_HOTSPOT_X, STONE_HOTSPOT_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
+    };
+    private static final double PATH_HALF_WIDTH = 1.6;
+    private static final int ROUTE_GRID_STEP = 2;
+    /** Routed roads keep this far from water and other obstacles. */
+    private static final int ROUTE_OBSTACLE_MARGIN = 4;
+
+    /** Routed road segments bucketed by chunk (same trick as the cave spheres). */
+    private static final java.util.Map<Long, java.util.List<double[]>> ROADS_BY_CHUNK = routeRoads();
+
+    /** True if (x,z) lies on one of the routed roads. */
     public static boolean isPath(int x, int z) {
         return pathDistance(x, z) <= PATH_HALF_WIDTH;
     }
 
     private static double pathDistance(int x, int z) {
         double best = Double.MAX_VALUE;
-        for (int[][] path : ALL_PATHS) {
-            best = Math.min(best, distanceToPolyline(path, x, z));
+        for (int chunkX = (x - 8) >> 4; chunkX <= (x + 8) >> 4; chunkX++) {
+            for (int chunkZ = (z - 8) >> 4; chunkZ <= (z + 8) >> 4; chunkZ++) {
+                java.util.List<double[]> segments = ROADS_BY_CHUNK.get(chunkKey(chunkX, chunkZ));
+                if (segments == null) {
+                    continue;
+                }
+                for (double[] seg : segments) {
+                    best = Math.min(best, distanceToSegment(x, z, seg[0], seg[1], seg[2], seg[3]));
+                }
+            }
         }
         return best;
     }
@@ -133,7 +171,166 @@ public final class ZoneLayout {
                 || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
                 <= WEST_CLUSTER_APRON_RADIUS * WEST_CLUSTER_APRON_RADIUS
                 || sqDist(x, z, DESERT_POCKET_X, DESERT_POCKET_Z)
-                <= DESERT_POCKET_APRON_RADIUS * DESERT_POCKET_APRON_RADIUS;
+                <= DESERT_POCKET_APRON_RADIUS * DESERT_POCKET_APRON_RADIUS
+                || sqDist(x, z, NORTH_CLUSTER_X, NORTH_CLUSTER_Z)
+                <= NORTH_CLUSTER_APRON_RADIUS * NORTH_CLUSTER_APRON_RADIUS
+                || sqDist(x, z, WEST_CAVE_X, WEST_CAVE_Z)
+                <= WEST_CAVE_APRON_RADIUS * WEST_CAVE_APRON_RADIUS;
+    }
+
+    // --- Road routing (A*, runs once at class init; fully deterministic) -----------------
+
+    private static java.util.Map<Long, java.util.List<double[]>> routeRoads() {
+        java.util.Map<Long, java.util.List<double[]>> byChunk = new java.util.HashMap<>();
+        for (int[][] edge : ROAD_EDGES) {
+            java.util.List<int[]> route = routeEdge(edge[0], edge[1]);
+            for (int i = 0; i < route.size() - 1; i++) {
+                addRoadSegment(byChunk, route.get(i), route.get(i + 1));
+            }
+        }
+        return byChunk;
+    }
+
+    private static void addRoadSegment(java.util.Map<Long, java.util.List<double[]>> byChunk,
+            int[] a, int[] b) {
+        double[] seg = {a[0], a[1], b[0], b[1]};
+        int minChunkX = (Math.min(a[0], b[0]) - 8) >> 4;
+        int maxChunkX = (Math.max(a[0], b[0]) + 8) >> 4;
+        int minChunkZ = (Math.min(a[1], b[1]) - 8) >> 4;
+        int maxChunkZ = (Math.max(a[1], b[1]) + 8) >> 4;
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                byChunk.computeIfAbsent(chunkKey(chunkX, chunkZ), key -> new java.util.ArrayList<>())
+                        .add(seg);
+            }
+        }
+    }
+
+    /** A* on a 2-block grid; lakes (+margin) and the mountain ring are obstacles. */
+    private static java.util.List<int[]> routeEdge(int[] from, int[] to) {
+        long start = nodeKey(Math.floorDiv(from[0], ROUTE_GRID_STEP), Math.floorDiv(from[1], ROUTE_GRID_STEP));
+        int goalX = Math.floorDiv(to[0], ROUTE_GRID_STEP);
+        int goalZ = Math.floorDiv(to[1], ROUTE_GRID_STEP);
+        long goal = nodeKey(goalX, goalZ);
+
+        java.util.Map<Long, Long> cameFrom = new java.util.HashMap<>();
+        java.util.Map<Long, Double> gScore = new java.util.HashMap<>();
+        java.util.Set<Long> closed = new java.util.HashSet<>();
+        // Entries: {fScore, nodeKeyAsDouble-safe via index} - store key in a parallel long
+        // via ordering trick: use double[]{f, keyHigh, keyLow} to stay allocation-simple.
+        java.util.PriorityQueue<long[]> open = new java.util.PriorityQueue<>(
+                java.util.Comparator.comparingLong(entry -> entry[0]));
+        gScore.put(start, 0.0);
+        open.add(new long[]{0L, start});
+
+        while (!open.isEmpty()) {
+            long current = open.poll()[1];
+            if (!closed.add(current)) {
+                continue;  // stale queue entry
+            }
+            if (current == goal) {
+                return reconstruct(cameFrom, current);
+            }
+            int cx = nodeX(current);
+            int cz = nodeZ(current);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dz == 0) {
+                        continue;
+                    }
+                    long next = nodeKey(cx + dx, cz + dz);
+                    if (closed.contains(next)
+                            || routeBlocked((cx + dx) * ROUTE_GRID_STEP, (cz + dz) * ROUTE_GRID_STEP, to)) {
+                        continue;
+                    }
+                    double tentative = gScore.get(current) + Math.hypot(dx, dz);
+                    if (tentative < gScore.getOrDefault(next, Double.MAX_VALUE)) {
+                        gScore.put(next, tentative);
+                        cameFrom.put(next, current);
+                        double f = tentative + Math.hypot(cx + dx - goalX, cz + dz - goalZ);
+                        // scale f to a long for a stable comparator (µ-block precision)
+                        open.add(new long[]{(long) (f * 1000.0), next});
+                    }
+                }
+            }
+        }
+        // Should never happen on this map; a straight line beats a missing road.
+        return java.util.List.of(from, to);
+    }
+
+    private static long nodeKey(int x, int z) {
+        return ((long) x << 32) ^ (z & 0xFFFFFFFFL);
+    }
+
+    private static int nodeX(long key) {
+        return (int) (key >> 32);
+    }
+
+    private static int nodeZ(long key) {
+        return (int) ((key >> 32) << 32 ^ key);
+    }
+
+    private static java.util.List<int[]> reconstruct(java.util.Map<Long, Long> cameFrom, long end) {
+        java.util.ArrayList<int[]> points = new java.util.ArrayList<>();
+        Long current = end;
+        while (current != null) {
+            points.add(new int[]{nodeX(current) * ROUTE_GRID_STEP, nodeZ(current) * ROUTE_GRID_STEP});
+            current = cameFrom.get(current);
+        }
+        java.util.Collections.reverse(points);
+        return simplify(points);
+    }
+
+    /** Collapse collinear runs so the segment lists stay small. */
+    private static java.util.List<int[]> simplify(java.util.List<int[]> points) {
+        if (points.size() < 3) {
+            return points;
+        }
+        java.util.ArrayList<int[]> out = new java.util.ArrayList<>();
+        out.add(points.get(0));
+        for (int i = 1; i < points.size() - 1; i++) {
+            int[] prev = out.get(out.size() - 1);
+            int[] here = points.get(i);
+            int[] next = points.get(i + 1);
+            int cross = (here[0] - prev[0]) * (next[1] - prev[1]) - (here[1] - prev[1]) * (next[0] - prev[0]);
+            if (cross != 0) {
+                out.add(here);
+            }
+        }
+        out.add(points.get(points.size() - 1));
+        return out;
+    }
+
+    private static boolean routeBlocked(int x, int z, int[] goal) {
+        double r = radius(x, z);
+        if (r > WORLD_RADIUS - 5) {
+            return true;
+        }
+        // Mountains are off-limits except the final approach to a cave-mouth POI.
+        if (r > MEADOW_OUTER_RADIUS - 2 && sqDist(x, z, goal[0], goal[1]) > 24 * 24) {
+            return true;
+        }
+        // Keep roads out of the village interior (they start at the gates).
+        if (r < 20) {
+            return true;
+        }
+        // Water plus a safety margin: sample the cell and its margin ring.
+        return lakeAtOrNear(x, z);
+    }
+
+    private static boolean lakeAtOrNear(int x, int z) {
+        return rawLake(x, z)
+                || rawLake(x + ROUTE_OBSTACLE_MARGIN, z) || rawLake(x - ROUTE_OBSTACLE_MARGIN, z)
+                || rawLake(x, z + ROUTE_OBSTACLE_MARGIN) || rawLake(x, z - ROUTE_OBSTACLE_MARGIN);
+    }
+
+    /** Lake test WITHOUT the path exclusion (used by routing, which must see all water). */
+    private static boolean rawLake(int x, int z) {
+        double r = radius(x, z);
+        if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
+            return false;
+        }
+        return lakeDepth(x, z) > 0.0;
     }
 
     private static double distanceToPolyline(int[][] points, int x, int z) {
@@ -186,16 +383,8 @@ public final class ZoneLayout {
         // Meadow shape is the baseline everything else blends against.
         double meadow = meadowHeight(x, z);
 
-        // A path crossing a would-be lake becomes a flat FORD exactly 1 above the water -
-        // not a dam: without this, the dry path corridor kept full meadow height and stood
-        // as a walled causeway over the water (3rd-playtest screenshot). Only where a lake
-        // would actually exist (lake band, not desert) - not wherever lake NOISE is high.
-        boolean ford = r >= CLEARING_BLEND_RADIUS && r < MEADOW_OUTER_RADIUS
-                && !isDesert(x, z, r) && lakeDepth(x, z) > 0.0
-                && pathDistance(x, z) <= PATH_LAKE_CLEAR_WIDTH;
-        if (ford) {
-            return SEA_LEVEL + 1;
-        }
+        // (Fords were removed after the 4th playtest: roads are A*-routed AROUND water at
+        // class-init, so a road never touches a lake in the first place.)
 
         // Shore easing (playtest feedback: lakes had cliff edges you couldn't climb out of).
         // Where the exit gate passes, terrain drops to water level (walk straight out);
@@ -262,15 +451,17 @@ public final class ZoneLayout {
 
     private static boolean isLake(int x, int z, double r) {
         // Lakes only in the open meadow band (not in the clearing blend, not in deserts,
-        // not in the mountains) - and never on a ford corridor or a stone-POI clearing.
+        // not in the mountains) - and never on a stone-POI clearing. Roads need no
+        // exclusion: they are routed around water and can't touch it.
         if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
             return false;
         }
-        if (pathDistance(x, z) <= PATH_LAKE_CLEAR_WIDTH
-                || sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
+        if (sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
                         <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS
                 || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
-                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS) {
+                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS
+                || sqDist(x, z, NORTH_CLUSTER_X, NORTH_CLUSTER_Z)
+                        <= (long) NORTH_CLUSTER_CLEAR_RADIUS * NORTH_CLUSTER_CLEAR_RADIUS) {
             return false;
         }
         return lakeDepth(x, z) > 0.0;
@@ -325,7 +516,9 @@ public final class ZoneLayout {
         if (sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
                 <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS
                 || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
-                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS) {
+                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS
+                || sqDist(x, z, NORTH_CLUSTER_X, NORTH_CLUSTER_Z)
+                        <= (long) NORTH_CLUSTER_CLEAR_RADIUS * NORTH_CLUSTER_CLEAR_RADIUS) {
             return false;
         }
         return DESERT_NOISE.sample(x * 0.006, 0.0, z * 0.006) > 0.5;
@@ -358,12 +551,15 @@ public final class ZoneLayout {
         Random random = Random.create(FIXED_SEED ^ 0xCA7E5L);
         java.util.Map<Long, java.util.List<CaveSphere>> byChunk = new java.util.HashMap<>();
 
-        // The "grand mouth" at the cave hot spot: a guaranteed, extra-wide entrance exactly
-        // where the east pathway meets the mountain foot, so the path visibly leads INTO
-        // the mountain. Bored first so the ordinary tunnels can't crowd it out.
+        // The "grand mouths" at the two cave hot spots: guaranteed, extra-wide entrances
+        // exactly where the road network meets the mountain foot, so a road visibly leads
+        // INTO the mountain. Bored first so the ordinary tunnels can't crowd them out.
         carveTunnel(byChunk, random,
                 CAVE_HOTSPOT_X + 6, surfaceHeight(CAVE_HOTSPOT_X + 6, CAVE_HOTSPOT_Z) + 2.0,
                 CAVE_HOTSPOT_Z, 0.0, 3.4, 120);
+        carveTunnel(byChunk, random,
+                WEST_CAVE_X - 6, surfaceHeight(WEST_CAVE_X - 6, WEST_CAVE_Z) + 2.0,
+                WEST_CAVE_Z, Math.PI, 3.4, 120);
 
         for (int i = 0; i < CAVE_COUNT; i++) {
             // Spread the mouths around the ring, with some jitter so it doesn't look dialed.

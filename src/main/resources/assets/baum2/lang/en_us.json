@@ -48,5 +48,9 @@
   "item.baum2.risssplitter": "Risssplitter",
   "entity.baum2.drevathis": "Drevathis",
   "entity.baum2.dark_wave": "Dark Wave",
-  "item.baum2.drevathis_cursed_blade": "Drevathis's Cursed Blade"
+  "item.baum2.drevathis_cursed_blade": "Drevathis's Cursed Blade",
+  "biome.baum2.dorfanger": "Dorfanger",
+  "biome.baum2.lichtwiese": "Lichtwiese",
+  "biome.baum2.doerrsand": "Dörrsand",
+  "biome.baum2.felskranz": "Felskranz"
 }

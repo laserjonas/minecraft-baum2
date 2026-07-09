@@ -1,0 +1,90 @@
+package de.baum2dev.baum2.world;
+
+import com.mojang.serialization.Codec;
+import java.util.List;
+import java.util.Optional;
+import net.fabricmc.fabric.api.attachment.v1.AttachmentRegistry;
+import net.fabricmc.fabric.api.attachment.v1.AttachmentType;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.block.Block;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.structure.StructurePlacementData;
+import net.minecraft.structure.StructureTemplate;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
+import de.baum2dev.baum2.Baum2;
+
+/**
+ * Stamps the hand-built village templates into Heimgrund's clearing exactly once per
+ * world (guarded by a persistent world attachment), on the world's first tick - not in
+ * the LOAD event, because block placement may need to sync-load the center chunks and
+ * the chunk system is only fully live once ticking starts.
+ *
+ * <p>The intended workflow for the real village: build it in creative in a Heimgrund
+ * world (creative bypasses the protection), capture it with
+ * {@code /baum2 structure save <name> <from> <to>} (auto-tiles past the 48-block template
+ * limit), copy the reported .nbt files from the world's {@code generated/baum2/structure/}
+ * folder into {@code src/main/resources/data/baum2/structure/}, and list each tile here in
+ * {@link #TEMPLATES}. A missing template logs a warning and is skipped - never a crash -
+ * so a half-finished village build can't brick the world.
+ */
+public final class VillageStamper {
+
+    /** A template and the absolute position its min corner is placed at. */
+    private record TemplatePlacement(Identifier template, BlockPos origin) {
+    }
+
+    /**
+     * The village build. The placeholder is a small plaza marking the center until the
+     * real hand-built village replaces this table's entries.
+     */
+    private static final List<TemplatePlacement> TEMPLATES = List.of(
+            new TemplatePlacement(
+                    Identifier.of("baum2", "village_placeholder"),
+                    new BlockPos(-4, ZoneLayout.CLEARING_SURFACE_Y, -4))
+    );
+
+    /** True once the village has been stamped into this world. */
+    private static final AttachmentType<Boolean> VILLAGE_STAMPED = AttachmentRegistry.create(
+            Identifier.of("baum2", "village_stamped"),
+            builder -> builder.persistent(Codec.BOOL)
+    );
+
+    /** No-op force-load; see PlayerLevelSystem.bootstrap() for why every AttachmentType holder needs one. */
+    public static void bootstrap() {
+    }
+
+    public static void registerEvents() {
+        ServerTickEvents.END_WORLD_TICK.register(world -> {
+            if (!Baum2WorldKeys.isHeimgrund(world)
+                    || Boolean.TRUE.equals(world.getAttached(VILLAGE_STAMPED))) {
+                return;
+            }
+            world.setAttached(VILLAGE_STAMPED, true);
+            stamp(world);
+        });
+    }
+
+    private static void stamp(ServerWorld world) {
+        for (TemplatePlacement placement : TEMPLATES) {
+            Optional<StructureTemplate> template =
+                    world.getStructureTemplateManager().getTemplate(placement.template());
+            if (template.isEmpty()) {
+                Baum2.LOGGER.warn("Village template {} is missing - skipping its stamp", placement.template());
+                continue;
+            }
+            template.get().place(
+                    world,
+                    placement.origin(),
+                    placement.origin(),
+                    new StructurePlacementData(),
+                    world.getRandom(),
+                    Block.NOTIFY_LISTENERS
+            );
+            Baum2.LOGGER.info("Stamped village template {} at {}", placement.template(), placement.origin());
+        }
+    }
+
+    private VillageStamper() {
+    }
+}

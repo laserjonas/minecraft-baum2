@@ -1,0 +1,13 @@
+{
+  "type": "baum2:heimgrund",
+  "generator": {
+    "type": "baum2:heimgrund",
+    "biome_source": {
+      "type": "baum2:heimgrund",
+      "clearing": "baum2:dorfanger",
+      "meadow": "baum2:lichtwiese",
+      "desert": "baum2:doerrsand",
+      "mountain": "baum2:felskranz"
+    }
+  }
+}

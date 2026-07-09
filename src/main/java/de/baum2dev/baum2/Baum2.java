@@ -21,6 +21,12 @@ import de.baum2dev.baum2.registry.ModBlocks;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.registry.ModItems;
 import de.baum2dev.baum2.skills.DelayedSpellEffectScheduler;
+import de.baum2dev.baum2.world.ModWorldgen;
+import de.baum2dev.baum2.world.PlayerStartHandler;
+import de.baum2dev.baum2.world.StoneSlotManager;
+import de.baum2dev.baum2.world.VillageStamper;
+import de.baum2dev.baum2.world.WorldProtectionHandler;
+import de.baum2dev.baum2.world.WorldSetupHandler;
 
 public class Baum2 implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("baum2");
@@ -32,10 +38,17 @@ public class Baum2 implements ModInitializer {
         // Must run first: registers the progression AttachmentType before any player can
         // possibly join and have their saved data deserialized. See PlayerLevelSystem.bootstrap().
         PlayerLevelSystem.bootstrap();
+        PlayerStartHandler.bootstrap();
+        VillageStamper.bootstrap();
+        StoneSlotManager.bootstrap();
 
         // Must run before any player can join: widens vanilla's max-health clamp so the Life
         // formula (up to 1500 at level 100) isn't silently capped at vanilla's default 1024.
         VitalsManager.widenMaxHealthCeiling();
+
+        // Must run before any world is loaded: data/baum2/dimension/heimgrund.json references
+        // the baum2:heimgrund chunk-generator codec, which has to be registered first.
+        ModWorldgen.bootstrap();
 
         ModEntities.bootstrap();
         ModEntities.registerAttributes();
@@ -58,6 +71,11 @@ public class Baum2 implements ModInitializer {
         BurnDamageManager.registerEvents();
         DelayedSpellEffectScheduler.registerEvents();
         RissobeliskBlock.registerEvents();
+        PlayerStartHandler.registerEvents();
+        WorldSetupHandler.registerEvents();
+        WorldProtectionHandler.registerEvents();
+        VillageStamper.registerEvents();
+        StoneSlotManager.registerEvents();
 
         LOGGER.info("Baum2 progression system loaded");
     }

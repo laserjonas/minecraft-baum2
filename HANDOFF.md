@@ -9,10 +9,12 @@ session (yours or a co-author's) can pick up work without re-deriving context fr
 This reflects `fischey_workbranch`, which fast-forward-merged `origin/master` (jonas's side —
 Skill System + Class Sub-specializations, "Class Overhaul v2," the Class-tab GUI follow-up, a
 Visual/Art Pass, and the mod's first custom `Block`, "Rissobelisk") and then, on top of that,
-the **GeckoLib migrations/reworks** (Spider Queen, Zombie Colossus, Drevathis, and — newest —
-both stone mini-bosses remodeled as a shared "Fallen Comet Stone" template; see the rework
-sections above). `master` is fast-forwarded to match this branch as of the Fallen Comet Stone
-commit. See "Last change" below for detail on the merges and each feature pass.
+the **GeckoLib migrations/reworks** (Spider Queen, Zombie Colossus, Drevathis, both stone
+mini-bosses remodeled as a shared "Fallen Comet Stone" template, and the 33-stone ladder) and
+— newest — **Heimgrund, the mod's starting dimension** (finite authored world, protected
+village hub, zone-tiered daylight monster spawns, respawning stone slots; see the "Heimgrund"
+section above). `master` is fast-forwarded to match this branch as of the Stone-ladder commit;
+Heimgrund is not merged to `master` yet. See "Last change" below for detail.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -709,6 +711,91 @@ rebalance existing stones." Implemented as a **config-table system**, not 31 new
   preview-verified. **Same live-client caveat as the section above, now ×33** — spot-check
   several stones across tiers, not just the original two.
 
+### Heimgrund (2026-07-09) — the starting dimension: finite authored world, protected village hub, zone spawns, stone slots
+
+User brief: the game starts in another dimension — village hub at the center, wild low-tier
+monsters outside it (weakest nearest the village), stones spawning in matching monster zones
+(a stone only respawns when one is destroyed), grass/lakes/desert landscape (zombies,
+silverfish) plus mountains with caves (spiders), finite world ringed by impassable mountains,
+no block breaking/placing anywhere. User-confirmed decisions: Heimgrund IS the entire game
+(vanilla dims unreachable, no portals), ~500-block radius, whole-dimension protection, village
+to be hand-built in creative and shipped as structure templates. All names cleared by
+`ip-naming-compliance-checker` before use: **Heimgrund** (dimension), biomes **Dorfanger**
+(village clearing), **Lichtwiese** (meadow), **Dörrsand** (desert), **Felskranz** (mountain
+ring).
+
+- **New package `world/`** (9 classes) + the mod's **first `data/` datapack content**
+  (`data/baum2/dimension/heimgrund.json`, `dimension_type/heimgrund.json`,
+  `worldgen/biome/*.json` ×4, `structure/village_placeholder.nbt`).
+- **Terrain**: `HeimgrundChunkGenerator` (codec-registered via `ModWorldgen.bootstrap()`,
+  which must run before any world deserializes — it's near the top of `Baum2.onInitialize()`)
+  derives every block from `ZoneLayout` — pure static math, **fixed seed, world seed ignored**
+  (every Heimgrund is the same authored map). Radial bands: flat clearing r<60 at y64; meadow
+  60-380 (noise hills, lake basins at sea level 62, desert patches only past r=180 so the
+  softest ring hugs the village); mountain ring 380-500 with a climbable inner ramp to r=460
+  and then a **sheer cliff band (~2.5 blocks gained per block radially — unjumpable) to the
+  crest (~170)**; r>=500 is solid crest forever, so chunks past the border are just more wall.
+  min_y 0, height 256, bedrock floor. **Mountain caves are authored worm tunnels** baked in
+  `ZoneLayout` (8 tunnels, mouths cut into the inner face, hard-capped at r<=488 so they can
+  never breach the wall) — `carve()` stays a permanent no-op; vanilla carvers are not used.
+- **Biomes**: 4 datapack biomes placed by `HeimgrundBiomeSource`, which calls the same
+  `ZoneLayout` zone function as the generator, so biome and terrain cannot disagree. Spawner
+  lists carry the tier map (clearing: none — safe zone; meadow: silverfish; desert: zombie 80 /
+  silverfish 20; mountain: spider 80 / cave_spider 20). Daylight spawning via the custom
+  dimension_type (`monster_spawn_light_level: 15`) with `minecraft:gameplay/monsters_burn:
+  false` so daytime zombies don't self-ignite. **Real bug found by live server verify, fixed**:
+  vanilla builds ONE global feature order across all biomes in a source — two biomes listing
+  the same placed features in different relative order crash chunk gen with "Feature order
+  cycle found". Keep shared features in the same relative order in every biome JSON.
+- **1.21.11 API notes discovered here** (several old APIs are gone in this version):
+  permission checks are now `CommandManager.requirePermissionLevel(CommandManager
+  .GAMEMASTERS_CHECK)` (no more `hasPermissionLevel(2)`); gamerules moved to
+  `net.minecraft.world.rule.GameRules` with typed constants
+  (`DO_MOB_GRIEFING`/`TNT_EXPLODES`/`FIRE_SPREAD_RADIUS_AROUND_PLAYER`/`SPAWN_PHANTOMS` —
+  all four set defensively on world load, since Fabric has NO explosion/piston/fire events);
+  WorldBorder is per-world persistent state (border diameter 1000 centered 0,0 set idempotently
+  on LOAD); dimension_type JSON uses the new environment-`attributes` map (copied from the
+  vanilla jar's own `data/minecraft/dimension_type/overworld.json` — online examples are wrong
+  for 1.21.11); the vanilla jar ships all its worldgen JSONs, so extract references from there.
+- **Start/respawn**: `PlayerStartHandler` — persistent per-player attachment flag + 
+  `ServerPlayerEvents.JOIN` (first join → teleport to 0/65/0) and `AFTER_RESPAWN` (re-route any
+  respawn that resolved outside Heimgrund). Known cosmetic: brief overworld flicker on the very
+  first join. Datapack dimensions bake at world creation — **old saves don't have Heimgrund**
+  (`/baum2 world tp` reports this instead of crashing); always test in a fresh world.
+- **Protection** (`WorldProtectionHandler`): `PlayerBlockBreakEvents.BEFORE` +
+  `BlockEvents.USE_ITEM_ON` (new in this Fabric version, placement-specific) +
+  `UseItemCallback` (buckets place fluids via `use()`, not `useOnBlock()`). Creative bypasses
+  everything — that's how the village gets built. **Logged design conflict, needs a decision**:
+  Rissobelisk's own place-attack-destroy mechanic is impossible for survival players inside
+  Heimgrund (placement is blocked dimension-wide).
+- **Village pipeline** (`VillageStamper` + `/baum2 structure save <name> <from> <to>`):
+  op command captures a world region to template .nbt (auto-tiles into 48-block-grid files
+  past the template limit; prints each file + its placement offset), files land in the world's
+  `generated/baum2/structures/` (plural) and ship from `data/baum2/structure/` (singular — the
+  1.21 datapack path). Stamping runs on the world's first tick (not LOAD — chunk system isn't
+  fully live there), guarded by a persistent world-attachment flag; missing templates log and
+  skip, never crash. A trivial 9x9 plaza placeholder ships now; **round-trip verified live**
+  (built via console → saved → bundled → fresh world auto-stamped it).
+- **Stone slots** (`StoneSlotManager`): the user rule "stones only spawn again when a stone is
+  destroyed" = fixed population, same-type-same-spot respawn 5 min (6000 ticks, world time)
+  after death, driven by an `END_WORLD_TICK` pass (every 20 ticks) gated on
+  `world.shouldTickEntityAt(pos)` — no spawn/reconcile action in chunks whose entities aren't
+  loaded, which also means a stone only (re)appears when a player is near. Slot table = 11
+  slots (3 silverfish L5 meadow, 3 zombies L20 desert, 3 spiders L10 + 2 cave spiders L25
+  mountain ramp), scattered once per world by fixed-seed rejection sampling (min 60 apart,
+  min r=100, mountain slots below the cliff), then **frozen in a persistent world attachment**
+  (first use of a World-target attachment in this project — works, verified across restart).
+  Death detection via `ServerLivingEntityEvents.AFTER_DEATH`; entities that vanish without a
+  death event re-pend when their chunk next entity-ticks. Debug: `/baum2 stones list` (op).
+- **Verified headlessly** (dedicated-server console driving, no GUI): dimension loads; biome
+  per ring correct (`execute if biome`); grass y64 clearing / solid wall to y140+ at r480 /
+  crest stone at r520 / bedrock floor; border reports 1000 wide; village round trip; slot
+  table generates with correct zone placement; kill → 5-min pending → **countdown survives a
+  full server restart**; deep-rock probes found tunnel air only where tunnels should be.
+  **Not yet play-verified in a real client** — see "Next recommended step": zone spawn
+  density/daylight behavior, protection feel, first-join/respawn routing, cave mouths, and
+  stone respawn-on-approach all need a human session.
+
 ### Spider Queen — first mobile boss, first armor set (`baum2:spider_queen`)
 
 Level 15, 350 HP giant (3x-scale) spider boss with a fast melee bite (10 dmg, 2 attacks/sec)
@@ -1388,6 +1475,21 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Heimgrund (2026-07-09, third commit of the day) — the starting dimension.** User brief: the
+world starts in another dimension — central village (blocks indestructible/unplaceable), wild
+low-tier monsters outside (weakest nearest), stones spawning in matching monster zones and
+only respawning when one is destroyed, grass/lakes/desert (zombies, silverfish) + mountains
+with caves (spiders), finite world walled by impassable mountains, village kept empty of NPCs
+for now. Full detail (design, per-class responsibilities, verified 1.21.11 API changes, the
+"Feature order cycle" biome-JSON gotcha, and the headless-verification method) in the
+"Heimgrund" section above. Everything from dimension JSON to stone-slot respawn was verified
+against a live dedicated server via console driving (`runServer` + piped commands) — a new
+verification technique for this repo worth reusing: it catches runtime-only failures (biome
+JSON crashes, worldgen bugs) without a GUI. **Not yet play-tested in a real client** — that is
+the top "Next recommended step" item now.
+
+Previous change, same day:
+
 **Stone ladder (2026-07-09, second commit of the day) — 33 fallen-comet stones, one per
 normal vanilla hostile monster, config-driven.** User brief: "for every monstery entity add a
 stone; make level/name which makes sense; ignore boss monsters; probably every 5 levels; you
@@ -1989,11 +2091,42 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-**Highest priority, build-verified only, not yet re-confirmed live**: `/give @s
+**Highest priority: first real client session in Heimgrund** (everything below was verified
+headlessly via dedicated-server console only — no human has walked this world yet). Create a
+NEW world (datapack dimensions bake at creation), then: confirm first join lands at the
+village plaza (0/65/0) and `/kill` respawns there; walk the rings — clearing safe, silverfish
+in the meadow by day, zombies+silverfish in the desert patches (they must NOT burn in
+daylight), spiders/cave spiders on the mountain ramp; try to break/place blocks in survival
+(must fail everywhere) and as a creative op (must work); check the mountain wall is actually
+unclimbable at the cliff band and the border stops flight past r=500; find a cave mouth on
+the inner ring face; use `/baum2 stones list` (op) to walk to a stone slot, watch the stone
+appear as you approach, kill it, confirm the 5-minute respawn at the same spot; sanity-check
+spawn DENSITY (daylight spawning doubles spawn-eligible time — weights may need tuning after
+real play).
+
+**Heimgrund decisions needed (new `balance-reviewer` findings, logged not fixed)**:
+(a) **High — the previously-logged "deterministic no-cooldown farm" risk is now LIVE**: stone
+slots respawn unconditionally every 5 min at fixed positions with guaranteed drops (Poison
+Dagger, Gold Sword, iron nuggets, cobwebs/eyes for the 4 low-tier stones; totem/netherite-
+scrap/shulker-shell stones will inherit this the moment they get slots). The old logged
+decision — chance-based drops vs. longer/randomized respawn — must be made now, not later.
+(b) Spider stones (L10) always sit FARTHER out than zombie stones (L20) because spiders live
+in the mountain ring per the user's own terrain theming — accept the terrain-over-level
+inversion or retune levels (e.g. swap spider/zombie stone levels).
+(c) Silverfish (L5) and zombie (L20) slot ranges overlap across r 180-380 and the sampler
+skews outward, so "weakest nearest" is not guaranteed within the meadow band — the seed is
+fixed, so check the actual 11 generated positions once and, if needed, constrain silverfish
+slots to r < 250.
+(d) Rissobelisk cannot be placed by survival players inside Heimgrund (whole-dimension
+protection) — decide how world-event blocks should work there (op-placed only? a protection
+whitelist? a consecrated plot?).
+
+**Also still pending, build-verified only, not yet re-confirmed live**: `/give @s
 baum2:rissobelisk`, confirm the item's name shows as "Rissobelisk" (not the raw
 `item.baum2.rissobelisk` key), place it, attack it to destroy, and confirm the dropped
 `Risssplitter` shows its new icon (not a missing-texture placeholder) — these are the exact 2
-bugs the user's own last playtest caught and this session just fixed. Also worth a full
+bugs the user's own last playtest caught and a previous session fixed. (In Heimgrund this now
+requires creative/op due to the protection — see decision (d) above.) Also worth a full
 mechanic re-check while there: waves spawn at each 10% threshold, normal mining/explosions
 can't destroy it, XP is granted on destruction.
 
@@ -2070,9 +2203,11 @@ can't destroy it, XP is granted on destruction.
    now have icon art too (see "Class Overhaul v2 follow-up" and "Visual/Art Pass" above).
    Remaining gap: spell cards show static cooldown length, not live time-remaining (no
    client-side cooldown-sync payload exists yet).
-9. No natural spawn path exists for any of the four mini-bosses yet (`/summon`-only) — decide
-   when/how this mob family should actually appear in the world (a structure? a `dungeons/`-
-   package encounter? natural biome spawn?).
+9. **Partially done via Heimgrund**: the 4 low-tier stones (silverfish/spiders/zombies/cave
+   spiders) now spawn naturally through `StoneSlotManager`'s slot system — the pattern to
+   extend to higher-tier stones as the world grows (more rings/zones, or future dungeons).
+   The named bosses (Spider Queen, Zombie Colossus, Drevathis) still have no natural spawn
+   path (`/summon`-only).
 10. Get real (non-placeholder) art for the 4 class icons, 8 sub-spec icons, and the four
     mini-bosses/items — see `docs/visual-style-guide.md` sections 9/9.1 and each mob's own
     section above. Confirmed this session: this needs an actual human artist or an external

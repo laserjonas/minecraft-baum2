@@ -27,18 +27,25 @@
   "spawners": {
     "ambient": [],
     "axolotls": [],
-    "creature": [],
+    "creature": [
+      {
+        "type": "minecraft:goat",
+        "maxCount": 3,
+        "minCount": 1,
+        "weight": 10
+      }
+    ],
     "misc": [],
     "monster": [
       {
         "type": "minecraft:spider",
-        "maxCount": 3,
-        "minCount": 1,
+        "maxCount": 4,
+        "minCount": 2,
         "weight": 80
       },
       {
         "type": "minecraft:cave_spider",
-        "maxCount": 2,
+        "maxCount": 3,
         "minCount": 1,
         "weight": 20
       }

@@ -794,9 +794,10 @@ ring).
   destroyed" = fixed population, same-type-same-spot respawn 5 min (6000 ticks, world time)
   after death, driven by an `END_WORLD_TICK` pass (every 20 ticks) gated on
   `world.shouldTickEntityAt(pos)` — no spawn/reconcile action in chunks whose entities aren't
-  loaded, which also means a stone only (re)appears when a player is near. Slot table = 11
-  slots (3 silverfish L5 meadow, 3 zombies L20 desert, 3 spiders L10 + 2 cave spiders L25
-  mountain ramp), scattered once per world by fixed-seed rejection sampling (min 60 apart,
+  loaded, which also means a stone only (re)appears when a player is near. Slot table = 21
+  slots (7 silverfish L5 meadow, 6 zombies L20 desert, 5 spiders L10 + 3 cave spiders L25
+  mountain ramp — doubled from the initial 11 after the user's first playtest reported the
+  map feeling empty), scattered once per world by fixed-seed rejection sampling (min 50 apart,
   min r=100, mountain slots below the cliff), then **frozen in a persistent world attachment**
   (first use of a World-target attachment in this project — works, verified across restart).
   Death detection via `ServerLivingEntityEvents.AFTER_DEATH`; entities that vanish without a
@@ -1489,6 +1490,28 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**"More life" density pass (2026-07-09, follow-up) — first real playtest feedback acted on.**
+User played Heimgrund and reported the map feels empty outside the village, with monsters
+visible only in the mountains. Root causes found and fixed:
+1. **Real bug: zero passive animals.** `HeimgrundChunkGenerator.populateEntities` was an empty
+   no-op — but that vanilla hook is what seeds biome `creature` lists at chunk generation, and
+   post-generation creature spawning is nearly nonexistent (tiny cap, persistent animals).
+   Now runs vanilla `SpawnHelper.populateEntities` (NoiseChunkGenerator's exact pattern:
+   `ChunkRandom` + `setPopulationSeed`). Verified headlessly: sheep/cows generate in meadow
+   chunks. Mountain biome also gained goats (creature list).
+2. **Stone slots doubled 11 → 21** (silverfish 7, zombies 6, spiders 5, cave spiders 3),
+   spacing 60→50 so the desert patches fit their share. Existing worlds keep their frozen
+   11-slot table — only NEW worlds get 21 (slot tables never regenerate by design).
+3. **Denser monster packs** (meadow silverfish 1-3, desert zombies 2-4, mountain spiders 2-4 /
+   cave spiders 1-3) and **~10x meadow tree density** via the mod's first custom placed
+   feature (`data/baum2/worldgen/placed_feature/lichtwiese_trees.json`, ~0.55 trees/chunk vs
+   plains' ~0.05; safe from the "Feature order cycle" crash because it's unique to one biome).
+   Trees are cosmetic-only (block breaking is disabled dimension-wide).
+Natural-spawn DENSITY still needs a live-client re-check (headless servers have no player, and
+vanilla only spawns monsters near players) — see "Next recommended step".
+
+Previous change, same day:
+
 **Dorfanger Hub village (2026-07-09, follow-up) — the starting village is now a real build,
 not a placeholder.** User brief: "can you build a village on your own? → yes, do it."
 `graphics-designer` produced the architecture spec (`docs/visual-style-guide.md` section 21);
@@ -2133,11 +2156,17 @@ spawn DENSITY (daylight spawning doubles spawn-eligible time — weights may nee
 real play).
 
 **Heimgrund decisions needed (new `balance-reviewer` findings, logged not fixed)**:
-(a) **High — the previously-logged "deterministic no-cooldown farm" risk is now LIVE**: stone
-slots respawn unconditionally every 5 min at fixed positions with guaranteed drops (Poison
-Dagger, Gold Sword, iron nuggets, cobwebs/eyes for the 4 low-tier stones; totem/netherite-
-scrap/shulker-shell stones will inherit this the moment they get slots). The old logged
-decision — chance-based drops vs. longer/randomized respawn — must be made now, not later.
+(a) **High — the previously-logged "deterministic no-cooldown farm" risk is now LIVE, and the
+21-slot density pass made it resonant**: stone slots respawn unconditionally every 5 min at
+fixed positions with guaranteed drops (Poison Dagger, Gold Sword, iron nuggets, cobwebs/eyes
+for the 4 low-tier stones; totem/netherite-scrap/shulker-shell stones will inherit this the
+moment they get slots). `balance-reviewer` simulated the new scatter geometry: a sprint loop
+of the meadow (7 slots) or desert (6 slots) ring now takes ~299-301s — near-exact resonance
+with the 300s respawn timer, so a circling player meets every stone freshly respawned with
+zero idle wait (~1,000 iron nuggets/hour meadow; an L20 zombie-stone kill every ~50s desert;
+mountain is off-resonance at ~7.2 min/lap). The old logged decision — chance-based drops vs.
+longer/RANDOMIZED respawn (randomizing also breaks the resonance) — must be made now, not
+later.
 (b) Spider stones (L10) always sit FARTHER out than zombie stones (L20) because spiders live
 in the mountain ring per the user's own terrain theming — accept the terrain-over-level
 inversion or retune levels (e.g. swap spider/zombie stone levels).

@@ -20,7 +20,7 @@
     [
       "minecraft:patch_tall_grass_2",
       "minecraft:patch_bush",
-      "minecraft:trees_plains",
+      "baum2:lichtwiese_trees",
       "minecraft:flower_plains",
       "minecraft:patch_grass_plain",
       "minecraft:patch_firefly_bush_near_water"
@@ -56,7 +56,7 @@
     "monster": [
       {
         "type": "minecraft:silverfish",
-        "maxCount": 2,
+        "maxCount": 3,
         "minCount": 1,
         "weight": 100
       }

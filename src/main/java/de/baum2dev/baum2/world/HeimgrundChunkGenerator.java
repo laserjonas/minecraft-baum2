@@ -6,11 +6,17 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.math.random.ChunkRandom;
+import net.minecraft.util.math.random.Random;
+import net.minecraft.util.math.random.RandomSeed;
 import net.minecraft.world.ChunkRegion;
 import net.minecraft.world.HeightLimitView;
 import net.minecraft.world.Heightmap;
+import net.minecraft.world.SpawnHelper;
+import net.minecraft.world.biome.Biome;
 import net.minecraft.world.biome.source.BiomeAccess;
 import net.minecraft.world.biome.source.BiomeSource;
 import net.minecraft.world.chunk.Chunk;
@@ -118,7 +124,15 @@ public class HeimgrundChunkGenerator extends ChunkGenerator {
 
     @Override
     public void populateEntities(ChunkRegion region) {
-        // No initial chunk-population mobs; all spawning is biome-spawner- or slot-driven.
+        // Vanilla's chunk-population pass - this is what seeds the biome "creature" lists
+        // (meadow sheep/cows/chickens, mountain goats) at generation time. Without it the
+        // world ships with zero passive animals: creature spawning barely happens after
+        // generation (the tiny creature cap is instantly filled by persistent animals).
+        ChunkPos chunkPos = region.getCenterPos();
+        RegistryEntry<Biome> biome = region.getBiome(chunkPos.getStartPos().withY(ZoneLayout.SEA_LEVEL));
+        ChunkRandom random = new ChunkRandom(Random.create(RandomSeed.getSeed()));
+        random.setPopulationSeed(region.getSeed(), chunkPos.getStartX(), chunkPos.getStartZ());
+        SpawnHelper.populateEntities(region, biome, chunkPos, random);
     }
 
     @Override

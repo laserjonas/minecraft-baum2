@@ -50,7 +50,7 @@ public final class StoneSlotManager {
     /** No slot closer to the village center than this - the clearing stays safe. */
     private static final int MIN_RADIUS = 100;
     /** Minimum distance between two slots. */
-    private static final int MIN_SLOT_SPACING = 60;
+    private static final int MIN_SLOT_SPACING = 50;
     /** Mountain-zone slots stay on the climbable inner ramp, below the cliff band. */
     private static final int MOUNTAIN_SLOT_MAX_RADIUS = ZoneLayout.CLIFF_RADIUS - 10;
     private static final int SCATTER_ATTEMPTS = 4000;
@@ -195,10 +195,10 @@ public final class StoneSlotManager {
     private static List<StoneSlot> generateSlots() {
         Random random = Random.create(ZoneLayout.FIXED_SEED ^ 0x57_0E5L);
         List<StoneSlot> slots = new ArrayList<>();
-        scatter(slots, random, "stone_of_silverfish", 3, ZoneLayout.Zone.MEADOW);
-        scatter(slots, random, "stone_of_zombies", 3, ZoneLayout.Zone.DESERT);
-        scatter(slots, random, "stone_of_spiders", 3, ZoneLayout.Zone.MOUNTAIN);
-        scatter(slots, random, "stone_of_cave_spiders", 2, ZoneLayout.Zone.MOUNTAIN);
+        scatter(slots, random, "stone_of_silverfish", 7, ZoneLayout.Zone.MEADOW);
+        scatter(slots, random, "stone_of_zombies", 6, ZoneLayout.Zone.DESERT);
+        scatter(slots, random, "stone_of_spiders", 5, ZoneLayout.Zone.MOUNTAIN);
+        scatter(slots, random, "stone_of_cave_spiders", 3, ZoneLayout.Zone.MOUNTAIN);
         return List.copyOf(slots);
     }
 

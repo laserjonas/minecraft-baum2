@@ -2839,8 +2839,215 @@ literally a fragment of the obelisk's own stone/crack material, not a separate d
 
 ---
 
+## 21. Heimgrund village architecture: "Dorfanger Hub" style spec
+
+Design-only spec for the starting village that will be hand-built in creative and captured as
+`VillageStamper` structure templates (see `HANDOFF.md`'s "Heimgrund" and "Village pipeline"
+notes). Covers the **starting hub only** — the flat `Dorfanger` clearing at Heimgrund's center
+(usable area: a circle of radius ~55 around 0,0, flat grass at y=64), stamped from a template
+roughly 46x46 and up to ~16 tall. **This section produces no Java or `.nbt` files** — it is the
+architectural reference for whoever builds the template (human, in creative) or scripts it.
+The village ships **deliberately empty of NPCs/gameplay** — it is the safe hub players spawn
+into at (0,65,0), not a quest hub yet.
+
+### 21.1 Direction: translating "Deepwood & Verdigris" into vanilla blocks, plus a real-world architectural anchor
+
+Section 1's UI mood — "weathered metal and stone, moss/patina green, and cold rune-light" — is
+the mod's only existing visual-identity statement, so this village should feel like it belongs
+to the same world without literally reusing UI hex codes (vanilla blocks don't carry arbitrary
+hex fills anyway). The translation, block-family by block-family:
+
+| UI-side concept (Section 1) | Vanilla-block translation | Why it works |
+|---|---|---|
+| Weathered stone | Cobblestone / Stone Bricks / Deepslate family | Same cool, aged-masonry read as "Deepwood Ink"/"Void Seam" without copying a hex |
+| Verdigris (patina green) | **Oxidized Copper family** (`oxidized_cut_copper`, stairs, slabs) | Copper blocks *literally* weather from orange to blue-green patina in vanilla — a direct, unforced material match to the name "Verdigris," not a reference to any game |
+| Cold rune-light | **Soul Lantern** (blue-white flame) vs. ordinary amber **Lantern** | Soul Lantern's built-in cold-blue glow is the closest vanilla equivalent to "Rune Cyan" light without needing a custom texture |
+
+On top of that translation, the actual **construction style** is anchored to a real-world,
+IP-safe reference rather than invented from nothing: **German half-timbered ("Fachwerk")
+building construction** (dark timber frame over pale plaster infill) for individual buildings,
+and the **"Rundling"** — a real historical Central-European circular village form (houses ringed
+around a shared central green/common) — for the settlement's overall plan. Both are real-world
+vernacular architecture, not any specific game's IP, and both tie naturally to the German
+naming already established (`Heimgrund`, `Dorfanger` = literally "village green/common" in
+German). This is also the concrete answer to "must not read as a vanilla-village clone": vanilla
+villages use organic, un-planned scatter and plank/cobblestone box houses with no timber-frame
+motif and no radial plan — this village is deliberately planned, radial, and timber-framed,
+which reads differently at a glance.
+
+*Compliance note:* half-timbered construction and circular common-green village plans are
+centuries-old real-world architectural/settlement patterns (found across German-speaking
+Europe), not content originated by or associated with any specific existing video game — safe
+under the same "genre convention vs. specific IP" bar this document already applies elsewhere
+(Section 0). Nothing here is traced, measured from, or intentionally modeled after a specific
+existing game's hub-town layout.
+
+### 21.2 Block palette
+
+All vanilla, no custom blocks/textures. Grouped by role:
+
+**Primary wall (stone shell + foundation courses)**
+
+| Role | Block ID(s) |
+|---|---|
+| Main wall shell | `minecraft:stone_bricks` |
+| Foundation / lower courses (weathering read) | `minecraft:cobblestone`, `minecraft:mossy_cobblestone` (sparse, ~1-in-6 blocks in the bottom 1-2 courses only) |
+| Corner pillars / quoins | `minecraft:polished_andesite` |
+| Weathering accent (used sparingly, not a full-wall material) | `minecraft:mossy_stone_bricks`, `minecraft:vine` (climbing corners/monument only) |
+
+**Timber / Fachwerk accent**
+
+| Role | Block ID(s) |
+|---|---|
+| Structural framing (vertical posts, diagonal braces, header beams) | `minecraft:dark_oak_log` (posts, upright), `minecraft:dark_oak_wood` (long horizontal/diagonal runs) |
+| Infill panels between timber (the "plaster") | `minecraft:diorite` (primary), `minecraft:polished_diorite` (thin trim strips only, 1-block accents) |
+| Doorframes, window sills, interior floors, shutters | `minecraft:dark_oak_planks` |
+| Window grilles / railings | `minecraft:dark_oak_fence` |
+
+**Roof (stairs + slab family — straight gable runs only)**
+
+| Role | Block ID(s) | Used on |
+|---|---|---|
+| Ordinary roof | `minecraft:deepslate_tiles`, `minecraft:deepslate_tile_stairs`, `minecraft:deepslate_tile_slab` (ridge cap) | Every building except the two called out below |
+| Landmark roof ("Verdigris crown," see 21.4) | `minecraft:oxidized_cut_copper`, `minecraft:oxidized_cut_copper_stairs`, `minecraft:oxidized_cut_copper_slab` | Gathering Hall + central Monument capstones only |
+| Eave/underside trim | `minecraft:dark_oak_stairs` (upside-down, lining the roof underside overhang) | Every building |
+
+**Path & plaza material**
+
+| Role | Block ID(s) |
+|---|---|
+| Central plaza paving | `minecraft:polished_andesite` (main fill) alternated with `minecraft:andesite` in a simple 2-block checker/banding pattern, bordered by a `minecraft:stone_brick_slab` curb |
+| Ring path / spoke paths | `minecraft:cobblestone` main fill, `minecraft:mossy_cobblestone` scattered sparsely (deterministic ~1-in-8, not random per stamp) |
+| Informal garden path | `minecraft:dirt_path` |
+
+**Greenery**
+
+| Role | Block ID(s) |
+|---|---|
+| Hedges (perimeter, garden borders) | `minecraft:azalea_leaves`, `minecraft:flowering_azalea_leaves` (sparse, ~1-in-10 of hedge blocks, for a color accent) |
+| Ground cover / weathering | `minecraft:moss_block`, `minecraft:moss_carpet` |
+| Wall climbing accent | `minecraft:vine` |
+| Garden bed accents | `minecraft:flower_pot` with `minecraft:potted_allium` / `minecraft:potted_lily_of_the_valley` |
+| Pond edge (monument, static placement only — no moving-water contraption) | `minecraft:water` (source blocks only), `minecraft:lily_pad` |
+
+**Light sources**
+
+| Role | Block ID(s) | Placement rhythm |
+|---|---|---|
+| Ordinary path/village lighting | `minecraft:lantern` (hanging from a `minecraft:dark_oak_fence` post or an eave bracket) | Every 6-8 blocks along the ring path (see 21.4) |
+| Threshold / important-place lighting ("cold rune-light") | `minecraft:soul_lantern` | Central monument (flanking) + every perimeter gate archway only — never used for ordinary path lighting, so it stays a meaningful signal (see 21.5, motif 3) |
+
+**Fences / walls (connections computed by the builder, per this task's own constraint)**
+
+| Role | Block ID(s) |
+|---|---|
+| Perimeter low wall | `minecraft:cobblestone_wall`, capped with `minecraft:stone_brick_slab` |
+| Gate flanking pillars | `minecraft:andesite_wall` topped with a `minecraft:lantern` or `minecraft:soul_lantern` (gates only, per above) |
+| Garden fencing | `minecraft:dark_oak_fence` |
+
+### 21.3 Building program (46x46 template)
+
+Six structures/elements, sized to comfortably fit a 46x46 footprint with room for the plaza,
+paths, and perimeter margin. All entrances are **open archways or doorway-shaped gaps framed in
+stone brick or dark oak planks — no vanilla door blocks**, consistent with the "no NPCs yet,
+script-simple" brief. All roofs are **straight gables** (two parallel stair-and-slab runs
+meeting at a ridge slab) — no hipped/pyramid roofs, so no inner/outer stair corners are needed
+anywhere in the template.
+
+| # | Structure | Footprint (approx.) | Visual identity |
+|---|---|---|---|
+| 1 | **Arrival Plaza + "Heimstein" monument** | ~11x11 plaza, monument ~3x3 core | The dead center of the whole template, where the player spawns. A short cluster of standing `chiseled_deepslate`/`polished_deepslate` monoliths (1-3 blocks, uneven heights, not a single tower) ringed by a shallow static lily-pad pond, flanked by 2 Soul Lanterns on `andesite_wall` posts. Reads as an old waystone/meeting-stone, not a statue of a person — keeps it lore-neutral since no faction/NPC content exists yet. |
+| 2 | **Versammlungshalle (Gathering Hall)** | ~11x9 footprint, ~9 tall to the ridge | The village's one large building — Fachwerk walls, **oxidized-copper gable roof** (the template's second Verdigris-crown building), a wide open double-archway entrance facing the plaza. Positioned on one cardinal spoke, distinguishable from the smaller houses purely by scale and roof material, no signage needed. |
+| 3 | **Werkstatt (Workshop)** | ~7x7, single-story with a lean-to (single-slope) roof extension | A smaller utility building — same Fachwerk walls, deepslate-tile roof, an open-sided lean-to bay (no wall on one side, just posts) suggesting workbenches/storage for a future crafting tie-in, plus a `minecraft:campfire` for a chimney/smoke read (cosmetic only). |
+| 4 | **Wohnhäuser (cottages), x2-3** | ~6x6 to 7x8 each | Smallest Fachwerk buildings, plain deepslate-tile gable roofs, one open doorway + 1-2 small punched windows (2x1 gaps with a `dark_oak_fence` grille) each. Deliberately the most repeated/simplest element — reads as "ordinary dwelling," never gets the copper roof. |
+| 5 | **Kräutergarten (herb garden court)** | ~8x8 | An open, low-walled or hedged court (cobblestone-wall or azalea-hedge border, waist-height) with a simple bed grid marked out in `moss_block`/`dirt_path` and a few potted-flower accents. The one "soft," non-building element in the program — deliberately not gated or roofed, to read as an approachable green space rather than a locked garden. |
+| 6 | **Perimeter treatment** | Ring at the template's outer edge | Low `cobblestone_wall` (2 high) alternating with short azalea-hedge sections, broken by 2-4 gate openings (archway, ~3 wide x 4 tall) aligned to the spoke paths continuing out into the wider Lichtwiese meadow. Deliberately low/open rather than a fortress wall — the brief is "safe hub," not "besieged keep." |
+
+### 21.4 Layout guidance
+
+- **Plan type: radial "Rundling"-style ring, not a scatter and not a rigid 4-cardinal-shops
+  hub.** A circular **ring path** (3 blocks wide, `cobblestone`) runs around the Arrival Plaza
+  at a fixed radius (~14-16 blocks from center); each of the 5 non-plaza structures above sits
+  just outside that ring, connected to it by a short **spoke path** (2 blocks wide). The
+  Gathering Hall (the largest, most important building) sits on its own spoke directly opposite
+  the main gate spoke, so a player arriving through the primary gate sees it immediately across
+  the plaza — the one deliberate sightline axis in an otherwise even radial arrangement.
+- **Why radial-ring rather than a cardinal-cross hub:** a strict 4-building-at-4-compass-points
+  layout is the closer-to-generic-MMORPG-hub read this task explicitly warns against; an
+  unevenly-spaced ring (6 elements around one plaza, not a clean 4-way symmetric cross) reads
+  as an organically-settled common green instead, and matches the real "Rundling" reference in
+  21.1 rather than a game-hub template.
+- **Path widths:** ring path 3 wide; spokes 2 wide; the 2-4 perimeter gate paths widen back to 3
+  wide as they pass through the wall, so the gate itself doesn't feel like a bottleneck.
+- **Lighting rhythm:** ordinary `lantern`s every 6-8 blocks along the ring path (post-mounted on
+  `dark_oak_fence`), plus one at the start of each spoke path. Soul Lanterns are reserved
+  entirely for the monument and the perimeter gates (see palette table above) — this is a
+  deliberate rhythm break, not decoration for its own sake (see motif 3, below).
+- **Village edge → open meadow transition:** the perimeter wall (21.3 item 6) is intentionally
+  low (2 blocks) and gapped with hedges rather than a continuous high wall — from outside, a
+  player approaching from the Lichtwiese meadow should be able to see rooftops over the wall
+  before reaching a gate. This supports the "safe, welcoming hub" read the brief calls for,
+  distinct from a fortified compound.
+
+### 21.5 Signature motifs (original to Baum2, not from any existing game)
+
+1. **Verdigris-crown roofs mark importance.** Only the two most significant structures in the
+   template — the Gathering Hall and the central Monument — get an oxidized-copper roof/
+   capstone; every ordinary building uses plain deepslate tile. This directly mirrors the mod's
+   own established convention of color-coding meaning consistently (Section 1's "color carries
+   meaning" principle, Section 5's rarity/class-color conventions) — translated here into "which
+   *material*, not just which color, marks importance" for a vanilla-block-only context.
+2. **Fachwerk rhythm + andesite corner quoins.** Every building in the village (not just some)
+   repeats the same construction pattern: dark-oak diagonal/vertical timber over pale diorite
+   infill, with a polished-andesite pillar reinforcing each building corner. This is the
+   village's recurring "handwriting" — a player should recognize a Heimgrund building at a
+   glance from this rhythm alone, the same way the mod's class icons share a recognizable family
+   resemblance (Section 3.3/9.1).
+3. **Cold rune-light only at meaningful thresholds.** Soul Lanterns (cold blue-white glow) are
+   never used for ordinary lighting — only at the central monument and the perimeter gates, i.e.
+   the two kinds of place where a player is "arriving" or "departing" the safe zone. Ordinary
+   amber Lanterns handle everyday path lighting everywhere else. This gives the village a subtle
+   but consistent "cold light = significant place" language, echoing the UI's own "+value =
+   Rune Cyan" universal-meaning convention (Section 5) in an architectural form.
+
+### 21.6 Open items for whoever builds the template
+
+- This section is a **design spec only** — no `.nbt` template, blockstate, or Java was produced
+  or touched by this pass. Building it (by hand in creative, per `HANDOFF.md`'s stated plan, or
+  via a future generation script) and capturing it with `/baum2 structure save` is a separate,
+  follow-up task.
+- Exact placement/rotation of the 2-4 perimeter gates relative to Heimgrund's biome geometry
+  (which directions the meadow/desert/mountain zones actually lie in) isn't specified here —
+  align gates to whichever compass directions make sense once the builder checks `ZoneLayout`/
+  `HeimgrundBiomeSource`, so a gate doesn't face directly into an awkward spot (e.g. straight at
+  a lake basin).
+- Interior furnishing of the Gathering Hall/Workshop/cottages is explicitly out of scope (the
+  village ships NPC-less) — leave interiors simple/empty rather than inventing furniture that
+  will need to be redesigned once NPCs or quest-givers are actually added.
+- If a 7th program element ever becomes necessary (e.g. a future quest-giver's own building),
+  slot it onto the ring the same way as the existing 5 outer elements — don't break the radial
+  pattern established here.
+
+---
+
 ## Changelog
 
+- **2026-07-09** — Added Section 21: architectural/visual style spec for the Heimgrund starting
+  village ("Dorfanger Hub"), covering the ~46x46 template stamped into the flat clearing at
+  world center (see `HANDOFF.md`'s "Heimgrund"/"Village pipeline" notes). **Design-only pass —
+  no `.nbt`/Java produced**, per this task's explicit scope; a follow-up build/capture pass is
+  still needed. Establishes a full vanilla-only block palette translating Section 1's "Deepwood
+  & Verdigris" mood into real material analogues (oxidized copper for "Verdigris," Soul Lantern
+  for "cold rune-light"), anchors the construction style to real-world German half-timbered
+  ("Fachwerk") building and the historical circular-common-green ("Rundling") village plan —
+  both real-world vernacular references, not any specific game's IP — a 6-element building
+  program (arrival plaza + monument, gathering hall, workshop, 2-3 cottages, herb garden,
+  perimeter wall/hedge with gates), radial-ring layout guidance, and 3 original signature
+  motifs (copper "Verdigris-crown" roofs marking importance, a repeated Fachwerk-plus-andesite-
+  quoin construction rhythm, and Soul-Lantern cold-light reserved for meaningful thresholds
+  only). Deliberately avoids both a vanilla-village-clone read (planned/radial vs. vanilla's
+  organic scatter, timber-frame vs. plank-box houses) and a generic 4-cardinal-shops MMORPG-hub
+  read (uneven 6-element ring vs. a symmetric cross).
 - **2026-07-07** — Added Section 19.7: full Drevathis rework (GeckoLib demon-lord model with
   the blade as real geometry, six-animation set, "Umbral Sovereign" palette superseding 19.3's
   "Abyssal Sovereign", new flat icon + 3D in-hand model for Drevathis's Cursed Blade, and the

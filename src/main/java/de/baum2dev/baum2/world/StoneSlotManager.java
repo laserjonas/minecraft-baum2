@@ -27,10 +27,11 @@ import de.baum2dev.baum2.registry.ModEntities;
 /**
  * The authoritative "which Fallen Comet Stones exist in Heimgrund" table, implementing
  * the world rule <i>a stone only spawns again when a stone is destroyed</i>: a fixed
- * population of slots, each holding one stone of a fixed type at a fixed position; a
- * destroyed stone flips its slot to pending and the SAME stone type respawns at the SAME
- * position after {@link #RESPAWN_DELAY_TICKS} - predictable farming spots, no
- * free-running repopulation.
+ * population of slots, each holding one stone of a fixed type; a destroyed stone flips
+ * its slot to pending and the SAME stone type respawns {@link #RESPAWN_DELAY_TICKS}
+ * (3 seconds) later at a NEARBY randomized position - never the exact same spot (user
+ * rule) - sampled around the slot's fixed anchor so the population never drifts. No
+ * free-running repopulation: the total stone count is always the slot count.
  *
  * <p>Slot positions are generated once per world by a fixed-seed scatter over
  * {@link ZoneLayout} (pure math - no chunks needed), then frozen in a persistent world
@@ -45,7 +46,7 @@ import de.baum2dev.baum2.registry.ModEntities;
 public final class StoneSlotManager {
 
     /** 5 minutes. Long enough that a kill visibly empties the spot, short enough to farm. */
-    public static final long RESPAWN_DELAY_TICKS = 6000L;
+    public static final long RESPAWN_DELAY_TICKS = 60L;  // 3 seconds (user-decided)
 
     /** No slot closer to the village center than this - the clearing stays safe. */
     private static final int MIN_RADIUS = 100;
@@ -54,13 +55,25 @@ public final class StoneSlotManager {
     /** Mountain-zone slots stay on the climbable inner ramp, below the cliff band. */
     private static final int MOUNTAIN_SLOT_MAX_RADIUS = ZoneLayout.CLIFF_RADIUS - 10;
     private static final int SCATTER_ATTEMPTS = 4000;
+    /** A respawn lands this far from the slot's anchor - never the exact same spot. */
+    private static final int RESPAWN_MIN_OFFSET = 12;
+    private static final int RESPAWN_MAX_OFFSET = 40;
+    private static final int RESPAWN_ATTEMPTS = 40;
 
-    public record StoneSlot(String stoneName, BlockPos pos, boolean alive,
-            Optional<UUID> entityUuid, long respawnAtTime) {
+    /**
+     * {@code anchor} is the slot's fixed home from the initial scatter; {@code pos} is where
+     * the current/next stone actually stands. Respawns sample a fresh position around the
+     * ANCHOR (not the last position), so a slot wanders per-respawn but can't drift out of
+     * its zone over many respawns. {@code anchor} is optional in the codec for saves written
+     * before it existed (defaults to {@code pos}).
+     */
+    public record StoneSlot(String stoneName, BlockPos pos, Optional<BlockPos> anchor,
+            boolean alive, Optional<UUID> entityUuid, long respawnAtTime) {
 
         public static final Codec<StoneSlot> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.STRING.fieldOf("stone_name").forGetter(StoneSlot::stoneName),
                 BlockPos.CODEC.fieldOf("pos").forGetter(StoneSlot::pos),
+                BlockPos.CODEC.optionalFieldOf("anchor").forGetter(StoneSlot::anchor),
                 Codec.BOOL.fieldOf("alive").forGetter(StoneSlot::alive),
                 Uuids.CODEC.optionalFieldOf("entity_uuid").forGetter(StoneSlot::entityUuid),
                 Codec.LONG.fieldOf("respawn_at_time").forGetter(StoneSlot::respawnAtTime)
@@ -69,15 +82,21 @@ public final class StoneSlotManager {
         static StoneSlot initial(String stoneName, BlockPos pos) {
             // Starts pending with respawnAtTime 0: the tick driver spawns it the first
             // time a player gets close enough - no special first-spawn code path.
-            return new StoneSlot(stoneName, pos, false, Optional.empty(), 0L);
+            return new StoneSlot(stoneName, pos, Optional.of(pos), false, Optional.empty(), 0L);
         }
 
-        StoneSlot spawned(UUID uuid) {
-            return new StoneSlot(stoneName, pos, true, Optional.of(uuid), 0L);
+        BlockPos anchorPos() {
+            return anchor.orElse(pos);
+        }
+
+        StoneSlot spawnedAt(BlockPos spawnPos, UUID uuid) {
+            return new StoneSlot(stoneName, spawnPos, Optional.of(anchorPos()), true,
+                    Optional.of(uuid), 0L);
         }
 
         StoneSlot pending(long respawnAt) {
-            return new StoneSlot(stoneName, pos, false, Optional.empty(), respawnAt);
+            return new StoneSlot(stoneName, pos, Optional.of(anchorPos()), false,
+                    Optional.empty(), respawnAt);
         }
     }
 
@@ -179,11 +198,46 @@ public final class StoneSlotManager {
             Baum2.LOGGER.error("Stone slot references unknown stone '{}' - leaving it dormant", slot.stoneName());
             return slot;
         }
-        FallenCometStoneEntity stone = type.spawn(world, slot.pos(), SpawnReason.MOB_SUMMONED);
+        BlockPos spawnPos = pickRespawnPos(world, slot);
+        if (spawnPos == null) {
+            return slot;  // no valid ticking spot this pass - retried every second
+        }
+        FallenCometStoneEntity stone = type.spawn(world, spawnPos, SpawnReason.MOB_SUMMONED);
         if (stone == null) {
             return slot;
         }
-        return slot.spawned(stone.getUuid());
+        return slot.spawnedAt(spawnPos, stone.getUuid());
+    }
+
+    /**
+     * A fresh position near the slot's anchor - never the previous spot (user rule: a killed
+     * stone respawns NEARBY, not in the same place). Candidates must stay in the slot's own
+     * zone (a desert stone can't wander onto meadow grass), respect the world-geometry
+     * limits, and land where entities tick so the spawn actually happens. Falls back to the
+     * anchor itself if no offset candidate validates (e.g. an anchor on a small desert patch).
+     */
+    private static BlockPos pickRespawnPos(ServerWorld world, StoneSlot slot) {
+        BlockPos anchor = slot.anchorPos();
+        ZoneLayout.Zone zone = ZoneLayout.zoneAt(anchor.getX(), anchor.getZ());
+        Random random = world.getRandom();
+        for (int attempt = 0; attempt < RESPAWN_ATTEMPTS; attempt++) {
+            double angle = random.nextDouble() * 2.0 * Math.PI;
+            int offset = random.nextBetween(RESPAWN_MIN_OFFSET, RESPAWN_MAX_OFFSET);
+            int x = anchor.getX() + (int) Math.round(Math.cos(angle) * offset);
+            int z = anchor.getZ() + (int) Math.round(Math.sin(angle) * offset);
+            double r = ZoneLayout.radius(x, z);
+            if (r < MIN_RADIUS || ZoneLayout.zoneAt(x, z) != zone) {
+                continue;
+            }
+            if (zone == ZoneLayout.Zone.MOUNTAIN && r > MOUNTAIN_SLOT_MAX_RADIUS) {
+                continue;
+            }
+            BlockPos candidate = new BlockPos(x, ZoneLayout.surfaceHeight(x, z) + 1, z);
+            if (world.shouldTickEntityAt(candidate)) {
+                return candidate;
+            }
+        }
+        return world.shouldTickEntityAt(anchor) ? anchor : null;
     }
 
     /**

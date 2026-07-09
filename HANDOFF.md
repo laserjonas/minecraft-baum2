@@ -791,8 +791,17 @@ ring).
   updates. Hand-refinement stays possible: edit in creative, re-capture with `/baum2
   structure save`, replace the .nbt.
 - **Stone slots** (`StoneSlotManager`): the user rule "stones only spawn again when a stone is
-  destroyed" = fixed population, same-type-same-spot respawn 5 min (6000 ticks, world time)
-  after death, driven by an `END_WORLD_TICK` pass (every 20 ticks) gated on
+  destroyed" = fixed population. **Respawn semantics (user-decided, 2nd playtest): 3 seconds
+  (60 ticks) after a stone dies, the SAME type respawns at a NEARBY randomized position
+  (12-40 blocks), never the same spot.** Positions sample around each slot's fixed `anchor`
+  (not the last position — so slots wander per-respawn but never drift out of their zone);
+  candidates must match the anchor's zone, respect r>=100/mountain-ramp caps, and land where
+  entities tick, else the driver retries every second. `anchor` is an `optionalFieldOf` codec
+  field (defaults to `pos`) per the Attachment new-field gotcha, so older saves still decode.
+  Live-verified: kill at anchor (324,69,37) → replacement alive at (302,69,57) seconds later.
+  This resolves the respawn half of balance decision (a); with a 3s timer the guaranteed-drop
+  farm is now gated purely by kill speed — the drop-table half (guaranteed vs. chance-based)
+  is still the open lever. Driver: `END_WORLD_TICK` pass (every 20 ticks) gated on
   `world.shouldTickEntityAt(pos)` — no spawn/reconcile action in chunks whose entities aren't
   loaded, which also means a stone only (re)appears when a player is near. Slot table = 21
   slots (7 silverfish L5 meadow, 6 zombies L20 desert, 5 spiders L10 + 3 cave spiders L25

@@ -1500,6 +1500,30 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Ford/branch/shore fixes (2026-07-09, follow-up to the 3rd playtest screenshot).** The
+previous pass's path-through-lake handling produced a walled dirt DAM towering over the water
+(the dry corridor kept full meadow height), and the uniform beach easing left 1-2-block
+terraced banks. User feedback: paths must be readable/usable, branch paths should fork off
+the mains, and lake exits should be ~flush with the water but only in places ("multiple
+chances to get back", not everywhere). Changes (all `ZoneLayout` + `StoneSlotManager`):
+1. **Fords, not dams**: a path crossing a would-be lake now flattens its corridor (3.5 wide)
+   to exactly 1 above water level - guarded to only trigger where a lake would truly exist
+   (lake band, not desert), not wherever lake noise is high.
+2. **Gated shore exits**: shoreline within the shore band drops to water level (walk straight
+   out) only where an independent noise gate passes (~half the shoreline in scattered arcs,
+   marked by a sand strip); the rest eases to a low ~2-block bank.
+3. **Branch paths + two new stone POIs**: WEST_BRANCH forks at the south path's midpoint to a
+   3-silverfish-stone ring at (-140,180) (forced meadow, small apron); DESERT_BRANCH forks at
+   the east path's midpoint to a **forced desert disc** at (240,-140) (r=30, overrides the
+   noise mask so the POI exists on any seed) with a 3-zombie-stone ring + apron. Slot table
+   stays 30 total (rings 5+3+3, scattered 10 silverfish + 9 zombies).
+Headless-verified in a fresh world: 30 slots incl. both new rings at the right coordinates,
+`baum2:doerrsand` biome at the forced pocket, `baum2:lichtwiese` at the west cluster, apron
+gravel present. The ford itself is construction-verified only (lake crossings can't be
+located headless) - check one in the next client session.
+
+Previous change, same day:
+
 **Map-design pass (2026-07-09, follow-up to the 2nd playtest).** User feedback: still minutes
 of searching for any monster or stone ("it should be more dangerous"), the map needs pathways
 leading to destinations ("Stone hot spot, Cave hot spot"), lakes have cliff edges you can't

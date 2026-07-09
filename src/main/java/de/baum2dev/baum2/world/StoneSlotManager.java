@@ -251,16 +251,24 @@ public final class StoneSlotManager {
     private static List<StoneSlot> generateSlots() {
         Random random = Random.create(ZoneLayout.FIXED_SEED ^ 0x57_0E5L);
         List<StoneSlot> slots = new ArrayList<>();
-        for (int i = 0; i < 5; i++) {
-            double angle = i * (2.0 * Math.PI / 5);
-            int x = ZoneLayout.STONE_HOTSPOT_X + (int) Math.round(Math.cos(angle) * 16);
-            int z = ZoneLayout.STONE_HOTSPOT_Z + (int) Math.round(Math.sin(angle) * 16);
-            slots.add(StoneSlot.initial("stone_of_silverfish",
+        // The three path destinations get deliberate stone rings; the rest is scattered.
+        ring(slots, "stone_of_silverfish", ZoneLayout.STONE_HOTSPOT_X, ZoneLayout.STONE_HOTSPOT_Z, 5, 16);
+        ring(slots, "stone_of_silverfish", ZoneLayout.WEST_CLUSTER_X, ZoneLayout.WEST_CLUSTER_Z, 3, 14);
+        ring(slots, "stone_of_zombies", ZoneLayout.DESERT_POCKET_X, ZoneLayout.DESERT_POCKET_Z, 3, 14);
+        scatter(slots, random, "stone_of_silverfish", 10, ZoneLayout.Zone.MEADOW);
+        scatter(slots, random, "stone_of_zombies", 9, ZoneLayout.Zone.DESERT);
+        return List.copyOf(slots);
+    }
+
+    private static void ring(List<StoneSlot> slots, String stoneName, int centerX, int centerZ,
+            int count, int ringRadius) {
+        for (int i = 0; i < count; i++) {
+            double angle = i * (2.0 * Math.PI / count);
+            int x = centerX + (int) Math.round(Math.cos(angle) * ringRadius);
+            int z = centerZ + (int) Math.round(Math.sin(angle) * ringRadius);
+            slots.add(StoneSlot.initial(stoneName,
                     new BlockPos(x, ZoneLayout.surfaceHeight(x, z) + 1, z)));
         }
-        scatter(slots, random, "stone_of_silverfish", 13, ZoneLayout.Zone.MEADOW);
-        scatter(slots, random, "stone_of_zombies", 12, ZoneLayout.Zone.DESERT);
-        return List.copyOf(slots);
     }
 
     private static void scatter(List<StoneSlot> slots, Random random, String stoneName, int count,

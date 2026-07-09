@@ -86,23 +86,54 @@ public final class ZoneLayout {
     public static final int CAVE_HOTSPOT_Z = 0;
     public static final int CAVE_HOTSPOT_APRON_RADIUS = 10;
 
-    /** Polylines from the village gates to the hot spots; (x,z) waypoint pairs. */
+    /** Branch-path destination: a smaller stone cluster in the west meadow. */
+    public static final int WEST_CLUSTER_X = -140;
+    public static final int WEST_CLUSTER_Z = 180;
+    public static final int WEST_CLUSTER_CLEAR_RADIUS = 24;
+    public static final int WEST_CLUSTER_APRON_RADIUS = 8;
+
+    /**
+     * Branch-path destination: a FORCED desert disc (the noise mask is overridden here),
+     * so a zombie-stone destination exists regardless of where the noise puts patches.
+     */
+    public static final int DESERT_POCKET_X = 240;
+    public static final int DESERT_POCKET_Z = -140;
+    public static final int DESERT_POCKET_RADIUS = 30;
+    public static final int DESERT_POCKET_APRON_RADIUS = 8;
+
+    /** Main routes from the village gates + branches that fork off them (user request). */
     private static final int[][] SOUTH_PATH = {{0, 23}, {12, 120}, {STONE_HOTSPOT_X, STONE_HOTSPOT_Z}};
     private static final int[][] EAST_PATH = {{23, 0}, {130, -12}, {260, 8}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}};
+    private static final int[][] WEST_BRANCH = {{12, 120}, {-60, 150}, {WEST_CLUSTER_X, WEST_CLUSTER_Z}};
+    private static final int[][] DESERT_BRANCH = {{130, -12}, {185, -80}, {DESERT_POCKET_X, DESERT_POCKET_Z}};
+    private static final int[][][] ALL_PATHS = {SOUTH_PATH, EAST_PATH, WEST_BRANCH, DESERT_BRANCH};
     private static final double PATH_HALF_WIDTH = 1.6;
+    /** Wider dry corridor around a path where it crosses a would-be lake (the ford margin). */
+    private static final double PATH_LAKE_CLEAR_WIDTH = 3.5;
 
-    /** True if (x,z) lies on one of the authored gate-to-hotspot pathways. */
+    /** True if (x,z) lies on one of the authored pathways (mains or branches). */
     public static boolean isPath(int x, int z) {
-        return distanceToPolyline(SOUTH_PATH, x, z) <= PATH_HALF_WIDTH
-                || distanceToPolyline(EAST_PATH, x, z) <= PATH_HALF_WIDTH;
+        return pathDistance(x, z) <= PATH_HALF_WIDTH;
     }
 
-    /** True inside a hot spot's gravel apron circle. */
+    private static double pathDistance(int x, int z) {
+        double best = Double.MAX_VALUE;
+        for (int[][] path : ALL_PATHS) {
+            best = Math.min(best, distanceToPolyline(path, x, z));
+        }
+        return best;
+    }
+
+    /** True inside any hot-spot/POI gravel apron circle. */
     public static boolean isHotspotApron(int x, int z) {
         return sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
                 <= STONE_HOTSPOT_APRON_RADIUS * STONE_HOTSPOT_APRON_RADIUS
                 || sqDist(x, z, CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z)
-                <= CAVE_HOTSPOT_APRON_RADIUS * CAVE_HOTSPOT_APRON_RADIUS;
+                <= CAVE_HOTSPOT_APRON_RADIUS * CAVE_HOTSPOT_APRON_RADIUS
+                || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
+                <= WEST_CLUSTER_APRON_RADIUS * WEST_CLUSTER_APRON_RADIUS
+                || sqDist(x, z, DESERT_POCKET_X, DESERT_POCKET_Z)
+                <= DESERT_POCKET_APRON_RADIUS * DESERT_POCKET_APRON_RADIUS;
     }
 
     private static double distanceToPolyline(int[][] points, int x, int z) {
@@ -155,12 +186,28 @@ public final class ZoneLayout {
         // Meadow shape is the baseline everything else blends against.
         double meadow = meadowHeight(x, z);
 
-        // Shore easing (2nd-playtest feedback: lakes had cliff edges you couldn't climb out
-        // of): terrain within the shore band is pulled down toward just-above-water level,
-        // so every lake has a gentle, walkable beach all the way around.
+        // A path crossing a would-be lake becomes a flat FORD exactly 1 above the water -
+        // not a dam: without this, the dry path corridor kept full meadow height and stood
+        // as a walled causeway over the water (3rd-playtest screenshot). Only where a lake
+        // would actually exist (lake band, not desert) - not wherever lake NOISE is high.
+        boolean ford = r >= CLEARING_BLEND_RADIUS && r < MEADOW_OUTER_RADIUS
+                && !isDesert(x, z, r) && lakeDepth(x, z) > 0.0
+                && pathDistance(x, z) <= PATH_LAKE_CLEAR_WIDTH;
+        if (ford) {
+            return SEA_LEVEL + 1;
+        }
+
+        // Shore easing (playtest feedback: lakes had cliff edges you couldn't climb out of).
+        // Where the exit gate passes, terrain drops to water level (walk straight out);
+        // elsewhere it only eases to a low ~2-block bank - so every lake has SEVERAL easy
+        // exits rather than one uniform beach ring (user request: "not everywhere, but
+        // multiple chances to get back").
         double shore = shoreFactor(x, z);
-        if (shore > 0.0 && meadow > SEA_LEVEL + 1.5) {
-            meadow = lerp(shore, meadow, SEA_LEVEL + 1.5);
+        if (shore > 0.0) {
+            double target = isShoreExit(x, z) ? SEA_LEVEL + 0.4 : SEA_LEVEL + 2.4;
+            if (meadow > target) {
+                meadow = lerp(shore, meadow, target);
+            }
         }
 
         if (isLake(x, z, r)) {
@@ -215,13 +262,15 @@ public final class ZoneLayout {
 
     private static boolean isLake(int x, int z, double r) {
         // Lakes only in the open meadow band (not in the clearing blend, not in deserts,
-        // not in the mountains) - and never on a pathway or the stone hot spot.
+        // not in the mountains) - and never on a ford corridor or a stone-POI clearing.
         if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
             return false;
         }
-        if (isPath(x, z)
+        if (pathDistance(x, z) <= PATH_LAKE_CLEAR_WIDTH
                 || sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
-                        <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS) {
+                        <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS
+                || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
+                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS) {
             return false;
         }
         return lakeDepth(x, z) > 0.0;
@@ -242,24 +291,41 @@ public final class ZoneLayout {
         return smoothstep((v - 0.33) / 0.12);
     }
 
-    /** Sand strip right at the waterline (visual beach; also marks walk-in points). */
+    /**
+     * Gates which stretches of a lake's shoreline are flat walk-out exits (roughly half of
+     * it, in several separate arcs) versus a low bank - independent noise so the exits are
+     * scattered around each lake, not one contiguous side.
+     */
+    private static boolean isShoreExit(int x, int z) {
+        return HILL_NOISE.sample(x * 0.03, 300.0, z * 0.03) > -0.05;
+    }
+
+    /** Sand marks the flat walk-out shore stretches (visual "you can exit here" signal). */
     public static boolean isBeach(int x, int z) {
         double r = radius(x, z);
         if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
             return false;
         }
-        return shoreFactor(x, z) > 0.55 && !isLake(x, z, r);
+        return shoreFactor(x, z) > 0.5 && isShoreExit(x, z) && !isLake(x, z, r);
     }
 
     private static boolean isDesert(int x, int z, double r) {
         if (r < DESERT_MIN_RADIUS || r >= MEADOW_OUTER_RADIUS) {
             return false;
         }
-        // The stone hot spot is always meadow; paths however KEEP the desert biome they
+        // The desert-branch destination is a FORCED desert disc, so the zombie-stone POI
+        // exists regardless of where the noise puts patches.
+        if (sqDist(x, z, DESERT_POCKET_X, DESERT_POCKET_Z)
+                <= (long) DESERT_POCKET_RADIUS * DESERT_POCKET_RADIUS) {
+            return true;
+        }
+        // Stone POI clearings are always meadow; paths however KEEP the desert biome they
         // cross (only the surface material changes) - a 3-wide meadow biome sliver through
         // a desert patch would look broken.
         if (sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
-                <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS) {
+                <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS
+                || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
+                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS) {
             return false;
         }
         return DESERT_NOISE.sample(x * 0.006, 0.0, z * 0.006) > 0.5;

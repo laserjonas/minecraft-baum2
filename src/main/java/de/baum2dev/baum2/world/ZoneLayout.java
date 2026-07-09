@@ -66,6 +66,71 @@ public final class ZoneLayout {
         MOUNTAIN
     }
 
+    // --- Hot spots & pathways ------------------------------------------------------------
+    //
+    // Two authored destinations (2nd-playtest feedback: the map needs places to head FOR),
+    // each reached by a visible path from a village gate:
+    //  - STONE hot spot: a gravel clearing in the south meadow where several stone slots
+    //    cluster (StoneSlotManager anchors a ring of stones here).
+    //  - CAVE hot spot: a gravel apron at the mountain foot due east, where carveCaves()
+    //    bores a guaranteed, extra-wide "grand mouth" tunnel into the ring.
+
+    public static final int STONE_HOTSPOT_X = 30;
+    public static final int STONE_HOTSPOT_Z = 240;
+    /** Lakes/desert are masked out this close to the stone hot spot - it is always meadow. */
+    public static final int STONE_HOTSPOT_CLEAR_RADIUS = 28;
+    public static final int STONE_HOTSPOT_APRON_RADIUS = 12;
+
+    /** Where the east path meets the mountain ring; the grand cave mouth opens here. */
+    public static final int CAVE_HOTSPOT_X = 378;
+    public static final int CAVE_HOTSPOT_Z = 0;
+    public static final int CAVE_HOTSPOT_APRON_RADIUS = 10;
+
+    /** Polylines from the village gates to the hot spots; (x,z) waypoint pairs. */
+    private static final int[][] SOUTH_PATH = {{0, 23}, {12, 120}, {STONE_HOTSPOT_X, STONE_HOTSPOT_Z}};
+    private static final int[][] EAST_PATH = {{23, 0}, {130, -12}, {260, 8}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}};
+    private static final double PATH_HALF_WIDTH = 1.6;
+
+    /** True if (x,z) lies on one of the authored gate-to-hotspot pathways. */
+    public static boolean isPath(int x, int z) {
+        return distanceToPolyline(SOUTH_PATH, x, z) <= PATH_HALF_WIDTH
+                || distanceToPolyline(EAST_PATH, x, z) <= PATH_HALF_WIDTH;
+    }
+
+    /** True inside a hot spot's gravel apron circle. */
+    public static boolean isHotspotApron(int x, int z) {
+        return sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
+                <= STONE_HOTSPOT_APRON_RADIUS * STONE_HOTSPOT_APRON_RADIUS
+                || sqDist(x, z, CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z)
+                <= CAVE_HOTSPOT_APRON_RADIUS * CAVE_HOTSPOT_APRON_RADIUS;
+    }
+
+    private static double distanceToPolyline(int[][] points, int x, int z) {
+        double best = Double.MAX_VALUE;
+        for (int i = 0; i < points.length - 1; i++) {
+            best = Math.min(best, distanceToSegment(x, z,
+                    points[i][0], points[i][1], points[i + 1][0], points[i + 1][1]));
+        }
+        return best;
+    }
+
+    private static double distanceToSegment(double px, double pz, double ax, double az,
+            double bx, double bz) {
+        double dx = bx - ax;
+        double dz = bz - az;
+        double lengthSq = dx * dx + dz * dz;
+        double t = lengthSq == 0 ? 0 : clamp(((px - ax) * dx + (pz - az) * dz) / lengthSq, 0.0, 1.0);
+        double cx = ax + t * dx;
+        double cz = az + t * dz;
+        return Math.hypot(px - cx, pz - cz);
+    }
+
+    private static long sqDist(int x, int z, int ox, int oz) {
+        long dx = x - ox;
+        long dz = z - oz;
+        return dx * dx + dz * dz;
+    }
+
     public static Zone zoneAt(int x, int z) {
         double r = radius(x, z);
         if (r < CLEARING_RADIUS) {
@@ -89,6 +154,14 @@ public final class ZoneLayout {
 
         // Meadow shape is the baseline everything else blends against.
         double meadow = meadowHeight(x, z);
+
+        // Shore easing (2nd-playtest feedback: lakes had cliff edges you couldn't climb out
+        // of): terrain within the shore band is pulled down toward just-above-water level,
+        // so every lake has a gentle, walkable beach all the way around.
+        double shore = shoreFactor(x, z);
+        if (shore > 0.0 && meadow > SEA_LEVEL + 1.5) {
+            meadow = lerp(shore, meadow, SEA_LEVEL + 1.5);
+        }
 
         if (isLake(x, z, r)) {
             // Lake basins dip below sea level; lakeDepth eases from 0 at the shore to full
@@ -142,8 +215,13 @@ public final class ZoneLayout {
 
     private static boolean isLake(int x, int z, double r) {
         // Lakes only in the open meadow band (not in the clearing blend, not in deserts,
-        // not in the mountains).
+        // not in the mountains) - and never on a pathway or the stone hot spot.
         if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
+            return false;
+        }
+        if (isPath(x, z)
+                || sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
+                        <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS) {
             return false;
         }
         return lakeDepth(x, z) > 0.0;
@@ -155,8 +233,33 @@ public final class ZoneLayout {
         return v <= 0.45 ? 0.0 : smoothstep((v - 0.45) / 0.25);
     }
 
+    /** 0 away from lakes; rises to 1 approaching the waterline (the beach band). */
+    private static double shoreFactor(int x, int z) {
+        double v = LAKE_NOISE.sample(x * 0.008, 0.0, z * 0.008);
+        if (v <= 0.33 || v > 0.45) {
+            return 0.0;
+        }
+        return smoothstep((v - 0.33) / 0.12);
+    }
+
+    /** Sand strip right at the waterline (visual beach; also marks walk-in points). */
+    public static boolean isBeach(int x, int z) {
+        double r = radius(x, z);
+        if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
+            return false;
+        }
+        return shoreFactor(x, z) > 0.55 && !isLake(x, z, r);
+    }
+
     private static boolean isDesert(int x, int z, double r) {
         if (r < DESERT_MIN_RADIUS || r >= MEADOW_OUTER_RADIUS) {
+            return false;
+        }
+        // The stone hot spot is always meadow; paths however KEEP the desert biome they
+        // cross (only the surface material changes) - a 3-wide meadow biome sliver through
+        // a desert patch would look broken.
+        if (sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
+                <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS) {
             return false;
         }
         return DESERT_NOISE.sample(x * 0.006, 0.0, z * 0.006) > 0.5;
@@ -188,32 +291,46 @@ public final class ZoneLayout {
     private static java.util.Map<Long, java.util.List<CaveSphere>> carveCaves() {
         Random random = Random.create(FIXED_SEED ^ 0xCA7E5L);
         java.util.Map<Long, java.util.List<CaveSphere>> byChunk = new java.util.HashMap<>();
+
+        // The "grand mouth" at the cave hot spot: a guaranteed, extra-wide entrance exactly
+        // where the east pathway meets the mountain foot, so the path visibly leads INTO
+        // the mountain. Bored first so the ordinary tunnels can't crowd it out.
+        carveTunnel(byChunk, random,
+                CAVE_HOTSPOT_X + 6, surfaceHeight(CAVE_HOTSPOT_X + 6, CAVE_HOTSPOT_Z) + 2.0,
+                CAVE_HOTSPOT_Z, 0.0, 3.4, 120);
+
         for (int i = 0; i < CAVE_COUNT; i++) {
             // Spread the mouths around the ring, with some jitter so it doesn't look dialed.
             double angle = (i + random.nextDouble() * 0.6) * (2.0 * Math.PI / CAVE_COUNT);
             double x = Math.cos(angle) * (MEADOW_OUTER_RADIUS + 8);
             double z = Math.sin(angle) * (MEADOW_OUTER_RADIUS + 8);
             double y = surfaceHeight((int) x, (int) z) + 1.5;
-            // Initial heading: outward into the rock, gently downward.
-            double yaw = angle;
-            double pitch = -(0.05 + random.nextDouble() * 0.15);
-            for (int step = 0; step < CAVE_STEPS; step++) {
-                double sphereRadius = 2.0 + random.nextDouble() * 1.2;
-                addSphere(byChunk, new CaveSphere(x, y, z, sphereRadius));
-                yaw += (random.nextDouble() - 0.5) * 0.45;
-                pitch += (random.nextDouble() - 0.5) * 0.25;
-                pitch = Math.max(-0.5, Math.min(0.25, pitch));
-                x += Math.cos(yaw) * Math.cos(pitch) * CAVE_STEP_LENGTH;
-                z += Math.sin(yaw) * Math.cos(pitch) * CAVE_STEP_LENGTH;
-                y += Math.sin(pitch) * CAVE_STEP_LENGTH;
-                y = Math.max(MIN_Y + 8, y);
-                if (radius((int) x, (int) z) > CAVE_MAX_RADIUS) {
-                    // Bounce back inward instead of breaching the wall.
-                    yaw += Math.PI * (0.75 + random.nextDouble() * 0.5);
-                }
-            }
+            carveTunnel(byChunk, random, x, y, z, angle, 2.0, CAVE_STEPS);
         }
         return byChunk;
+    }
+
+    private static void carveTunnel(java.util.Map<Long, java.util.List<CaveSphere>> byChunk,
+            Random random, double x, double y, double z, double startYaw, double baseRadius,
+            int steps) {
+        double yaw = startYaw;
+        // Initial heading: outward into the rock, gently downward.
+        double pitch = -(0.05 + random.nextDouble() * 0.15);
+        for (int step = 0; step < steps; step++) {
+            double sphereRadius = baseRadius + random.nextDouble() * 1.2;
+            addSphere(byChunk, new CaveSphere(x, y, z, sphereRadius));
+            yaw += (random.nextDouble() - 0.5) * 0.45;
+            pitch += (random.nextDouble() - 0.5) * 0.25;
+            pitch = Math.max(-0.5, Math.min(0.25, pitch));
+            x += Math.cos(yaw) * Math.cos(pitch) * CAVE_STEP_LENGTH;
+            z += Math.sin(yaw) * Math.cos(pitch) * CAVE_STEP_LENGTH;
+            y += Math.sin(pitch) * CAVE_STEP_LENGTH;
+            y = Math.max(MIN_Y + 8, y);
+            if (radius((int) x, (int) z) > CAVE_MAX_RADIUS) {
+                // Bounce back inward instead of breaching the wall.
+                yaw += Math.PI * (0.75 + random.nextDouble() * 0.5);
+            }
+        }
     }
 
     private static void addSphere(java.util.Map<Long, java.util.List<CaveSphere>> byChunk, CaveSphere sphere) {

@@ -27,6 +27,7 @@ import de.baum2dev.baum2.world.StoneSlotManager;
 import de.baum2dev.baum2.world.VillageStamper;
 import de.baum2dev.baum2.world.WorldProtectionHandler;
 import de.baum2dev.baum2.world.WorldSetupHandler;
+import de.baum2dev.baum2.world.ZoneSpawnDirector;
 
 public class Baum2 implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("baum2");
@@ -76,6 +77,7 @@ public class Baum2 implements ModInitializer {
         WorldProtectionHandler.registerEvents();
         VillageStamper.registerEvents();
         StoneSlotManager.registerEvents();
+        ZoneSpawnDirector.registerEvents();
 
         LOGGER.info("Baum2 progression system loaded");
     }

@@ -803,11 +803,12 @@ ring).
   farm is now gated purely by kill speed — the drop-table half (guaranteed vs. chance-based)
   is still the open lever. Driver: `END_WORLD_TICK` pass (every 20 ticks) gated on
   `world.shouldTickEntityAt(pos)` — no spawn/reconcile action in chunks whose entities aren't
-  loaded, which also means a stone only (re)appears when a player is near. Slot table = 21
-  slots (7 silverfish L5 meadow, 6 zombies L20 desert, 5 spiders L10 + 3 cave spiders L25
-  mountain ramp — doubled from the initial 11 after the user's first playtest reported the
-  map feeling empty), scattered once per world by fixed-seed rejection sampling (min 50 apart,
-  min r=100, mountain slots below the cliff), then **frozen in a persistent world attachment**
+  loaded, which also means a stone only (re)appears when a player is near. Slot table = 30
+  slots, **meadow/desert only — NO stones on mountains (user rule, 2nd playtest)**: 18
+  silverfish L5 (5 of them a deliberate pentagon around the stone hot spot at (30,240)) + 12
+  zombies L20 in the desert patches; spider/cave-spider stones removed (spiders remain
+  stone-less natural mountain monsters). Scattered once per world by fixed-seed rejection
+  sampling (min 40 apart, min r=100), then **frozen in a persistent world attachment**
   (first use of a World-target attachment in this project — works, verified across restart).
   Death detection via `ServerLivingEntityEvents.AFTER_DEATH`; entities that vanish without a
   death event re-pend when their chunk next entity-ticks. Debug: `/baum2 stones list` (op).
@@ -1498,6 +1499,36 @@ content was an `Entity` or `Item`).
   joined) — see "Next recommended step".
 
 ## Last change (on `fischey_workbranch`)
+
+**Map-design pass (2026-07-09, follow-up to the 2nd playtest).** User feedback: still minutes
+of searching for any monster or stone ("it should be more dangerous"), the map needs pathways
+leading to destinations ("Stone hot spot, Cave hot spot"), lakes have cliff edges you can't
+climb out of, and — new hard rule — **no stones may spawn on the mountains**. Changes:
+1. **`world/ZoneSpawnDirector.java` (new)** — active per-player danger floor. Vanilla natural
+   spawning spreads one global cap probabilistically; this director instead checks every 5s
+   how many zone-appropriate monsters are within 48 blocks of each player and tops up the
+   deficit (max 4/pass) at 20-44 blocks distance, zone-matched, `SpawnReason.NATURAL` so
+   vanilla despawn cleans up. Targets: meadow 8 silverfish, desert 12 (zombie 4:1 silverfish),
+   mountain 12 (spider 4:1 cave spider), clearing none. **Cannot be verified headless** (needs
+   a real player nearby) — this is THE thing the next playtest must judge, and the targets are
+   single constants in `POPULATIONS` for easy retuning.
+2. **Stone slots: 30 total, meadow/desert ONLY** (user rule: never on mountains — spiders stay
+   stone-less natural monsters there): 18 silverfish (5 of them a deliberate pentagon ring
+   around the stone hot spot) + 12 zombies; spacing 40. Spider/cave-spider stones removed.
+3. **Pathways & hot spots** (`ZoneLayout` + generator): two authored dirt-path/gravel routes —
+   south gate → **stone hot spot** (gravel apron at (30,240), the 5-stone ring around it),
+   east gate → **cave hot spot** (gravel apron at (378,0) + a guaranteed extra-wide "grand
+   mouth" tunnel bored into the ring exactly where the path ends). Lakes are masked off paths
+   (a path over a would-be lake becomes a dry causeway); the stone hot spot area is always
+   meadow. Paths keep the biome they cross (only the surface block changes — no biome slivers).
+4. **Lake shores fixed**: terrain within the shore band is pulled down to ~1.5 above water
+   (`shoreFactor` in `ZoneLayout.surfaceHeight`) and a sand strip marks the waterline
+   (`isBeach`) — every lake is now walk-in/walk-out all the way around.
+Headless-verified in a fresh world: 30 slots / 0 mountain stones / hotspot pentagon present;
+dirt_path on the south route; gravel apron + 491-block tunnel air at the grand mouth. NOT yet
+verified: spawn-director density (needs a player), shore feel in-game.
+
+Previous change, same day:
 
 **"More life" density pass (2026-07-09, follow-up) — first real playtest feedback acted on.**
 User played Heimgrund and reported the map feels empty outside the village, with monsters

@@ -51,7 +51,7 @@ public final class StoneSlotManager {
     /** No slot closer to the village center than this - the clearing stays safe. */
     private static final int MIN_RADIUS = 100;
     /** Minimum distance between two slots. */
-    private static final int MIN_SLOT_SPACING = 50;
+    private static final int MIN_SLOT_SPACING = 40;
     /** Mountain-zone slots stay on the climbable inner ramp, below the cliff band. */
     private static final int MOUNTAIN_SLOT_MAX_RADIUS = ZoneLayout.CLIFF_RADIUS - 10;
     private static final int SCATTER_ATTEMPTS = 4000;
@@ -243,16 +243,23 @@ public final class StoneSlotManager {
     /**
      * Fixed-seed scatter, independent of the world seed (like all of Heimgrund).
      * Zone-matched to the biome spawner lists: silverfish stones in the meadow (the
-     * weakest ring, nearest the village), zombie stones in the desert patches, spider
-     * and cave-spider stones on the mountain ramp.
+     * weakest ring, nearest the village), zombie stones in the desert patches.
+     * NO stones in the mountains (user rule, 2nd playtest) - spiders there stay
+     * stone-less natural monsters. Five silverfish anchors form a deliberate ring
+     * around the stone hot spot the south pathway leads to.
      */
     private static List<StoneSlot> generateSlots() {
         Random random = Random.create(ZoneLayout.FIXED_SEED ^ 0x57_0E5L);
         List<StoneSlot> slots = new ArrayList<>();
-        scatter(slots, random, "stone_of_silverfish", 7, ZoneLayout.Zone.MEADOW);
-        scatter(slots, random, "stone_of_zombies", 6, ZoneLayout.Zone.DESERT);
-        scatter(slots, random, "stone_of_spiders", 5, ZoneLayout.Zone.MOUNTAIN);
-        scatter(slots, random, "stone_of_cave_spiders", 3, ZoneLayout.Zone.MOUNTAIN);
+        for (int i = 0; i < 5; i++) {
+            double angle = i * (2.0 * Math.PI / 5);
+            int x = ZoneLayout.STONE_HOTSPOT_X + (int) Math.round(Math.cos(angle) * 16);
+            int z = ZoneLayout.STONE_HOTSPOT_Z + (int) Math.round(Math.sin(angle) * 16);
+            slots.add(StoneSlot.initial("stone_of_silverfish",
+                    new BlockPos(x, ZoneLayout.surfaceHeight(x, z) + 1, z)));
+        }
+        scatter(slots, random, "stone_of_silverfish", 13, ZoneLayout.Zone.MEADOW);
+        scatter(slots, random, "stone_of_zombies", 12, ZoneLayout.Zone.DESERT);
         return List.copyOf(slots);
     }
 

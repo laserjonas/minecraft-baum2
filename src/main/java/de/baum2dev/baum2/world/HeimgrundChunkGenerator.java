@@ -98,6 +98,23 @@ public class HeimgrundChunkGenerator extends ChunkGenerator {
         if (zone == ZoneLayout.Zone.MOUNTAIN && ZoneLayout.isCaveAir(x, y, z)) {
             return Blocks.AIR.getDefaultState();
         }
+        if (y == surfaceY && zone != ZoneLayout.Zone.MOUNTAIN && zone != ZoneLayout.Zone.LAKE) {
+            // Authored surface overrides: hot-spot gravel aprons, gate-to-hotspot pathways,
+            // and the lake beach strips. Order matters (apron wins over path).
+            if (ZoneLayout.isHotspotApron(x, z)) {
+                return (x * 31 + z * 17) % 5 == 0
+                        ? Blocks.COBBLESTONE.getDefaultState()
+                        : Blocks.GRAVEL.getDefaultState();
+            }
+            if (ZoneLayout.isPath(x, z)) {
+                return zone == ZoneLayout.Zone.DESERT
+                        ? Blocks.GRAVEL.getDefaultState()
+                        : Blocks.DIRT_PATH.getDefaultState();
+            }
+            if (ZoneLayout.isBeach(x, z)) {
+                return Blocks.SAND.getDefaultState();
+            }
+        }
         return switch (zone) {
             case MOUNTAIN -> Blocks.STONE.getDefaultState();
             case DESERT -> y >= surfaceY - 1 ? Blocks.SAND.getDefaultState()

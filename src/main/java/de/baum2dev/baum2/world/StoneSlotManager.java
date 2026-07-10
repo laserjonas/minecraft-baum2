@@ -257,8 +257,11 @@ public final class StoneSlotManager {
         ring(slots, "stone_of_silverfish", ZoneLayout.SILVERFISH_STONES_X, ZoneLayout.SILVERFISH_STONES_Z, 3, 26);
         ring(slots, "stone_of_spiders", ZoneLayout.SPIDER_STONES_X, ZoneLayout.SPIDER_STONES_Z, 4, 14);
         ring(slots, "stone_of_spiders", ZoneLayout.SPIDER_STONES_X, ZoneLayout.SPIDER_STONES_Z, 3, 26);
-        scatter(slots, random, "stone_of_silverfish", 5, ZoneLayout.Zone.MEADOW);
-        scatter(slots, random, "stone_of_zombies", 4, ZoneLayout.Zone.DESERT);
+        scatter(slots, random, "stone_of_silverfish", 5, ZoneLayout.Zone.MEADOW, null);
+        // All three territories share the DESERT zone now, so the zombie scatter is pinned
+        // to the zombie territory's own sand - it must not leak onto the other two patches.
+        scatter(slots, random, "stone_of_zombies", 4, ZoneLayout.Zone.DESERT,
+                ZoneLayout.Territory.ZOMBIES);
         return List.copyOf(slots);
     }
 
@@ -274,9 +277,9 @@ public final class StoneSlotManager {
     }
 
     private static void scatter(List<StoneSlot> slots, Random random, String stoneName, int count,
-            ZoneLayout.Zone zone) {
+            ZoneLayout.Zone zone, ZoneLayout.Territory territory) {
         for (int i = 0; i < count; i++) {
-            BlockPos pos = findSpot(slots, random, zone);
+            BlockPos pos = findSpot(slots, random, zone, territory);
             if (pos == null) {
                 // Deterministic given the fixed seed, so if this happens it happens in
                 // dev, not surprisingly in some player's world.
@@ -287,13 +290,17 @@ public final class StoneSlotManager {
         }
     }
 
-    private static BlockPos findSpot(List<StoneSlot> existing, Random random, ZoneLayout.Zone zone) {
+    private static BlockPos findSpot(List<StoneSlot> existing, Random random, ZoneLayout.Zone zone,
+            ZoneLayout.Territory territory) {
         int maxRadius = zone == ZoneLayout.Zone.MOUNTAIN ? MOUNTAIN_SLOT_MAX_RADIUS : ZoneLayout.MEADOW_OUTER_RADIUS;
         for (int attempt = 0; attempt < SCATTER_ATTEMPTS; attempt++) {
             int x = random.nextBetween(-maxRadius, maxRadius);
             int z = random.nextBetween(-maxRadius, maxRadius);
             double r = ZoneLayout.radius(x, z);
             if (r < MIN_RADIUS || r > maxRadius || ZoneLayout.zoneAt(x, z) != zone) {
+                continue;
+            }
+            if (territory != null && ZoneLayout.territoryAt(x, z) != territory) {
                 continue;
             }
             if (!farFromOthers(existing, x, z)) {

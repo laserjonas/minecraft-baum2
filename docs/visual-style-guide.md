@@ -2965,6 +2965,17 @@ anywhere in the template.
 
 ### 21.4 Layout guidance
 
+> **SUPERSEDED by the user's own hand-drawn village plan (2026-07-10,
+> `run/heimgrund_rework_map.png`), which is authoritative over this section's radial-ring
+> proposal.** The shipped layout (see `tools/gen_village.py`) is: a gray RECTANGULAR
+> respawn plaza just north of the exact center acting as the road hub; a straight east-west
+> through-road and a north road replacing the ring path + spokes; two cottages north of the
+> plaza flanking the north road; one square house west and the Werkstatt east of the plaza
+> on the through-road (doors facing the plaza); and the Great Hall — the biggest building —
+> at the village's south, with NO south gate (3 gates: N/W/E). Materials, motifs (21.5),
+> and the building visual identities in 21.3 still apply unchanged; only the plan geometry
+> below is historical.
+
 - **Plan type: radial "Rundling"-style ring, not a scatter and not a rigid 4-cardinal-shops
   hub.** A circular **ring path** (3 blocks wide, `cobblestone`) runs around the Arrival Plaza
   at a fixed radius (~14-16 blocks from center); each of the 5 non-plaza structures above sits

@@ -32,8 +32,15 @@ public final class MapExporter {
     }
 
     private static int colorAt(int x, int z) {
+        if (isBossPoint(x, z)) {
+            return 0xD03030;  // red: boss spawn points (matches the user's map markers)
+        }
         if (ZoneLayout.isHotspotApron(x, z)) {
             return 0xE0A030;  // amber: POI aprons
+        }
+        if (ZoneLayout.isBridge(x, z)
+                && ZoneLayout.zoneAt(x, z) == ZoneLayout.Zone.LAKE) {
+            return 0xA040C0;  // violet: the bridge deck over water (user's map color)
         }
         if (ZoneLayout.isPath(x, z)) {
             return 0xB07040;  // brown: roads
@@ -45,6 +52,19 @@ public final class MapExporter {
             case DESERT -> 0xC9B873;
             case MOUNTAIN -> heightShade(x, z);
         };
+    }
+
+    /** The three boss spawn points (the cave chambers + the zombie-boss clearing). */
+    private static boolean isBossPoint(int x, int z) {
+        return near(x, z, ZoneLayout.EAST_BOSS_ROOM_X, ZoneLayout.EAST_BOSS_ROOM_Z)
+                || near(x, z, ZoneLayout.WEST_BOSS_ROOM_X, ZoneLayout.WEST_BOSS_ROOM_Z)
+                || near(x, z, ZoneLayout.ZOMBIE_BOSS_X, ZoneLayout.ZOMBIE_BOSS_Z);
+    }
+
+    private static boolean near(int x, int z, int px, int pz) {
+        long dx = x - px;
+        long dz = z - pz;
+        return dx * dx + dz * dz <= 8 * 8;
     }
 
     /** Mountains shaded by height so the ramp/cliff/crest structure is visible. */

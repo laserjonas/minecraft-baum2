@@ -1500,6 +1500,83 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**Map rework, drawing-faithful pass (2026-07-10, follow-up) — seas, roads, village, and boss
+placement now match the user's map exactly.** The first implementation of the user's rework
+map (see "Previous change") kept the old noise-driven lakes and relocated the bridge to
+wherever water happened to exist; the user re-sent the map stressing two things it had
+missed: **"match the seas, path way"**, and **the spider/silverfish bosses are INSIDE the
+caves — give the caves more room so bosses can move and jump**. This pass makes the drawing
+authoritative: every feature below was measured off `run/heimgrund_rework_map.png`
+programmatically (pixel→world), not eyeballed.
+
+1. **Authored lakes** (`ZoneLayout.LAKE_SPINES`): the noise-blob lakes are GONE. Four lakes
+   traced from the drawing — NW big lake (bulge to half-width 60), SE long diagonal lake,
+   W pond, N pond near the zombie boss — each a spine polyline with per-vertex half-width
+   plus a noise wobble on the edge so shorelines stay organic. `lakeDepth`/`shoreFactor`/
+   `isBeach` are signed-distance-based now; sand fringes every lake (drawn that way) and
+   the flat walk-out exit arcs are kept. **Static-init order gotcha found the hard way**:
+   `ROADS_BY_CHUNK = routeRoads()` runs at class init and reads the lake shapes (water is a
+   router obstacle), so `LAKE_SPINES`/`DESERT_SPINES` MUST be declared above it — declaring
+   them below left them null during routing and crashed chunk gen with
+   `ExceptionInInitializerError` (caught by the headless server run, fixed by moving the
+   declarations up; a comment in the file now warns about this).
+2. **Bridge back at the DRAWN crossing**: (128,68)-(188,128) across the SE lake's widest
+   middle (the user's violet line bbox is (134,74)-(182,122); endpoints extended a few
+   blocks up the banks so the routed roads reach them on dry land). The first pass's
+   relocated bridge at (218,176) is gone.
+3. **Authored desert territories**: the drawing has exactly three sand patches — one per
+   stone territory — and no random desert anywhere else, so the free `DESERT_NOISE` patches
+   are gone too. Three wobbled capsules (zombies NE ~(143,-186) r55, silverfish SW
+   (-185,140)-(-105,215) r52, spiders SE (268,88)-(200,228) r50) + new
+   `ZoneLayout.Territory` enum / `territoryAt()`. Stone-territory centers nudged to the
+   measured dot positions ((142,-186), (-146,178), (246,158)).
+4. **Road network = the drawn topology, edge for edge**: an E-W main road THROUGH the
+   village (west cave ↔ east cave; it arcs north around the SE lake's finger on its own,
+   since the lake is an A* obstacle), a north road forking at (-10,-110) to the zombie
+   stones and the zombie boss, a SW fork at (-200,20) to the silverfish stones, a SE fork
+   at (116,-4) over the bridge to the spider stones, and a south arc silverfish↔spider
+   below the lake. **No south gate** — the Great Hall occupies the village's south. Gates
+   moved to (0,-46)/(±46,0) for the bigger village; router keep-out r 34→44.
+5. **Boss chambers INSIDE the caves** (user rule): each grand cave now ends in a carved
+   flat-floored dome chamber — radius 16, height 11, floor y60, vertical walls to half
+   height then a dome — at (424,0) east / (-424,-30) west, connected to its cave mouth by
+   a straight sphere-carved corridor (guaranteed connectivity; the wandering grand tunnel
+   from the same mouth stays for depth). `BossSpawnManager`: Spider Queen and Silverfish
+   Broodcaller spawn points moved INTO their chambers; Zombie Colossus stays at its open
+   NW clearing (drawn in the open).
+6. **Village regenerated to the drawn layout** (`tools/gen_village.py`, 71x71 → 91x91,
+   stamper origin (-45,64,-45)): gray RECTANGULAR respawn plaza (23x35, world x -11..11 /
+   z -27..7) as the road hub the drawing shows, TWO north cottages flanking the north
+   road, square west house + east Werkstatt flanking the E-W through-road (doors facing
+   the plaza), Great Hall (27x17, copper roof, north entrance) at the south, straight
+   through-roads instead of the old ring path, 3-gate perimeter (N/W/E, hall guards S).
+7. **Territory-aware spawns**: `ZoneSpawnDirector` gained a silverfish-territory override
+   (its sand is DESERT zone now — without this the desert's zombie-heavy ambient mix would
+   leak into the silverfish patch; spider override generalized to the same helper), and
+   `StoneSlotManager`'s desert scatter is pinned to `Territory.ZOMBIES` so scattered zombie
+   stones can't land on the other two patches. Note: the silverfish ambient target (10)
+   mirrors the already-reviewed spider territory value — not separately balance-reviewed.
+8. **`MapExporter`** now draws the bridge violet over water and the three boss points red —
+   the exporter's output uses the user's own annotation language, so future exports compare
+   1:1 against their drawings.
+
+**Verified headlessly in a fresh dedicated-server world** (`gradlew runServer` with piped
+console commands; one real crash found and fixed on the way — the static-init ordering in
+item 1): clean boot, village stamps at (-45,64,-45), 30 stone slots + 3 boss points
+generate. With the chamber/bridge areas forceloaded: **all three bosses spawn** (`if
+entity` passed for spider_queen, silverfish_broodcaller, zombie_colossus), **both boss
+chambers are carved** (air at floor y60 with stone underneath, both sides), both
+mouth→chamber corridors are open (fill-probes found 1127/768 air blocks east/west), and
+**the bridge stands over real water at the drawn spot** (241 dark-oak plank deck blocks at
+y64; 1333 water blocks at y62 beneath it — the first pass's dry-bridge failure mode is
+structurally gone since the lake is authored). The exported `run/heimgrund_map.png`
+matches the user's drawing feature-for-feature (lakes, territories, road topology, bridge,
+boss dots). Client checks pending: chamber size feel in a real fight (sized r16/h11 for
+Spider Queen, the largest boss), bridge deck look, the new village interior, road
+walkability end-to-end.
+
+Previous change, same day:
+
 **User-designed map rework (2026-07-10) — the user drew the map, this implements it.** The
 user annotated the exported layout PNG (their file described as heimgrund_rework_map.png)
 with a full redesign: bigger village with the biggest building at its south and a gray

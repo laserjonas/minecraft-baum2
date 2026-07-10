@@ -24,12 +24,13 @@ import de.baum2dev.baum2.Baum2;
 import de.baum2dev.baum2.registry.ModEntities;
 
 /**
- * The three roaming-boss spawn points of the user's rework map (5th playtest), each on a
- * 3-minute respawn timer (user-decided): Spider Queen at the EAST grand cave mouth,
- * Silverfish Broodcaller at the WEST grand cave mouth, Zombie Colossus at its north-west
- * clearing. Same persistent-slot machinery as {@link StoneSlotManager} (world attachment,
- * world-time timers that survive restarts, entity-ticking-gated driver), but bosses
- * respawn at their FIXED point - only the stones wander.
+ * The three boss spawn points of the user's rework map, each on a 3-minute respawn timer
+ * (user-decided): Spider Queen INSIDE the east cave's boss chamber, Silverfish
+ * Broodcaller INSIDE the west cave's boss chamber (user rule: cave bosses live in the
+ * cave, in a room big enough to move and jump), Zombie Colossus in the open at its
+ * north-west clearing. Same persistent-slot machinery as {@link StoneSlotManager} (world
+ * attachment, world-time timers that survive restarts, entity-ticking-gated driver), but
+ * bosses respawn at their FIXED point - only the stones wander.
  */
 public final class BossSpawnManager {
 
@@ -166,14 +167,15 @@ public final class BossSpawnManager {
 
     private static List<BossSlot> generateSlots() {
         return List.of(
-                BossSlot.initial("spider_queen", apronPos(ZoneLayout.CAVE_HOTSPOT_X - 6, ZoneLayout.CAVE_HOTSPOT_Z)),
-                BossSlot.initial("silverfish_broodcaller", apronPos(ZoneLayout.WEST_CAVE_X + 6, ZoneLayout.WEST_CAVE_Z)),
-                BossSlot.initial("zombie_colossus", apronPos(ZoneLayout.ZOMBIE_BOSS_X, ZoneLayout.ZOMBIE_BOSS_Z))
+                BossSlot.initial("spider_queen", new BlockPos(
+                        ZoneLayout.EAST_BOSS_ROOM_X, ZoneLayout.BOSS_ROOM_FLOOR_Y, ZoneLayout.EAST_BOSS_ROOM_Z)),
+                BossSlot.initial("silverfish_broodcaller", new BlockPos(
+                        ZoneLayout.WEST_BOSS_ROOM_X, ZoneLayout.BOSS_ROOM_FLOOR_Y, ZoneLayout.WEST_BOSS_ROOM_Z)),
+                BossSlot.initial("zombie_colossus", new BlockPos(
+                        ZoneLayout.ZOMBIE_BOSS_X,
+                        ZoneLayout.surfaceHeight(ZoneLayout.ZOMBIE_BOSS_X, ZoneLayout.ZOMBIE_BOSS_Z) + 1,
+                        ZoneLayout.ZOMBIE_BOSS_Z))
         );
-    }
-
-    private static BlockPos apronPos(int x, int z) {
-        return new BlockPos(x, ZoneLayout.surfaceHeight(x, z) + 1, z);
     }
 
     private BossSpawnManager() {

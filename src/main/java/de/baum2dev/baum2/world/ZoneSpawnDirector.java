@@ -60,14 +60,18 @@ public final class ZoneSpawnDirector {
     );
 
     /**
-     * The spider TERRITORY (user rework map: spider stones live in the SE flatland now, not
-     * the mountains) overrides the underlying zone's mix - a player near the spider stones
-     * gets ambient spiders, matching the stone waves there (balance-reviewer drift finding).
+     * The three stone TERRITORIES override the underlying zone's mix - a player near a
+     * territory's stones gets that territory's own ambient monsters, matching the stone
+     * waves there. This matters because all three territories sit on the shared DESERT
+     * sand (user rework map): without the override, the desert's default zombie-heavy mix
+     * would leak into the silverfish and spider patches.
      */
     private static final ZonePopulation SPIDER_TERRITORY = new ZonePopulation(
             List.of(new WeightedType(EntityType.SPIDER, 4),
                     new WeightedType(EntityType.CAVE_SPIDER, 1)), 10);
-    private static final int SPIDER_TERRITORY_RADIUS = 70;
+    private static final ZonePopulation SILVERFISH_TERRITORY = new ZonePopulation(
+            List.of(new WeightedType(EntityType.SILVERFISH, 1)), 10);
+    private static final int TERRITORY_RADIUS = 70;
 
     public static void registerEvents() {
         ServerTickEvents.END_WORLD_TICK.register(world -> {
@@ -89,11 +93,7 @@ public final class ZoneSpawnDirector {
         if (zonePopulation == null) {
             return;  // village clearing: stays safe
         }
-        long dxSpider = playerPos.getX() - ZoneLayout.SPIDER_STONES_X;
-        long dzSpider = playerPos.getZ() - ZoneLayout.SPIDER_STONES_Z;
-        boolean inSpiderTerritory = dxSpider * dxSpider + dzSpider * dzSpider
-                <= (long) SPIDER_TERRITORY_RADIUS * SPIDER_TERRITORY_RADIUS;
-        ZonePopulation population = inSpiderTerritory ? SPIDER_TERRITORY : zonePopulation;
+        ZonePopulation population = territoryOverride(playerPos, zonePopulation);
         Box scanBox = player.getBoundingBox().expand(SCAN_RADIUS);
         int present = world.getEntitiesByClass(MobEntity.class, scanBox,
                 mob -> isZoneType(population, mob.getType())).size();
@@ -105,6 +105,22 @@ public final class ZoneSpawnDirector {
                 pickType(population, random).spawn(world, spawnPos, SpawnReason.NATURAL);
             }
         }
+    }
+
+    private static ZonePopulation territoryOverride(BlockPos playerPos, ZonePopulation fallback) {
+        if (nearTerritory(playerPos, ZoneLayout.SPIDER_STONES_X, ZoneLayout.SPIDER_STONES_Z)) {
+            return SPIDER_TERRITORY;
+        }
+        if (nearTerritory(playerPos, ZoneLayout.SILVERFISH_STONES_X, ZoneLayout.SILVERFISH_STONES_Z)) {
+            return SILVERFISH_TERRITORY;
+        }
+        return fallback;
+    }
+
+    private static boolean nearTerritory(BlockPos playerPos, int centerX, int centerZ) {
+        long dx = playerPos.getX() - centerX;
+        long dz = playerPos.getZ() - centerZ;
+        return dx * dx + dz * dz <= (long) TERRITORY_RADIUS * TERRITORY_RADIUS;
     }
 
     private static boolean isZoneType(ZonePopulation population, EntityType<?> type) {

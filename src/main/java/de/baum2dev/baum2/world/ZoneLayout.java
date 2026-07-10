@@ -16,8 +16,8 @@ import net.minecraft.util.math.random.Random;
  * <p>Layout, from the center outward (radii are tunable constants below):
  * <ul>
  *   <li>{@code r < 60} - the village clearing: perfectly flat grass at y=64.</li>
- *   <li>{@code 60..380} - meadow: gentle hills, lake basins (water at sea level 62), and
- *       desert patches (only beyond r=180, so the softest zone stays nearest the village).</li>
+ *   <li>{@code 100..380} - meadow: gentle hills, four authored lakes (water at sea level
+ *       62), and three authored desert territories - all traced from the user's map.</li>
  *   <li>{@code 380..500} - the mountain ring: ramps steeply upward; its outer band is a
  *       sheer cliff (radial height steps >= 2 blocks, unjumpable) so the wall is genuinely
  *       unclimbable even though it is natural terrain.</li>
@@ -38,8 +38,6 @@ public final class ZoneLayout {
     public static final int CLEARING_RADIUS = 100;
     /** Clearing blends into meadow across this band so there is no terrain seam. */
     public static final int CLEARING_BLEND_RADIUS = 130;
-    /** Desert patches only occur beyond this radius (tier 2 sits farther out than tier 1). */
-    public static final int DESERT_MIN_RADIUS = 180;
     public static final int MEADOW_OUTER_RADIUS = 380;
     /** Start of the unclimbable cliff band inside the mountain ring. */
     public static final int CLIFF_RADIUS = 460;
@@ -61,6 +59,36 @@ public final class ZoneLayout {
     private static final PerlinNoiseSampler WIND_NOISE =
             new PerlinNoiseSampler(Random.create(FIXED_SEED ^ 0x3EADL));
 
+    // The authored lake/desert shapes MUST be declared before ROADS_BY_CHUNK below: road
+    // routing runs at class init and treats water as an obstacle, so it reads these spines.
+
+    /** Per lake: spine vertices of {x, z, halfWidth} (traced from the user's map). */
+    private static final double[][][] LAKE_SPINES = {
+            // north-west lake (wide southern bulge, tapering north arm)
+            {{-181, -295, 10}, {-177, -260, 30}, {-172, -210, 42}, {-176, -150, 48},
+                    {-205, -128, 60}, {-212, -100, 52}, {-206, -80, 38}, {-198, -52, 14}},
+            // south-east lake (long diagonal; the bridge crosses its widest middle)
+            {{221, -35, 9}, {219, 10, 15}, {206, 38, 20}, {184, 62, 29}, {160, 93, 33},
+                    {136, 126, 28}, {114, 160, 19}, {84, 190, 19}, {68, 218, 26}, {64, 238, 12}},
+            // west pond
+            {{-287, 63, 16}, {-294, 85, 18}},
+            // north pond (south-east of the zombie boss clearing)
+            {{-88, -352, 14}, {-90, -344, 14}},
+    };
+
+    /** How far the terrain-easing shore band reaches inland from the waterline. */
+    private static final double SHORE_BAND_WIDTH = 12.0;
+
+    /** Per territory (index-aligned with {@link Territory}): spine of {x, z, halfWidth}. */
+    private static final double[][][] DESERT_SPINES = {
+            // zombie territory (north-east, nearly round)
+            {{143, -196, 55}, {143, -172, 55}},
+            // silverfish territory (south-west, tilted north-west to south-east)
+            {{-185, 140, 52}, {-105, 215, 52}},
+            // spider territory (south-east, elongated NNE-SSW along the mountain foot)
+            {{268, 88, 50}, {200, 228, 50}},
+    };
+
     public enum Zone {
         CLEARING,
         MEADOW,
@@ -75,30 +103,30 @@ public final class ZoneLayout {
     // run/heimgrund_rework_map.png): three stone territories, three boss spawns, curved
     // roads, one bridge over the southeast lake.
 
-    /** Zombie-stone territory (north-east), on a FORCED desert disc. */
-    public static final int ZOMBIE_STONES_X = 130;
-    public static final int ZOMBIE_STONES_Z = -194;
-    public static final int ZOMBIE_STONES_DESERT_RADIUS = 26;
+    // All positions below are measured off the user's map pixel-exactly (the dots/patches
+    // were extracted programmatically), so the in-game world matches the drawing.
+
+    /** Zombie-stone territory (north-east sand patch, orange dot on the map). */
+    public static final int ZOMBIE_STONES_X = 142;
+    public static final int ZOMBIE_STONES_Z = -186;
     public static final int ZOMBIE_STONES_APRON_RADIUS = 10;
 
-    /** Silverfish-stone territory (south-west meadow, lake/desert masked clear). */
-    public static final int SILVERFISH_STONES_X = -148;
-    public static final int SILVERFISH_STONES_Z = 170;
-    public static final int SILVERFISH_STONES_CLEAR_RADIUS = 26;
+    /** Silverfish-stone territory (south-west sand patch). */
+    public static final int SILVERFISH_STONES_X = -146;
+    public static final int SILVERFISH_STONES_Z = 178;
     public static final int SILVERFISH_STONES_APRON_RADIUS = 10;
 
-    /** Spider-stone territory (south-east; whatever ground the noise gives, lakes masked). */
-    public static final int SPIDER_STONES_X = 256;
-    public static final int SPIDER_STONES_Z = 162;
-    public static final int SPIDER_STONES_CLEAR_RADIUS = 26;
+    /** Spider-stone territory (south-east sand patch, across the bridge). */
+    public static final int SPIDER_STONES_X = 246;
+    public static final int SPIDER_STONES_Z = 158;
     public static final int SPIDER_STONES_APRON_RADIUS = 10;
 
-    /** East grand cave mouth - the spider boss (Spider Queen) spawns at its entrance. */
+    /** East grand cave mouth - the road into the spider boss's cave chamber. */
     public static final int CAVE_HOTSPOT_X = 378;
     public static final int CAVE_HOTSPOT_Z = 0;
     public static final int CAVE_HOTSPOT_APRON_RADIUS = 10;
 
-    /** West grand cave mouth - the silverfish boss (Silverfish Broodcaller) spawns here. */
+    /** West grand cave mouth - the road into the silverfish boss's cave chamber. */
     public static final int WEST_CAVE_X = -378;
     public static final int WEST_CAVE_Z = -30;
     public static final int WEST_CAVE_APRON_RADIUS = 10;
@@ -106,40 +134,69 @@ public final class ZoneLayout {
     /** Zombie boss (Zombie Colossus) spawn clearing, north-west meadow. */
     public static final int ZOMBIE_BOSS_X = -102;
     public static final int ZOMBIE_BOSS_Z = -284;
-    public static final int ZOMBIE_BOSS_CLEAR_RADIUS = 20;
     public static final int ZOMBIE_BOSS_APRON_RADIUS = 8;
+
+    // --- Boss cave chambers ---------------------------------------------------------------
+    //
+    // The spider and silverfish bosses live INSIDE their caves (user rule), so each grand
+    // cave gets a carved boss chamber: a flat-floored dome big enough for a large GeckoLib
+    // boss to move and jump freely, connected to its cave mouth by a straight, gently
+    // descending corridor (guaranteed connectivity - the wandering tunnel from the same
+    // mouth adds depth but is not relied on).
+
+    public static final int EAST_BOSS_ROOM_X = 424;
+    public static final int EAST_BOSS_ROOM_Z = 0;
+    public static final int WEST_BOSS_ROOM_X = -424;
+    public static final int WEST_BOSS_ROOM_Z = -30;
+    /** First AIR y of a chamber - the boss spawns standing at this height. */
+    public static final int BOSS_ROOM_FLOOR_Y = 60;
+    public static final int BOSS_ROOM_RADIUS = 16;
+    public static final int BOSS_ROOM_HEIGHT = 11;
 
     /**
      * The bridge over the southeast lake (the violet line on the user's map): a fixed,
      * straight road segment allowed to cross water; the generator renders a plank deck
-     * over any span where the terrain is below the waterline.
+     * over any span where the terrain is below the waterline. Endpoints sit a few blocks
+     * up the banks so the routed roads can reach them on dry land.
      */
-    public static final int BRIDGE_WEST_X = 218;
-    public static final int BRIDGE_WEST_Z = 176;
-    public static final int BRIDGE_EAST_X = 246;
-    public static final int BRIDGE_EAST_Z = 178;
+    public static final int BRIDGE_WEST_X = 128;
+    public static final int BRIDGE_WEST_Z = 68;
+    public static final int BRIDGE_EAST_X = 188;
+    public static final int BRIDGE_EAST_Z = 128;
     public static final int BRIDGE_DECK_Y = SEA_LEVEL + 2;
 
+    // Road junctions traced from the user's map (the points where its drawn roads fork).
+    private static final int[] JUNCTION_WEST = {-200, 20};
+    private static final int[] JUNCTION_EAST = {116, -4};
+    private static final int[] JUNCTION_NORTH = {-10, -110};
+
     /**
-     * The road NETWORK: curved (the router's step cost carries a noise bias, so roads
-     * meander organically instead of running straight - user request), routed around
-     * lakes/mountains by A* at class-init, covering the map as a ring plus village-gate
-     * spokes. Every edge ends at a stone territory, a cave, or a boss clearing.
+     * The road NETWORK, edge-for-edge the network the user drew: an east-west main road
+     * straight through the village (west cave to east cave, arcing north around the
+     * southeast lake's finger), a north road forking to the zombie stones and the zombie
+     * boss, a southwest fork to the silverfish stones, a southeast fork over the bridge
+     * to the spider stones, and a south arc linking the silverfish and spider territories
+     * below the lake. No south gate - the Great Hall occupies the village's south.
+     * Every segment is A*-routed around lakes/mountains at class-init, with a noise bias
+     * on the step cost so roads meander organically instead of running straight.
      */
     private static final int[][][] ROAD_EDGES = {
-            // village gates (village clearing is r=100; gates sit on the template edge)
-            {{0, -36}, {ZOMBIE_STONES_X, ZOMBIE_STONES_Z}},          // north gate -> zombie stones
-            {{36, 0}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},             // east gate -> east cave (spider boss)
-            {{0, 36}, {SILVERFISH_STONES_X, SILVERFISH_STONES_Z}},   // south gate -> silverfish stones
-            {{-36, 0}, {WEST_CAVE_X, WEST_CAVE_Z}},                  // west gate -> west cave (broodcaller)
-            {{0, 36}, {BRIDGE_WEST_X, BRIDGE_WEST_Z}},               // south gate -> bridge west end
-            {{BRIDGE_EAST_X, BRIDGE_EAST_Z}, {SPIDER_STONES_X, SPIDER_STONES_Z}},  // bridge -> spider stones
-            // outer connections (the ring around the map)
-            {{ZOMBIE_STONES_X, ZOMBIE_STONES_Z}, {ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z}},
-            {{ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z}, {WEST_CAVE_X, WEST_CAVE_Z}},
-            {{WEST_CAVE_X, WEST_CAVE_Z}, {SILVERFISH_STONES_X, SILVERFISH_STONES_Z}},
-            {{ZOMBIE_STONES_X, ZOMBIE_STONES_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
-            {{SPIDER_STONES_X, SPIDER_STONES_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
+            // east-west main road (through the village between the west and east gates)
+            {{-46, 0}, JUNCTION_WEST},
+            {JUNCTION_WEST, {WEST_CAVE_X, WEST_CAVE_Z}},
+            {{46, 0}, JUNCTION_EAST},
+            {JUNCTION_EAST, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
+            // southwest fork to the silverfish territory
+            {JUNCTION_WEST, {SILVERFISH_STONES_X, SILVERFISH_STONES_Z}},
+            // southeast fork over the bridge to the spider territory
+            {JUNCTION_EAST, {BRIDGE_WEST_X, BRIDGE_WEST_Z}},
+            {{BRIDGE_EAST_X, BRIDGE_EAST_Z}, {SPIDER_STONES_X, SPIDER_STONES_Z}},
+            // north road, forking to the zombie stones and the zombie boss
+            {{0, -46}, JUNCTION_NORTH},
+            {JUNCTION_NORTH, {ZOMBIE_STONES_X, ZOMBIE_STONES_Z}},
+            {JUNCTION_NORTH, {ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z}},
+            // south arc below the southeast lake
+            {{SILVERFISH_STONES_X, SILVERFISH_STONES_Z}, {SPIDER_STONES_X, SPIDER_STONES_Z}},
     };
     private static final double PATH_HALF_WIDTH = 1.6;
     private static final int ROUTE_GRID_STEP = 2;
@@ -334,8 +391,9 @@ public final class ZoneLayout {
         if (r > MEADOW_OUTER_RADIUS - 2 && sqDist(x, z, goal[0], goal[1]) > 24 * 24) {
             return true;
         }
-        // Keep roads out of the village interior (they start at the gates).
-        if (r < 34) {
+        // Keep roads out of the village interior (they start at the three gates, which sit
+        // on the 91x91 template's perimeter wall).
+        if (r < 44) {
             return true;
         }
         // Water plus a safety margin: sample the cell and its margin ring.
@@ -348,22 +406,9 @@ public final class ZoneLayout {
                 || rawLake(x, z + ROUTE_OBSTACLE_MARGIN) || rawLake(x, z - ROUTE_OBSTACLE_MARGIN);
     }
 
-    /** Lake test WITHOUT the path exclusion (used by routing, which must see all water). */
+    /** Lake test for the router (which must see all water). */
     private static boolean rawLake(int x, int z) {
-        double r = radius(x, z);
-        if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
-            return false;
-        }
-        return lakeDepth(x, z) > 0.0;
-    }
-
-    private static double distanceToPolyline(int[][] points, int x, int z) {
-        double best = Double.MAX_VALUE;
-        for (int i = 0; i < points.length - 1; i++) {
-            best = Math.min(best, distanceToSegment(x, z,
-                    points[i][0], points[i][1], points[i + 1][0], points[i + 1][1]));
-        }
-        return best;
+        return isLake(x, z, radius(x, z));
     }
 
     private static double distanceToSegment(double px, double pz, double ax, double az,
@@ -473,19 +518,40 @@ public final class ZoneLayout {
         return lerp(t, meadow, 120.0) + ridge;
     }
 
-    private static boolean isLake(int x, int z, double r) {
-        // Lakes only in the open meadow band (not in the clearing blend, not in deserts,
-        // not in the mountains) - and never on a stone-POI clearing. Roads need no
-        // exclusion: they are routed around water and can't touch it.
-        if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
-            return false;
+    // --- Authored lakes --------------------------------------------------------------------
+    //
+    // The four lakes are traced from the user's rework map (spine polylines with a
+    // half-width per vertex, extracted from the drawing's water pixels), instead of the
+    // old free noise blobs - the user's rule is "match the seas". A small noise wobble on
+    // the edge distance keeps shorelines organic.
+
+    /**
+     * Signed distance from (x,z) to the nearest lake's shoreline: negative inside water,
+     * positive on land. Interpolates the spine's per-vertex half-width and adds a noise
+     * wobble so the edge is organic rather than a mathematical capsule.
+     */
+    private static double lakeEdgeDistance(int x, int z) {
+        double best = Double.MAX_VALUE;
+        for (double[][] spine : LAKE_SPINES) {
+            for (int i = 0; i < spine.length - 1; i++) {
+                double[] a = spine[i];
+                double[] b = spine[i + 1];
+                double dx = b[0] - a[0];
+                double dz = b[1] - a[1];
+                double lengthSq = dx * dx + dz * dz;
+                double t = lengthSq == 0 ? 0.0
+                        : clamp(((x - a[0]) * dx + (z - a[1]) * dz) / lengthSq, 0.0, 1.0);
+                double dist = Math.hypot(x - (a[0] + t * dx), z - (a[1] + t * dz));
+                best = Math.min(best, dist - lerp(t, a[2], b[2]));
+            }
         }
-        if (sqDist(x, z, SILVERFISH_STONES_X, SILVERFISH_STONES_Z)
-                        <= (long) SILVERFISH_STONES_CLEAR_RADIUS * SILVERFISH_STONES_CLEAR_RADIUS
-                || sqDist(x, z, SPIDER_STONES_X, SPIDER_STONES_Z)
-                        <= (long) SPIDER_STONES_CLEAR_RADIUS * SPIDER_STONES_CLEAR_RADIUS
-                || sqDist(x, z, ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z)
-                        <= (long) ZOMBIE_BOSS_CLEAR_RADIUS * ZOMBIE_BOSS_CLEAR_RADIUS) {
+        return best + LAKE_NOISE.sample(x * 0.05, 0.0, z * 0.05) * 4.0;
+    }
+
+    private static boolean isLake(int x, int z, double r) {
+        // The clearing blend and the mountain ring stay dry no matter what the authored
+        // shapes say (safety clip; the spines are authored well inside the meadow band).
+        if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS) {
             return false;
         }
         return lakeDepth(x, z) > 0.0;
@@ -493,17 +559,17 @@ public final class ZoneLayout {
 
     /** 0 outside a lake; eases up to 1 toward a basin center. */
     private static double lakeDepth(int x, int z) {
-        double v = LAKE_NOISE.sample(x * 0.008, 0.0, z * 0.008);
-        return v <= 0.45 ? 0.0 : smoothstep((v - 0.45) / 0.25);
+        double edge = lakeEdgeDistance(x, z);
+        return edge >= 0.0 ? 0.0 : smoothstep(Math.min(1.0, -edge / 18.0));
     }
 
     /** 0 away from lakes; rises to 1 approaching the waterline (the beach band). */
     private static double shoreFactor(int x, int z) {
-        double v = LAKE_NOISE.sample(x * 0.008, 0.0, z * 0.008);
-        if (v <= 0.33 || v > 0.45) {
+        double edge = lakeEdgeDistance(x, z);
+        if (edge <= 0.0 || edge > SHORE_BAND_WIDTH) {
             return 0.0;
         }
-        return smoothstep((v - 0.33) / 0.12);
+        return smoothstep((SHORE_BAND_WIDTH - edge) / SHORE_BAND_WIDTH);
     }
 
     /**
@@ -515,35 +581,76 @@ public final class ZoneLayout {
         return HILL_NOISE.sample(x * 0.03, 300.0, z * 0.03) > -0.05;
     }
 
-    /** Sand marks the flat walk-out shore stretches (visual "you can exit here" signal). */
+    /** Sand fringes the lakes (drawn that way on the user's map), widest at walk-out exits. */
     public static boolean isBeach(int x, int z) {
         double r = radius(x, z);
         if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
             return false;
         }
-        return shoreFactor(x, z) > 0.5 && isShoreExit(x, z) && !isLake(x, z, r);
+        if (isLake(x, z, r)) {
+            return false;
+        }
+        double edge = lakeEdgeDistance(x, z);
+        return edge <= 4.0 || (edge <= SHORE_BAND_WIDTH * 0.7 && isShoreExit(x, z));
+    }
+
+    // --- Authored desert territories --------------------------------------------------------
+    //
+    // The user's map has exactly three sand patches - one per stone territory (zombies NE,
+    // silverfish SW, spiders SE) - and no random desert anywhere else, so the old noise
+    // patches are gone. Same capsule-with-wobble shape math as the lakes.
+
+    /** Which monster territory a desert capsule belongs to. */
+    public enum Territory {
+        ZOMBIES,
+        SILVERFISH,
+        SPIDERS
+    }
+
+    /**
+     * The territory whose sand patch covers (x,z), or null outside all three. Used by the
+     * stone scatter and the spawn director so a territory's ambient monsters match its
+     * stones even though all three patches share the DESERT zone/biome.
+     */
+    public static Territory territoryAt(int x, int z) {
+        double r = radius(x, z);
+        if (r >= MEADOW_OUTER_RADIUS) {
+            return null;
+        }
+        Territory best = null;
+        double bestEdge = 0.0;
+        for (int i = 0; i < DESERT_SPINES.length; i++) {
+            double edge = desertEdgeDistance(DESERT_SPINES[i], x, z);
+            if (edge < bestEdge) {
+                bestEdge = edge;
+                best = Territory.values()[i];
+            }
+        }
+        return best;
+    }
+
+    /** Signed distance to one desert capsule's edge (negative inside), with noise wobble. */
+    private static double desertEdgeDistance(double[][] spine, int x, int z) {
+        double best = Double.MAX_VALUE;
+        for (int i = 0; i < spine.length - 1; i++) {
+            double[] a = spine[i];
+            double[] b = spine[i + 1];
+            double dx = b[0] - a[0];
+            double dz = b[1] - a[1];
+            double lengthSq = dx * dx + dz * dz;
+            double t = lengthSq == 0 ? 0.0
+                    : clamp(((x - a[0]) * dx + (z - a[1]) * dz) / lengthSq, 0.0, 1.0);
+            double dist = Math.hypot(x - (a[0] + t * dx), z - (a[1] + t * dz));
+            best = Math.min(best, dist - lerp(t, a[2], b[2]));
+        }
+        return best + DESERT_NOISE.sample(x * 0.03, 0.0, z * 0.03) * 8.0;
     }
 
     private static boolean isDesert(int x, int z, double r) {
-        if (r < DESERT_MIN_RADIUS || r >= MEADOW_OUTER_RADIUS) {
+        if (r >= MEADOW_OUTER_RADIUS) {
             return false;
         }
-        // The zombie-stone territory is a FORCED desert disc, so it exists regardless of
-        // where the noise puts patches.
-        if (sqDist(x, z, ZOMBIE_STONES_X, ZOMBIE_STONES_Z)
-                <= (long) ZOMBIE_STONES_DESERT_RADIUS * ZOMBIE_STONES_DESERT_RADIUS) {
-            return true;
-        }
-        // Meadow POI clearings are never desert; paths however KEEP the desert biome they
-        // cross (only the surface material changes) - a 3-wide meadow biome sliver through
-        // a desert patch would look broken.
-        if (sqDist(x, z, SILVERFISH_STONES_X, SILVERFISH_STONES_Z)
-                <= (long) SILVERFISH_STONES_CLEAR_RADIUS * SILVERFISH_STONES_CLEAR_RADIUS
-                || sqDist(x, z, ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z)
-                        <= (long) ZOMBIE_BOSS_CLEAR_RADIUS * ZOMBIE_BOSS_CLEAR_RADIUS) {
-            return false;
-        }
-        return DESERT_NOISE.sample(x * 0.006, 0.0, z * 0.006) > 0.5;
+        return territoryAt(x, z) != null;
     }
 
     public static double radius(int x, int z) {
@@ -583,6 +690,17 @@ public final class ZoneLayout {
                 WEST_CAVE_X - 6, surfaceHeight(WEST_CAVE_X - 6, WEST_CAVE_Z) + 2.0,
                 WEST_CAVE_Z, Math.PI, 3.4, 120);
 
+        // Straight corridors from each grand mouth down into its boss chamber, so the
+        // chamber is guaranteed reachable no matter where the wandering tunnels went.
+        carveCorridor(byChunk,
+                CAVE_HOTSPOT_X + 6, surfaceHeight(CAVE_HOTSPOT_X + 6, CAVE_HOTSPOT_Z) + 2.0,
+                CAVE_HOTSPOT_Z,
+                EAST_BOSS_ROOM_X - BOSS_ROOM_RADIUS + 4, BOSS_ROOM_FLOOR_Y + 2.5, EAST_BOSS_ROOM_Z);
+        carveCorridor(byChunk,
+                WEST_CAVE_X - 6, surfaceHeight(WEST_CAVE_X - 6, WEST_CAVE_Z) + 2.0,
+                WEST_CAVE_Z,
+                WEST_BOSS_ROOM_X + BOSS_ROOM_RADIUS - 4, BOSS_ROOM_FLOOR_Y + 2.5, WEST_BOSS_ROOM_Z);
+
         for (int i = 0; i < CAVE_COUNT; i++) {
             // Spread the mouths around the ring, with some jitter so it doesn't look dialed.
             double angle = (i + random.nextDouble() * 0.6) * (2.0 * Math.PI / CAVE_COUNT);
@@ -617,6 +735,18 @@ public final class ZoneLayout {
         }
     }
 
+    /** A straight run of spheres from A to B - deterministic, no wander. */
+    private static void carveCorridor(java.util.Map<Long, java.util.List<CaveSphere>> byChunk,
+            double x, double y, double z, double toX, double toY, double toZ) {
+        double length = Math.sqrt((toX - x) * (toX - x) + (toY - y) * (toY - y) + (toZ - z) * (toZ - z));
+        int steps = (int) Math.ceil(length / 2.0);
+        for (int step = 0; step <= steps; step++) {
+            double t = step / (double) steps;
+            addSphere(byChunk, new CaveSphere(
+                    lerp(t, x, toX), lerp(t, y, toY), lerp(t, z, toZ), 3.4));
+        }
+    }
+
     private static void addSphere(java.util.Map<Long, java.util.List<CaveSphere>> byChunk, CaveSphere sphere) {
         int minChunkX = (int) Math.floor((sphere.x() - sphere.radius()) / 16.0);
         int maxChunkX = (int) Math.floor((sphere.x() + sphere.radius()) / 16.0);
@@ -633,8 +763,12 @@ public final class ZoneLayout {
         return ((long) chunkX << 32) ^ (chunkZ & 0xFFFFFFFFL);
     }
 
-    /** True if this block is inside a carved mountain tunnel. */
+    /** True if this block is inside a carved mountain tunnel or a boss chamber. */
     public static boolean isCaveAir(int x, int y, int z) {
+        if (isBossRoomAir(x, y, z, EAST_BOSS_ROOM_X, EAST_BOSS_ROOM_Z)
+                || isBossRoomAir(x, y, z, WEST_BOSS_ROOM_X, WEST_BOSS_ROOM_Z)) {
+            return true;
+        }
         java.util.List<CaveSphere> spheres = CAVES_BY_CHUNK.get(chunkKey(x >> 4, z >> 4));
         if (spheres == null) {
             return false;
@@ -648,6 +782,25 @@ public final class ZoneLayout {
             }
         }
         return false;
+    }
+
+    /**
+     * A boss chamber: flat floor at {@link #BOSS_ROOM_FLOOR_Y}, vertical walls for the
+     * lower half, then a dome closing at {@link #BOSS_ROOM_HEIGHT} - a room a large boss
+     * can move and jump in without clipping the ceiling.
+     */
+    private static boolean isBossRoomAir(int x, int y, int z, int centerX, int centerZ) {
+        int dy = y - BOSS_ROOM_FLOOR_Y;
+        if (dy < 0 || dy > BOSS_ROOM_HEIGHT) {
+            return false;
+        }
+        double vertical = dy / (double) BOSS_ROOM_HEIGHT;
+        double shrink = vertical <= 0.5 ? 1.0
+                : Math.sqrt(Math.max(0.0, 1.0 - (vertical - 0.5) * 2.0 * (vertical - 0.5) * 2.0));
+        double roomRadius = BOSS_ROOM_RADIUS * shrink;
+        long dx = x - centerX;
+        long dz = z - centerZ;
+        return dx * dx + dz * dz <= roomRadius * roomRadius;
     }
 
     private static double smoothstep(double t) {

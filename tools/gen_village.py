@@ -23,8 +23,8 @@ DATA_VERSION = 4671  # 1.21.11 (read from a template the game itself saved)
 
 # Template size. Ground layer is y=0 in template space (world y=64: replaces the
 # clearing's grass surface); buildings rise above it.
-SX, SY, SZ = 71, 17, 71
-CX, CZ = SX // 2, SZ // 2  # village center in template space (23, 23)
+SX, SY, SZ = 91, 19, 91
+CX, CZ = SX // 2, SZ // 2  # village center in template space (45, 45)
 
 # ---------------------------------------------------------------------------------
 # Voxel model: (x, y, z) -> "minecraft:id" or "minecraft:id[prop=v,prop=v]"
@@ -440,136 +440,114 @@ def window(x, z, x2=None, z2=None):
 
 
 def build():
-    # --- Gray respawn plaza (user rework map: "the gray one is the respawn point") -----
-    for x in range(SX):
-        for z in range(SZ):
-            d = dist(x, z)
-            if d <= 4.5:
-                put(x, 0, z, "minecraft:smooth_stone")
-            elif d <= 5.5:
-                put(x, 0, z, "minecraft:polished_deepslate")
+    # Layout traced from the user's rework map (village zoom): a gray RECTANGULAR respawn
+    # plaza just north of the exact center acting as the road hub; two small cottages
+    # north of it flanking the north road; one square house west and one east of the
+    # plaza on the east-west through-road; the GREAT HALL (biggest building) at the
+    # south; straight through-roads instead of a ring; and NO south gate - the hall
+    # occupies the village's south.
 
-    # --- Arrival plaza ring (banded andesite) around the gray core --------------------
-    for x in range(SX):
-        for z in range(SZ):
-            d = dist(x, z)
-            if 5.5 < d <= 13:
-                band = ((x // 2) + (z // 2)) % 2 == 0
-                put(x, 0, z, "minecraft:polished_andesite" if band else "minecraft:andesite")
-            elif 13 < d <= 14:
-                put(x, 0, z, "minecraft:stone_bricks")
+    # --- Gray respawn plaza (user map: "the gray one is the respawn point") ------------
+    px1, pz1, px2, pz2 = 34, 18, 56, 52          # world x -11..11, z -27..7
+    for x in range(px1, px2 + 1):
+        for z in range(pz1, pz2 + 1):
+            edge = x in (px1, px2) or z in (pz1, pz2)
+            put(x, 0, z, "minecraft:polished_deepslate" if edge else "minecraft:smooth_stone")
 
-    # --- Heimstein monument stones on the gray circle's rim (never on the spawn cell) --
-    put(CX - 5, 1, CZ, "minecraft:polished_deepslate")
-    put(CX - 5, 2, CZ, "minecraft:chiseled_deepslate")
-    put(CX - 5, 3, CZ, "minecraft:oxidized_cut_copper_slab[type=bottom]")
-    put(CX + 5, 1, CZ - 2, "minecraft:polished_deepslate")
-    put(CX + 5, 2, CZ - 2, "minecraft:chiseled_deepslate")
-    put(CX, 1, CZ - 5, "minecraft:cobbled_deepslate")
-    put(CX + 2, 1, CZ + 5, "minecraft:chiseled_deepslate")
-    put(CX + 2, 2, CZ + 5, "minecraft:oxidized_cut_copper_slab[type=bottom]")
-    for px, pz in ((CX - 4, CZ - 4), (CX + 4, CZ + 4)):
-        put(px, 1, pz, "minecraft:andesite_wall")
-        put(px, 2, pz, "minecraft:andesite_wall")
-        put(px, 3, pz, "minecraft:soul_lantern")
+    # --- Heimstein monument stones on the plaza (never on the spawn cell) --------------
+    put(CX - 7, 1, CZ - 10, "minecraft:polished_deepslate")
+    put(CX - 7, 2, CZ - 10, "minecraft:chiseled_deepslate")
+    put(CX - 7, 3, CZ - 10, "minecraft:oxidized_cut_copper_slab[type=bottom]")
+    put(CX + 7, 1, CZ - 12, "minecraft:polished_deepslate")
+    put(CX + 7, 2, CZ - 12, "minecraft:chiseled_deepslate")
+    put(CX, 1, CZ - 18, "minecraft:cobbled_deepslate")
+    put(CX + 5, 1, CZ + 4, "minecraft:chiseled_deepslate")
+    put(CX + 5, 2, CZ + 4, "minecraft:oxidized_cut_copper_slab[type=bottom]")
+    for lx, lz in ((px1 + 1, pz1 + 1), (px2 - 1, pz1 + 1), (px1 + 1, pz2 - 1), (px2 - 1, pz2 - 1)):
+        put(lx, 1, lz, "minecraft:andesite_wall")
+        put(lx, 2, lz, "minecraft:andesite_wall")
+        put(lx, 3, lz, "minecraft:soul_lantern")
 
-    # --- Ring path + gate spokes (4 gates N/E/S/W, aligned to the road network) --------
-    for x in range(SX):
-        for z in range(SZ):
-            if 19.5 <= dist(x, z) <= 22.4:
-                cobble_path(x, z)
-    for z in list(range(1, 16)) + list(range(56, SZ - 1)):   # N + S spokes
-        for x in (CX - 1, CX, CX + 1):
-            cobble_path(x, z)
-    for x in list(range(1, 16)) + list(range(56, SX - 1)):   # W + E spokes
+    # --- Through-roads (user map: E-W road straight through, N road down to the plaza) --
+    for x in list(range(1, px1)) + list(range(px2 + 1, SX - 1)):
         for z in (CZ - 1, CZ, CZ + 1):
             cobble_path(x, z)
-    for x in range(15, 21):   # N/S spokes continue to the plaza edge
-        pass
-    for z in range(15, 21):
+    for z in range(1, pz1):
         for x in (CX - 1, CX, CX + 1):
             cobble_path(x, z)
-    for z in range(50, 56):
+    # short connectors: plaza to the hall door, plaza to the west/east house doors
+    for z in range(pz2 + 1, 58):
         for x in (CX - 1, CX, CX + 1):
             cobble_path(x, z)
-    for x in range(15, 21):
-        for z in (CZ - 1, CZ, CZ + 1):
+    for x in range(23, px1):
+        for z in (30, 31):
             cobble_path(x, z)
-    for x in range(50, 56):
-        for z in (CZ - 1, CZ, CZ + 1):
+    for x in range(px2 + 1, 68):
+        for z in (30, 31):
             cobble_path(x, z)
+    # road lanterns
+    for lx in (8, 20, 70, 82):
+        lantern_post(lx, CZ - 2)
+    for lz in (5, 12):
+        lantern_post(CX + 2, lz)
 
     # --- GREAT HALL (user: "the building at the bottom is the biggest one"): south, ----
-    # 17x11, verdigris-copper roof, wide entrance facing the plaza (north side).
-    fachwerk_walls(27, 52, 43, 62, 6, ("N", (34, 35, 36)))
-    for x in (30, 40):
-        window(x, 52)
-        window(x, 62)
-    for z in (55, 59):
-        window(27, z)
-        window(43, z)
-    gable_roof(27, 52, 43, 62, 7, "minecraft:oxidized_cut_copper",
+    # 27x17, verdigris-copper roof, wide entrance facing the plaza (north side).
+    fachwerk_walls(32, 58, 58, 74, 6, ("N", (44, 45, 46)))
+    for x in (36, 40, 50, 54):
+        window(x, 58)
+        window(x, 74)
+    for z in (62, 66, 70):
+        window(32, z)
+        window(58, z)
+    gable_roof(32, 58, 58, 74, 7, "minecraft:oxidized_cut_copper",
                "minecraft:oxidized_cut_copper_stairs", "minecraft:oxidized_cut_copper_slab")
 
-    # --- Werkstatt (east) ---------------------------------------------------------------
-    fachwerk_walls(53, 30, 61, 38, 4, ("W", (33, 34)))
-    window(57, 30)
-    window(61, 34)
-    gable_roof(53, 30, 61, 38, 5, "minecraft:deepslate_tiles",
-               "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
-    put(55, 1, 40, "minecraft:barrel")
-    put(56, 1, 40, "minecraft:composter")
-
-    # --- Cottages (NW, NE, W) -----------------------------------------------------------
-    fachwerk_walls(12, 13, 19, 19, 4, ("S", (15, 16)))
-    window(12, 16)
-    window(19, 16)
-    gable_roof(12, 13, 19, 19, 5, "minecraft:deepslate_tiles",
+    # --- West house (square, door facing the plaza) --------------------------------------
+    fachwerk_walls(8, 24, 22, 38, 5, ("E", (30, 31)))
+    window(12, 24)
+    window(18, 24)
+    window(12, 38)
+    window(18, 38)
+    window(8, 30)
+    gable_roof(8, 24, 22, 38, 6, "minecraft:deepslate_tiles",
                "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
 
-    fachwerk_walls(49, 12, 56, 18, 4, ("S", (52, 53)))
-    window(49, 15)
-    window(56, 15)
-    gable_roof(49, 12, 56, 18, 5, "minecraft:deepslate_tiles",
+    # --- Werkstatt (east twin of the west house, door facing the plaza) ------------------
+    fachwerk_walls(68, 24, 82, 38, 5, ("W", (30, 31)))
+    window(72, 24)
+    window(78, 24)
+    window(72, 38)
+    window(78, 38)
+    window(82, 30)
+    gable_roof(68, 24, 82, 38, 6, "minecraft:deepslate_tiles",
+               "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
+    put(70, 1, 40, "minecraft:barrel")
+    put(71, 1, 40, "minecraft:composter")
+
+    # --- North cottages (two, flanking the north road) -----------------------------------
+    fachwerk_walls(28, 6, 38, 15, 4, ("S", (32, 33)))
+    window(28, 10)
+    window(38, 10)
+    window(33, 6)
+    gable_roof(28, 6, 38, 15, 5, "minecraft:deepslate_tiles",
                "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
 
-    fachwerk_walls(8, 40, 15, 46, 4, ("E", (42, 43)))
-    window(11, 40)
-    window(11, 46)
-    gable_roof(8, 40, 15, 46, 5, "minecraft:deepslate_tiles",
+    fachwerk_walls(52, 6, 62, 15, 4, ("S", (57, 58)))
+    window(52, 10)
+    window(62, 10)
+    window(57, 6)
+    gable_roof(52, 6, 62, 15, 5, "minecraft:deepslate_tiles",
                "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
 
-    # --- Kraeutergarten (north-west court between cottage and ring) ----------------------
-    gx1, gz1, gx2, gz2 = 22, 8, 31, 16
-    for x in range(gx1, gx2 + 1):
-        for z in range(gz1, gz2 + 1):
-            edge = x in (gx1, gx2) or z in (gz1, gz2)
-            if edge and not (z == gz2 and x in (26, 27)):
-                hedge(x, z)
-            elif not edge:
-                if (x + z) % 2 == 0:
-                    put(x, 0, z, "minecraft:moss_block")
-                else:
-                    put(x, 0, z, "minecraft:dirt_path")
-    put(25, 1, 11, "minecraft:potted_allium")
-    put(29, 1, 14, "minecraft:potted_lily_of_the_valley")
-
-    # --- Ring-path lanterns ---------------------------------------------------------------
-    for angle_deg in range(0, 360, 45):
-        a = math.radians(angle_deg + 22)
-        x = round(CX + 23.6 * math.cos(a))
-        z = round(CZ + 23.6 * math.sin(a))
-        if (x, 1, z) not in blocks and (x, 0, z) not in blocks:
-            lantern_post(x, z)
-
-    # --- Perimeter: low wall alternating hedge, 4 gates (N/E/S/W) -------------------------
+    # --- Perimeter: low wall alternating hedge, 3 gates (N/E/W - the hall guards the S) --
     for x in range(SX):
         for z in range(SZ):
             d = dist(x, z)
-            if not (32.6 <= d <= 33.4):
+            if not (43.1 <= d <= 43.9):
                 continue
-            if abs(x - CX) <= 1 and (z < 8 or z > SZ - 9):
-                continue  # N + S gate openings
+            if abs(x - CX) <= 1 and z < 10:
+                continue  # N gate opening
             if abs(z - CZ) <= 1 and (x < 8 or x > SX - 9):
                 continue  # W + E gate openings
             bucket = int((math.atan2(z - CZ, x - CX) + math.pi) / (2 * math.pi) * 32)
@@ -579,7 +557,7 @@ def build():
                 put(x, 1, z, "minecraft:cobblestone_wall")
                 put(x, 2, z, "minecraft:cobblestone_wall")
                 put(x, 3, z, "minecraft:stone_brick_slab[type=bottom]")
-    for gx, gz in ((CX - 2, 1), (CX + 2, 1), (CX - 2, SZ - 2), (CX + 2, SZ - 2),
+    for gx, gz in ((CX - 2, 1), (CX + 2, 1),
                    (1, CZ - 2), (1, CZ + 2), (SX - 2, CZ - 2), (SX - 2, CZ + 2)):
         for y in range(1, 4):
             put(gx, y, gz, "minecraft:andesite_wall")

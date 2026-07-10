@@ -85,16 +85,15 @@ public final class ZoneSpawnDirector {
     private static void topUpAround(ServerWorld world, ServerPlayerEntity player) {
         BlockPos playerPos = player.getBlockPos();
         ZoneLayout.Zone zone = ZoneLayout.zoneAt(playerPos.getX(), playerPos.getZ());
-        ZonePopulation population = POPULATIONS.get(zone);
-        if (population == null) {
+        ZonePopulation zonePopulation = POPULATIONS.get(zone);
+        if (zonePopulation == null) {
             return;  // village clearing: stays safe
         }
         long dxSpider = playerPos.getX() - ZoneLayout.SPIDER_STONES_X;
         long dzSpider = playerPos.getZ() - ZoneLayout.SPIDER_STONES_Z;
-        if (dxSpider * dxSpider + dzSpider * dzSpider
-                <= (long) SPIDER_TERRITORY_RADIUS * SPIDER_TERRITORY_RADIUS) {
-            population = SPIDER_TERRITORY;
-        }
+        boolean inSpiderTerritory = dxSpider * dxSpider + dzSpider * dzSpider
+                <= (long) SPIDER_TERRITORY_RADIUS * SPIDER_TERRITORY_RADIUS;
+        ZonePopulation population = inSpiderTerritory ? SPIDER_TERRITORY : zonePopulation;
         Box scanBox = player.getBoundingBox().expand(SCAN_RADIUS);
         int present = world.getEntitiesByClass(MobEntity.class, scanBox,
                 mob -> isZoneType(population, mob.getType())).size();

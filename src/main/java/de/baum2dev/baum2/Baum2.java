@@ -12,6 +12,9 @@ import de.baum2dev.baum2.events.LevelUpHandler;
 import de.baum2dev.baum2.events.MobDeathHandler;
 import de.baum2dev.baum2.events.ProgressionTickHandler;
 import de.baum2dev.baum2.events.VitalsTickHandler;
+import de.baum2dev.baum2.mounts.MountEquipmentManager;
+import de.baum2dev.baum2.mounts.MountEquipmentScreenHandler;
+import de.baum2dev.baum2.mounts.MountedCombatHandler;
 import de.baum2dev.baum2.networking.Baum2Networking;
 import de.baum2dev.baum2.block.RissobeliskBlock;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
@@ -61,9 +64,16 @@ public class Baum2 implements ModInitializer {
         ModBlocks.registerItemGroups();
         ModBlockEntities.bootstrap();
 
+        // Persistent AttachmentType - must load before any player can join (see the
+        // PlayerLevelSystem.bootstrap() note above); registered here with the other bootstraps.
+        MountEquipmentManager.bootstrap();
+        MountEquipmentScreenHandler.bootstrap();
+
         Baum2Commands.registerCommands();
         Baum2Networking.registerServerPayloads();
         Baum2Networking.registerServerReceivers();
+        Baum2Networking.registerMountReceivers();
+        MountedCombatHandler.registerEvents();
         LevelUpHandler.registerEvents();
         MobDeathHandler.registerEvents();
         ProgressionTickHandler.registerEvents();

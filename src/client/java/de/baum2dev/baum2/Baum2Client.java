@@ -6,7 +6,11 @@ import net.minecraft.client.render.entity.EntityRendererFactories;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry;
 import net.minecraft.client.render.entity.model.SilverfishEntityModel;
 import net.minecraft.client.render.entity.model.ModelTransformer;
+import net.minecraft.client.gui.screen.ingame.HandledScreens;
 import de.baum2dev.baum2.entity.DrevathisEntityRenderer;
+import de.baum2dev.baum2.entity.MountHorseEntityRenderer;
+import de.baum2dev.baum2.mounts.MountEquipmentScreenHandler;
+import de.baum2dev.baum2.ui.MountEquipmentScreen;
 import de.baum2dev.baum2.entity.FallenCometStoneEntityRenderer;
 import de.baum2dev.baum2.entity.SilverfishBroodcallerEntityRenderer;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
@@ -14,6 +18,7 @@ import de.baum2dev.baum2.entity.ZombieColossusEntityRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.ui.Baum2KeyBindings;
+import de.baum2dev.baum2.ui.MountKeyBindings;
 import de.baum2dev.baum2.ui.MobNameplateHud;
 import de.baum2dev.baum2.ui.SpellCastKeyBindings;
 import de.baum2dev.baum2.ui.VitalsHud;
@@ -28,6 +33,7 @@ public class Baum2Client implements ClientModInitializer {
         VitalsHud.register();
         Baum2KeyBindings.register();
         SpellCastKeyBindings.register();
+        MountKeyBindings.register();
         MobNameplateHud.register();
 
         // Every fallen-comet-stone mini-boss shares the GeckoLib template (one geometry +
@@ -63,5 +69,15 @@ public class Baum2Client implements ClientModInitializer {
 
         // The dark-wave projectile is pure server-spawned particles - nothing to render.
         EntityRendererFactories.register(ModEntities.DARK_WAVE, EmptyEntityRenderer::new);
+
+        // Mount horses: GeckoLib template like the comet stones - shared geometry/animations,
+        // per-tier texture + render scale (see MountHorseGeoModel).
+        ModEntities.MOUNT_HORSES.forEach((tier, type) ->
+                EntityRendererFactories.register(type,
+                        context -> new MountHorseEntityRenderer(context, tier)));
+
+        // Equipment inventory (mount/flute slot) screen for the ScreenHandler opened via
+        // OpenMountEquipmentPayload.
+        HandledScreens.register(MountEquipmentScreenHandler.TYPE, MountEquipmentScreen::new);
     }
 }

@@ -9,6 +9,8 @@ import de.baum2dev.baum2.progression.AttributeManager;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.PlayerProgressData;
 import de.baum2dev.baum2.progression.VitalsManager;
+import de.baum2dev.baum2.mounts.MountEquipmentScreenHandler;
+import de.baum2dev.baum2.mounts.MountManager;
 import de.baum2dev.baum2.skills.SpellCaster;
 
 /**
@@ -50,6 +52,14 @@ public class Baum2Networking {
         PayloadTypeRegistry.playC2S().register(
                 SubspecSelectPayload.TYPE,
                 SubspecSelectPayload.CODEC
+        );
+        PayloadTypeRegistry.playC2S().register(
+                ToggleMountPayload.TYPE,
+                ToggleMountPayload.CODEC
+        );
+        PayloadTypeRegistry.playC2S().register(
+                OpenMountEquipmentPayload.TYPE,
+                OpenMountEquipmentPayload.CODEC
         );
     }
 
@@ -118,6 +128,18 @@ public class Baum2Networking {
                     );
                 }
         );
+    }
+
+    /**
+     * Register the mount-system receivers. Split from registerServerReceivers() only for
+     * readability - called right after it in Baum2.onInitialize().
+     */
+    public static void registerMountReceivers() {
+        ServerPlayNetworking.registerGlobalReceiver(ToggleMountPayload.TYPE, (payload, context) ->
+                MountManager.toggleMount(context.player()));
+
+        ServerPlayNetworking.registerGlobalReceiver(OpenMountEquipmentPayload.TYPE, (payload, context) ->
+                MountEquipmentScreenHandler.open(context.player()));
     }
 
     /**

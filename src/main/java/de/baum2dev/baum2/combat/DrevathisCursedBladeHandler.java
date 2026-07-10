@@ -25,13 +25,23 @@ public class DrevathisCursedBladeHandler {
     private static final double WAVE_WIDTH = 8.0;
     private static final float PROC_DAMAGE_RATIO = 0.10F;
 
+    /**
+     * Reentrancy guard (balance-reviewer finding, mount-system session): the wave's own damage
+     * is indirectMagic with the wielder as attacker, so without this each wave victim's
+     * AFTER_DAMAGE re-entered this handler and cast another full wave - recursive already for
+     * a single melee hit, and quadratic once Schlachtross's AOE splash lands multi-target
+     * hits. A wave can no longer proc further waves; one swing = at most one wave per victim
+     * of that swing.
+     */
+    private static boolean castingWave = false;
+
     public static void registerEvents() {
         ServerLivingEntityEvents.AFTER_DAMAGE.register(DrevathisCursedBladeHandler::onAfterDamage);
     }
 
     private static void onAfterDamage(
             LivingEntity entity, DamageSource source, float baseDamageTaken, float damageTaken, boolean blocked) {
-        if (blocked) {
+        if (blocked || castingWave) {
             return;
         }
         if (!(source.getAttacker() instanceof PlayerEntity player)
@@ -46,7 +56,12 @@ public class DrevathisCursedBladeHandler {
             return;
         }
         Vec3d direction = entity.getEntityPos().subtract(player.getEntityPos());
-        DarkWaveEffect.cast(world, player, player.getEntityPos(), direction, procDamage, WAVE_RANGE, WAVE_WIDTH);
+        castingWave = true;
+        try {
+            DarkWaveEffect.cast(world, player, player.getEntityPos(), direction, procDamage, WAVE_RANGE, WAVE_WIDTH);
+        } finally {
+            castingWave = false;
+        }
     }
 
     private DrevathisCursedBladeHandler() {

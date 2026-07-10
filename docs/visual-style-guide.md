@@ -389,6 +389,9 @@ assets/baum2/
       colossal_warclub.png     (16x16, item icon - see Section 18.3)
       drevathis_cursed_blade.png (16x16, item icon - see Section 19.4)
       risssplitter.png         (16x16, item icon - see Section 20.6)
+      wanderross_flute.png     (16x16, item icon - see Section 22.5)
+      eisenross_flute.png      (16x16, item icon - see Section 22.5)
+      schlachtross_flute.png   (16x16, item icon - see Section 22.5)
     block/
       rissobelisk.png          (16x16, side/bottom face - see Section 20)
       rissobelisk_top.png      (16x16, top face - see Section 20)
@@ -398,11 +401,28 @@ assets/baum2/
       spider_queen.png         (64x32, vanilla spider UV layout - see Section 17)
       zombie_colossus.png      (64x64, vanilla biped/zombie UV layout - see Section 18.2)
       drevathis.png            (64x64, bespoke biped UV layout, client-only resource - see Section 19.2)
+      wanderross.png           (254x152 GeckoLib atlas, shared mount_horse geometry, armor
+                                cubes fully transparent - see Section 22)
+      eisenross.png            (254x152, same atlas layout, saddle-armor group painted - see Section 22)
+      schlachtross.png         (254x152, same atlas layout, both armor groups painted - see Section 22)
       equipment/
         humanoid/
           queen_spider.png     (64x32, vanilla classic armor-layer UV - see Section 17.4)
         humanoid_leggings/
           queen_spider.png     (64x32, same UV convention - see Section 17.4)
+  geckolib/
+    models/entity/
+      fallen_comet_stone.geo.json  (shared by all 33 stone mini-bosses - see Section 13.5)
+      spider_queen.geo.json        (see Section 17)
+      zombie_colossus.geo.json     (see Section 18)
+      drevathis.geo.json           (client-only resource - see Section 19.7)
+      mount_horse.geo.json         (shared by all 3 mount tiers - see Section 22)
+    animations/entity/
+      fallen_comet_stone.animation.json  (see Section 13.5)
+      spider_queen.animation.json        (see Section 17)
+      zombie_colossus.animation.json     (see Section 18)
+      drevathis.animation.json           (client-only resource - see Section 19.7)
+      mount_horse.animation.json         (idle/walk/attack - see Section 22)
   models/
     item/
       gold_sword.json          (see Section 14)
@@ -412,6 +432,9 @@ assets/baum2/
       colossal_warclub.json    (see Section 18.3)
       drevathis_cursed_blade.json (see Section 19.4)
       risssplitter.json        (see Section 20.6)
+      wanderross_flute.json, eisenross_flute.json, schlachtross_flute.json
+                               (see Section 22.5 - plain `minecraft:item/generated` + layer0,
+                                already present before this pass, textures added by this pass)
     block/
       rissobelisk.json         (see Section 20.2 - vanilla `cube_bottom_top` parent, no
                                 custom geometry in this first pass)
@@ -429,6 +452,9 @@ assets/baum2/
     risssplitter.json          (1.21.11 item-model-definition entry point - see Section 20.6;
                                 plain `Item`, so it follows the normal two-file pattern above,
                                 not Rissobelisk's own divergent block-item pattern)
+    wanderross_flute.json, eisenross_flute.json, schlachtross_flute.json
+                               (1.21.11 item-model-definition entry points - see Section 22.5;
+                                already present before this pass, textures added by this pass)
   equipment/
     queen_spider.json          (1.21.11 equipment-texture definition - see Section 17.4)
   blockstates/
@@ -3041,8 +3067,219 @@ anywhere in the template.
 
 ---
 
+## 22. Mount visual identity: "Mount Horses" (`baum2:wanderross` / `eisenross` / `schlachtross`)
+
+The mod's first player-summonable, rideable mounts — three tiers of horse, all built on ONE
+shared GeckoLib geometry + animation set (`mount_horse.geo.json` / `mount_horse.animation.json`),
+following exactly the "Fallen Comet Stone" shared-template pattern established in Section 13.5:
+one geometry/animation pair resolved via `withAltModel`/`withAltAnimations`, per-tier identity
+carried entirely by texture. Names (Wanderross/Eisenross/Schlachtross) already cleared by
+`ip-naming-compliance-checker` — see `MountTier.java`'s own javadoc for why the generic
+"Basic/Advanced/Military Horse" labeling was rejected (it mapped 1:1 onto Metin2's real,
+documented tier structure even in translated form).
+
+### 22.1 Design direction
+
+A plain riding horse whose *single* shared geometry already contains every armor cube any tier
+could need — saddle, 2 flank plates (the "saddle-armor" group), plus a chamfron, neck wrap,
+chest plate, and rump plate (the "body-armor" group) — with each tier's own texture deciding
+which of those 7 cubes actually render (fully-transparent alpha-0 pixels for an unused cube,
+verified programmatically — see 22.4). This is deliberately the cheapest possible way to get 3
+distinctly-silhouetted mounts without 3 separate models: Wanderross reads as an unarmored horse,
+Eisenross as the same horse with a fitted iron saddle, Schlachtross as the same horse in full
+black barding — purely because of which cubes' pixels are opaque.
+
+Beyond armor, each tier also gets its **own coat color** (not just "armor added to an identical
+horse") so the three read as distinct animals at a glance even from behind/underneath where
+armor isn't visible: warm chestnut-brown (Wanderross, a plain unremarkable riding horse),
+dappled steel-grey (Eisenross, visually rhyming with "iron" before the rider even sees the
+saddle), and black (Schlachtross, a conventional "warhorse" color pairing with its black plate).
+None of these are a specific real-world horse breed's exact registered color name or any
+existing game's specific mount-tier color branding — plain color-word/tone choices.
+
+### 22.2 Color palette
+
+Per-tier, 4 coat roles (base/shadow/highlight/dark-detail for mane-tail-hooves) plus the 2 armor
+groups (each either painted, with 3 roles, or left `None` = fully transparent):
+
+| Tier | Coat base | Coat shadow | Coat highlight | Coat dark (mane/tail/hoof) |
+|---|---|---|---|---|
+| Wanderross | `#8A5A3C` | `#5E3B24` | `#B98058` | `#3A2416` |
+| Eisenross | `#8A929C` | `#5C646E` | `#B8C0C8` | `#34383E` |
+| Schlachtross | `#2A2A2E` | `#16161A` | `#46464C` | `#0A0A0C` |
+
+| Tier | Saddle-armor group (saddle + 2 flank plates) | Body-armor group (chamfron/neck/chest/rump) |
+|---|---|---|
+| Wanderross | *(transparent — no armor)* | *(transparent — no armor)* |
+| Eisenross | base `#6E7680` / shadow `#454C54` / highlight `#ACB4BC` (iron) | *(transparent)* |
+| Schlachtross | same iron triple as Eisenross (a warhorse still needs a real saddle under the plate) | base `#202226` / shadow `#101114` / highlight `#3A3E46` / accent `#6E1F1F` (black plate, thin dark-red trim seam) |
+
+*Compliance note:* black plate armor with a red trim accent is a very common, generic
+"dark/battle knight" fantasy convention (used across countless unrelated properties and stock
+fantasy art, not one specific recognizable game's exact branding) — flagging this explicitly per
+this agent's own instruction to say so rather than silently assume it's fine. If a future pass
+gives Schlachtross more visual real estate (a boss-tier reskin, a promotional render, etc.) and
+the red accent starts feeling like it's converging on one specific game's known "black armor +
+red" branding, swap the accent hue (e.g. to a cold blue-white "frost" line instead) rather than
+leaving it unexamined. Low confidence of an actual conflict today, same bar as every other
+caveat in this document.
+
+### 22.3 Geometry — shared "Mount Horse" GeckoLib template
+
+**Bones**: `body` (root; carries the main torso cube plus saddle/flank-plate/chest-plate/
+rump-plate armor cubes), `neck` (parent `body`, base-pose rotation bends it up-and-forward;
+carries the neck-armor cube), `head` (parent `neck`; carries the main head box, a forward
+muzzle box, 2 small ears, and the chamfron); `tail` (parent `body`, hangs down-back);
+`leg_front_left`/`leg_front_right`/`leg_back_left`/`leg_back_right` (parent `body`, pivot at the
+hip/shoulder attachment, no base rotation — this is what the walk/attack animations rotate).
+18 cubes total across 8 bones. **No head-turn/look-at-player bone or controller** — not in the
+brief, and a rideable mount's head shouldn't independently track the camera the way a hostile
+mob's might.
+
+Armor cubes are attached to the bone they physically cover (chamfron -> `head`, neck armor ->
+`neck`, everything else -> `body`) rather than getting their own bones, since none of them need
+independent motion beyond whatever bone they're welded to already does.
+
+**Shape concept (original, not sourced from any game)**: natural horse proportions — main body
+top ("rump") at 22 units (1.375 blocks, ~"1.4 blocks tall at the back" per the brief), standing
+on 4 legs that reach the ground plane (y=0), a neck/head reaching up to ~2.8 blocks at the ears
+for an alert, head-up stance, and a tail hanging behind. "Horse" is an unavoidably generic shape
+(four legs, neck, head, tail) — every specific measurement, proportion choice, and the armor-cube
+layout are this project's own, verified visually via `tools/render_geckolib_preview.py`, not
+traced or derived from any existing game/mount asset.
+
+**Template contract (how a hypothetical 4th tier would be added)**: geometry and all 3 animations
+stay ONE shared pair of files — `assets/baum2/geckolib/models/entity/mount_horse.geo.json` +
+`geckolib/animations/entity/mount_horse.animation.json`, resolved the same way as the Fallen
+Comet Stone family (a `MountHorseGeoModel<T>` following `FallenCometStoneGeoModel`'s exact
+`withAltModel`/`withAltAnimations` pattern — **not written by this pass**, see 22.6 for what the
+Java side still needs to do). A new tier needs only: a coat + (optional) armor-group palette
+dict added to `TIERS` in `tools/gen_mount_horse.py`, a rerun, and a renderer registration — no
+new geometry, animation, or model class. The generator reseeds its RNG per tier so all 3
+(eventually N) atlases stay pixel-identical in layout (verified by the script's own `assert`,
+same discipline as `gen_fallen_comet_stone.py`).
+
+**Per-tier SIZE** (renderer scale 1.0 / 1.1 / 1.25 for Wanderross/Eisenross/Schlachtross) is
+**not** baked into the geometry at all — it's a `GeoEntityRenderer.withScale(...)` call on the
+Java side (already anticipated by `MountTier.renderScale()`, which is implemented and pinned to
+these exact 3 numbers) plus matching per-tier `EntityType.Builder.dimensions(...)` hitbox scaling,
+exactly the pattern `docs/fabric-modding.md`'s GeckoLib section part D already documents for a
+scaled `GeoEntity` (Spider Queen's 3x scale via the same mechanism).
+
+### 22.4 Textures — verified per-tier armor-cube transparency
+
+254x152 px GeckoLib atlas (2 texture px per model unit, same ratio as the Fallen Comet Stone
+family), pixel-art placeholder tier (deterministic noise/speckle fill via Python/Pillow, no
+anti-aliasing, no traced/downloaded source material) — good enough to prove the model/animations
+and give the mount a coherent in-game look, not final hand-painted art (flagged per
+`MASTERPROMPT.md`'s placeholder rule, same as every other GeckoLib atlas in this document).
+
+**Verified programmatically** (not just asserted) that the armor-cube alpha contract in the task
+brief holds exactly, by sampling the generator's own in-memory atlas before saving:
+
+| Cube group | Wanderross | Eisenross | Schlachtross |
+|---|---|---|---|
+| Saddle-armor (saddle + 2 flank plates) | alpha **0** (all sampled pixels) | alpha 160-255 (painted) | alpha 160-255 (painted) |
+| Body-armor (chamfron/neck/chest/rump) | alpha **0** | alpha **0** | alpha 180-255 (painted) |
+
+This is exactly the brief's contract (Wanderross plain, Eisenross saddle-only, Schlachtross
+both groups) and confirms the cutout render layer will correctly discard the unused cubes'
+pixels rather than rendering a stray gray/black box where an inactive armor cube's UV happens to
+sample default texture data.
+
+### 22.5 Item icons: 3 summon-flute textures
+
+16x16, RGBA, transparent background — same diagonal-tool-icon reading convention Section 14.1
+established for Gold Sword (blade-tip-at-top-right / grip-at-bottom-left), reused here for a
+simple carved pipe/whistle rather than a blade: a 2px-thick diagonal wood-toned shaft, a dark
+mouthpiece cap at the bottom-left end, 3 small dark finger-hole dots along the shaft, and one
+small tier-accent "binding wrap" detail tying each flute back to its horse's own palette (warm
+brown for Wanderross, steel-blue-grey for Eisenross, dark red for Schlachtross — the same red as
+Schlachtross's own armor trim). Item-model-definition JSONs (`assets/baum2/items/*.json`) and
+model JSONs (`assets/baum2/models/item/*.json`, plain `minecraft:item/generated` + `layer0`)
+already existed before this pass with no texture behind them; this pass only added the 3 PNGs.
+
+### 22.6 Files produced this pass, and what the Java side still needs
+
+**Produced by this pass** (`tools/gen_mount_horse.py` is the single source of truth for all of
+it, mirroring `gen_fallen_comet_stone.py`'s role — rerun it to regenerate everything
+deterministically):
+- `assets/baum2/geckolib/models/entity/mount_horse.geo.json`
+- `assets/baum2/geckolib/animations/entity/mount_horse.animation.json` — exactly
+  `animation.mount_horse.idle` (4s loop: subtle body/neck breathing sway plus one head-dip
+  event partway through the loop), `animation.mount_horse.walk` (0.8s loop: diagonal-pair trot,
+  `leg_front_left`+`leg_back_right` swinging opposite `leg_front_right`+`leg_back_left`, plus a
+  small synced body bob/neck bob/tail sway), `animation.mount_horse.attack` (0.7s one-shot:
+  forward hoof strike — both front legs kick up-and-forward, head/neck lunge down into the
+  strike, body dips slightly, tail flicks, then everything returns to rest — plays every time
+  the rider lands a melee hit while mounted, per the brief).
+- `assets/baum2/textures/entity/wanderross.png`, `eisenross.png`, `schlachtross.png`
+- `assets/baum2/textures/item/wanderross_flute.png`, `eisenross_flute.png`, `schlachtross_flute.png`
+
+**Verified via `tools/render_geckolib_preview.py`** (rest pose, all 4 camera angles; `walk` and
+`attack` sampled across several keyframes; `idle` sampled across the full loop): the model stands
+upright on all 4 legs with hooves on the ground plane, faces the correct direction (head/neck
+lean toward `-Z`, matching the renderer's own "front" camera and the coordinate convention every
+other GeckoLib asset in this project already uses), the saddle/flank plates sit visibly on the
+back/sides in the Eisenross render, and the chamfron/neck-armor/chest-plate/rump-plate all sit
+visibly on their respective bones with the red accent trim reading clearly in the Schlachtross
+render. `walk` shows a clear alternating 4-leg gait; `attack` shows a clear, readable front-leg
+strike with head lunge, distinct from both `idle` and `walk` at a glance.
+
+**Not written by this pass — flagged explicitly so it isn't lost** (this agent's scope is
+assets/specs, not gameplay Java, per `CLAUDE.md`'s own division of labor):
+- A `MountHorseGeoModel<T extends Entity & GeoAnimatable> extends DefaultedEntityGeoModel<T>`
+  class, following `FallenCometStoneGeoModel`'s exact constructor pattern (`super(Identifier.of
+  ("baum2", entityName)); withAltModel(SHARED_ASSETS); withAltAnimations(SHARED_ASSETS);` where
+  `SHARED_ASSETS = Identifier.of("baum2", "mount_horse")`).
+- A `MountHorseEntityRenderer` (or reuse of `FallenCometStoneEntityRenderer`'s generic shape) that
+  additionally calls `.withScale(tier.renderScale())` per `MountTier`'s already-implemented
+  1.0/1.1/1.25 values, plus the actual `MountHorseEntity`/`ModEntities` registration — none of
+  which exists yet (only `MountTier`, `HorseFluteItem`, the 3 flute `Item`s, and the mount
+  networking payloads/keybindings are implemented so far, confirmed by inspecting the repo before
+  this pass).
+- **Measurements the Java side needs, all at the geometry's own natural/unscaled size** (multiply
+  by the tier's `renderScale` for the actually-rendered size, the same way GeckoLib's
+  `withScale(...)` already composes with the model per `docs/fabric-modding.md`'s GeckoLib
+  section part D):
+  - Rump/back top: y = 22/16 = **1.375 blocks** (the "~1.4 blocks tall at the back" the brief
+    asked for; the very top of the silhouette including the rump armor plate is y = 23/16 =
+    1.4375 blocks).
+  - Poll/ear top (head up, highest point overall): y = 45/16 = **2.8125 blocks**.
+  - Nose tip (muzzle/chamfron front): z = -31/16 = **1.9375 blocks forward** of the entity origin.
+  - Tail tip: z = 16/16 = 1.0 block behind origin, hanging down to y = 4/16 = 0.25 blocks.
+  - Footprint across the 4 legs: x -8..8 (**1.0 block wide**), z -15..15 (**~1.875 blocks deep**
+    across the front/back leg stance) — a reasonable starting point for
+    `EntityType.Builder.dimensions(...)` per tier (scaled by `renderScale`), though the final
+    hitbox call is a Java-side decision, not dictated by this pass.
+  - **Suggested rider seat position** (for `getPassengerRidingPos`): the top of the `saddle` cube
+    sits at x=0, y=25/16=1.5625, z=2/16=0.125 blocks (slightly behind the body's own horizontal
+    center — right where a real saddle sits, between withers and rump) at the geometry's natural
+    (Wanderross, scale-1.0) size. **This point should scale linearly with the tier's
+    `renderScale`** the same way the rest of the model does (i.e. Eisenross's seat sits at
+    `1.1x` this offset, Schlachtross's at `1.25x`), so the rider doesn't end up floating above or
+    sinking into a bigger/smaller horse — this is the one number in this list that actively needs
+    per-tier scaling applied by whoever implements `getPassengerRidingPos`, not just a fixed
+    constant.
+
+---
+
 ## Changelog
 
+- **2026-07-11** — Added Section 22: full visual asset pass for the mount system's 3 rideable
+  horses (Wanderross/Eisenross/Schlachtross), sharing ONE GeckoLib geometry + animation set
+  (`mount_horse.geo.json`/`.animation.json`, `tools/gen_mount_horse.py`) per the "Fallen Comet
+  Stone" shared-template pattern (Section 13.5), differing only by per-tier texture (own coat
+  color + which of 7 baked-in armor cubes are painted vs. left alpha-0) and by a Java-side
+  `withScale(...)` renderer scale (1.0/1.1/1.25, already pinned in the pre-existing
+  `MountTier.java`). Produced/verified the geo.json (18 cubes/8 bones, natural horse proportions,
+  ~1.4 blocks tall at the back), 3 named animations (`idle`/`walk`/`attack`, verified via
+  `tools/render_geckolib_preview.py` across rest pose + keyframes for all 3), 3 entity textures
+  (verified programmatically that the armor-cube alpha contract holds exactly per tier), and 3
+  flute item icons. Explicitly flagged what the Java side (a `MountHorseGeoModel`/
+  `MountHorseEntityRenderer`/`MountHorseEntity` + `ModEntities` registration, none of which exist
+  yet) still needs to do, plus the exact model measurements (rump height, seat position, etc.)
+  it needs from this pass.
 - **2026-07-09** — Added Section 21: architectural/visual style spec for the Heimgrund starting
   village ("Dorfanger Hub"), covering the ~46x46 template stamped into the flat clearing at
   world center (see `HANDOFF.md`'s "Heimgrund"/"Village pipeline" notes). **Design-only pass —

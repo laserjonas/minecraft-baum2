@@ -3,6 +3,8 @@ package de.baum2dev.baum2.registry;
 import java.util.Map;
 
 import de.baum2dev.baum2.items.CursedBladeItem;
+import de.baum2dev.baum2.items.HorseFluteItem;
+import de.baum2dev.baum2.mounts.MountTier;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroups;
@@ -140,6 +142,37 @@ public class ModItems {
             new CursedBladeItem(new Item.Settings().registryKey(DREVATHIS_CURSED_BLADE_KEY).sword(ToolMaterial.WOOD, -1.0F, -3.5F))
     );
 
+    /**
+     * The three horse flutes (mount system), named after the horse each one calls
+     * (Wanderross/Eisenross/Schlachtross - see MountTier's naming javadoc for why the tiers
+     * are deliberately not "basic/advanced/military"). maxCount(1): each flute represents one
+     * bonded horse, and the mount slot in the equipment inventory holds a single flute - a
+     * stack of them has no meaning.
+     */
+    public static final RegistryKey<Item> WANDERROSS_FLUTE_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "wanderross_flute"));
+    public static final Item WANDERROSS_FLUTE = Registry.register(
+            Registries.ITEM,
+            WANDERROSS_FLUTE_KEY,
+            new HorseFluteItem(new Item.Settings().registryKey(WANDERROSS_FLUTE_KEY).maxCount(1), MountTier.WANDERROSS)
+    );
+
+    public static final RegistryKey<Item> EISENROSS_FLUTE_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "eisenross_flute"));
+    public static final Item EISENROSS_FLUTE = Registry.register(
+            Registries.ITEM,
+            EISENROSS_FLUTE_KEY,
+            new HorseFluteItem(new Item.Settings().registryKey(EISENROSS_FLUTE_KEY).maxCount(1), MountTier.EISENROSS)
+    );
+
+    public static final RegistryKey<Item> SCHLACHTROSS_FLUTE_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "schlachtross_flute"));
+    public static final Item SCHLACHTROSS_FLUTE = Registry.register(
+            Registries.ITEM,
+            SCHLACHTROSS_FLUTE_KEY,
+            new HorseFluteItem(new Item.Settings().registryKey(SCHLACHTROSS_FLUTE_KEY).maxCount(1), MountTier.SCHLACHTROSS)
+    );
+
     public static void registerItemGroups() {
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
             entries.add(GOLD_SWORD);
@@ -152,6 +185,11 @@ public class ModItems {
             entries.add(DREVATHIS_CURSED_BLADE);
         });
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.INGREDIENTS).register(entries -> entries.add(RISSSPLITTER));
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.TOOLS).register(entries -> {
+            entries.add(WANDERROSS_FLUTE);
+            entries.add(EISENROSS_FLUTE);
+            entries.add(SCHLACHTROSS_FLUTE);
+        });
     }
 
     /** No-op - calling this forces this class (and its static Item registrations) to load. */

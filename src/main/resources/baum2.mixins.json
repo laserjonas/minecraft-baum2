@@ -7,7 +7,8 @@
     "LivingEntityMixin",
     "ExperienceOrbSpawnMixin",
     "ClampedEntityAttributeAccessor",
-    "PlayerAttackDamageMixin"
+    "PlayerAttackDamageMixin",
+    "MountKnockbackMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -10,11 +10,14 @@ This reflects `fischey_workbranch`, which fast-forward-merged `origin/master` (j
 Skill System + Class Sub-specializations, "Class Overhaul v2," the Class-tab GUI follow-up, a
 Visual/Art Pass, and the mod's first custom `Block`, "Rissobelisk") and then, on top of that,
 the **GeckoLib migrations/reworks** (Spider Queen, Zombie Colossus, Drevathis, both stone
-mini-bosses remodeled as a shared "Fallen Comet Stone" template, and the 33-stone ladder) and
-— newest — **Heimgrund, the mod's starting dimension** (finite authored world, protected
+mini-bosses remodeled as a shared "Fallen Comet Stone" template, and the 33-stone ladder),
+**Heimgrund, the mod's starting dimension** (finite authored world, protected
 village hub, zone-tiered daylight monster spawns, respawning stone slots; see the "Heimgrund"
-section above). `master` is fast-forwarded to match this branch including the Heimgrund
-commit. See "Last change" below for detail.
+section above), and — newest, 2026-07-11, uncommitted working tree — **the Mount System v1**
+(three summonable rideable horses via flute items, Ctrl+H toggle, equipment inventory with a
+mount slot, mounted-combat tier rules, GeckoLib-animated; see the "Mount System v1" section
+below). `master` is fast-forwarded to match this branch up to the Heimgrund commit. See "Last
+change" below for detail.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -1498,7 +1501,77 @@ content was an `Entity` or `Item`).
   session** (the client run after fixing them closed at the main menu without a world being
   joined) — see "Next recommended step".
 
+### Mount System v1 (2026-07-11) — flutes, equipment slot, 3 rideable GeckoLib horses, mounted-combat rules
+
+User brief: horse flutes in 3 tiers (ride-only / ride+fight / faster+melee-AOE), Ctrl+H to
+mount/dismount, flute equipped in a new "advanced inventory", no knockback while mounted,
+every horse attack animated, GeckoLib prioritized, per-tier size/armor visuals.
+
+- **Naming: the user's requested tier names were CHANGED for IP compliance — flag to the user.**
+  `ip-naming-compliance-checker` (web-verified) found "Military Horse" is the literal
+  translation of Metin2's real top mount tier ("Militärpferd") and the basic/advanced/military
+  labels mapped 1:1 onto Metin2's documented ride-only→combat→military breakpoints — forbidden
+  by CLAUDE.md even translated. The *mechanics* are unchanged; the tiers are named after their
+  horses instead (all cleared, incl. against WoW-de): **Wanderross** (ride-only), **Eisenross**
+  (iron-armored saddle, may fight mounted), **Schlachtross** (full black plate, faster, melee
+  AOE splash). "Horse flute" itself verified generic (Stardew Valley et al.); Metin2 uses
+  seals/books, not flutes. Items: `baum2:wanderross_flute/eisenross_flute/schlachtross_flute`.
+- **Core files**: `mounts/MountTier.java` (per-tier rules/stats), `entity/MountHorseEntity.java`
+  (ONE class, 3 EntityTypes `baum2:wanderross/eisenross/schlachtross` — the FallenCometStone
+  definition-injection pattern), `mounts/MountManager.java` (summon/dismiss),
+  `mounts/MountEquipmentManager.java` (persistent `ItemStack` attachment, `OPTIONAL_CODEC` —
+  plain `CODEC` can't encode EMPTY, real gotcha), `mounts/MountEquipmentScreenHandler.java` +
+  `ui/MountEquipmentScreen.java` (the equipment inventory: one flute-only slot,
+  write-through-persists on every change, opened server-side via `OpenMountEquipmentPayload`,
+  **G** key), `ui/MountKeyBindings.java` (**Ctrl+H** toggle → `ToggleMountPayload`; vanilla
+  keybinds can't chord, so bound to H + `InputUtil.isKeyPressed` Ctrl check —
+  `Screen.hasControlDown()` NO LONGER EXISTS in 1.21.11, found by compile error),
+  `mounts/MountedCombatHandler.java` (tier combat rules), `mixin/MountKnockbackMixin.java`.
+- **Riding**: extends `PathAwareEntity` + the 4 vanilla controlling-passenger overrides — NOT
+  `AbstractHorseEntity` (taming/breeding/saddle-GUI baggage; full research in
+  `docs/fabric-modding.md`, 5 new dated sections). Dismount-by-any-path despawns the mount
+  (`removePassenger` override); `startRiding(mount, true, true)` (force) bypasses the sneak/
+  riding-cooldown silent-fail; seat via `.passengerAttachments(1.5F * renderScale)`.
+- **Combat rules** (`MountedCombatHandler`): Wanderross cancels melee via
+  `AttackEntityCallback`; every landed mounted hit triggers the horse's one-shot GeckoLib
+  attack animation server-side (`triggerAnim` auto-syncs, zero networking); Schlachtross
+  splashes 50% of dealt damage in r=2.5 around the struck target — scoped to
+  `DamageTypes.PLAYER_ATTACK` (spells don't splash), excludes players/mounts, reentrancy-
+  guarded, **capped at 5 nearest victims** (balance-reviewer critical finding: uncapped, it
+  multiplied the known ~110x melee DPS ceiling by unbounded target count).
+- **Knockback immunity while mounted**: cancellable HEAD inject on
+  `LivingEntity.takeKnockback` (no Fabric event exists — confirmed), scoped to riders of our
+  mounts only.
+- **Real pre-existing bug found & fixed** (balance-reviewer): `DrevathisCursedBladeHandler`
+  had NO reentrancy guard — its wave's own damage (indirectMagic, attacker=player) re-entered
+  the handler, recursive waves per hit, quadratic under mount AOE. Guarded now, same
+  boolean-flag pattern as the mount splash.
+- **Balance findings logged, NOT fixed (judgment calls)**: (a) Poison Dagger's unscoped
+  AFTER_DAMAGE handler now also poisons every AOE-splash victim — second independent path
+  into the already-logged unscoped-handler issue; (b) summon/dismiss is free/instant/
+  uncooldowned (full-HP mount re-summonable mid-fight; most boss abilities target the player
+  directly so meat-shielding is limited, but the project's own respec-cooldown precedent
+  suggests a small cooldown); (c) knockback immunity removes routine-melee interrupts on top
+  of the DPS ceiling — user-specified, kept; (d) mount HP 40/60/80 is trash-scale only (boss
+  hits are ~100 flat).
+- **Assets** (`graphics-designer`, preview-verified via `tools/render_geckolib_preview.py`):
+  shared `geckolib/{models,animations}/entity/mount_horse.{geo,animation}.json` (8 bones/18
+  cubes incl. ALL armor cubes; `animation.mount_horse.idle/walk/attack`), per-tier
+  `textures/entity/{wanderross,eisenross,schlachtross}.png` (armor cubes alpha-0 on lower
+  tiers — cutout discards them; alpha contract verified programmatically), 3 flute item
+  textures, generator `tools/gen_mount_horse.py`, style guide Section 22. Per-tier size =
+  renderer `withScale` (1.0/1.1/1.25) + matching hitboxes.
+- **Verified**: `./gradlew build` passes. **NOT yet play-verified** — same standing GeckoLib
+  caveat as every renderer (render-state mistakes crash only at render time): `/give` each
+  flute, equip via G, Ctrl+H each tier, ride/steer/sprint, sneak-dismount despawn, Wanderross
+  attack-block message, Eisenross normal hits + horse attack animation, Schlachtross AOE
+  splash + speed, knockback immunity vs. a zombie crowd, relog with flute equipped.
+
 ## Last change (on `fischey_workbranch`)
+
+**Mount System v1 (2026-07-11, uncommitted)** — see the "Mount System v1" section above for
+the full narrative; this entry exists so the next session knows the working tree contains it.
+The previous committed change (`15dacb2`, map rework) follows below.
 
 **Map rework, drawing-faithful pass (2026-07-10, follow-up) — seas, roads, village, and boss
 placement now match the user's map exactly.** The first implementation of the user's rework
@@ -2374,6 +2447,12 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
   effect on a real server/launcher session.
 
 ## Next recommended step
+
+**New (2026-07-11): playtest the Mount System v1** — the full checklist is at the end of the
+"Mount System v1" section above; it's unplayed code with GeckoLib renderers, so treat the
+first `/give` + Ctrl+H as the real verification, not the passing build. Also decide the two
+logged mount-balance judgment calls (summon cooldown or not; scope Poison Dagger's handler to
+melee-only, which would fix its spell interaction AND the new AOE-splash interaction at once).
 
 **Highest priority: first real client session in Heimgrund** (everything below was verified
 headlessly via dedicated-server console only — no human has walked this world yet). Create a

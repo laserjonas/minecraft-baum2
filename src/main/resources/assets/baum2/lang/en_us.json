@@ -53,5 +53,14 @@
   "biome.baum2.lichtwiese": "Lichtwiese",
   "biome.baum2.doerrsand": "Dörrsand",
   "biome.baum2.felskranz": "Felskranz",
-  "entity.baum2.silverfish_broodcaller": "Silverfish Broodcaller"
+  "entity.baum2.silverfish_broodcaller": "Silverfish Broodcaller",
+  "key.baum2.toggle_mount": "Mount / Dismount (Ctrl held)",
+  "key.baum2.open_equipment": "Open Equipment",
+  "item.baum2.wanderross_flute": "Wanderross Flute",
+  "item.baum2.eisenross_flute": "Eisenross Flute",
+  "item.baum2.schlachtross_flute": "Schlachtross Flute",
+  "entity.baum2.wanderross": "Wanderross",
+  "entity.baum2.eisenross": "Eisenross",
+  "entity.baum2.schlachtross": "Schlachtross",
+  "container.baum2.equipment": "Equipment"
 }

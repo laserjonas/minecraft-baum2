@@ -15,6 +15,8 @@ import de.baum2dev.baum2.entity.DarkWaveProjectileEntity;
 import de.baum2dev.baum2.entity.DrevathisEntity;
 import de.baum2dev.baum2.entity.FallenCometStoneDefinition;
 import de.baum2dev.baum2.entity.FallenCometStoneEntity;
+import de.baum2dev.baum2.entity.MountHorseEntity;
+import de.baum2dev.baum2.mounts.MountTier;
 import de.baum2dev.baum2.entity.SilverfishBroodcallerEntity;
 import de.baum2dev.baum2.entity.SpiderQueenEntity;
 import de.baum2dev.baum2.entity.ZombieColossusEntity;
@@ -51,6 +53,40 @@ public class ModEntities {
             stones.put(definition, type);
         }
         return java.util.Collections.unmodifiableMap(stones);
+    }
+
+    /**
+     * The three summonable player mounts (mount system), one EntityType per MountTier -
+     * shared class + per-tier definition, same pattern as the fallen comet stones above.
+     * SpawnGroup.MISC: summoned-only via the horse flutes, never naturally spawned. Hitbox
+     * scales with the tier's render scale off a vanilla-horse-like 1.4x1.6 base.
+     */
+    public static final Map<MountTier, EntityType<MountHorseEntity>> MOUNT_HORSES = registerMountHorses();
+
+    private static Map<MountTier, EntityType<MountHorseEntity>> registerMountHorses() {
+        Map<MountTier, EntityType<MountHorseEntity>> mounts = new LinkedHashMap<>();
+        for (MountTier tier : MountTier.values()) {
+            RegistryKey<EntityType<?>> key =
+                    RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", tier.id()));
+            float width = 1.4F * tier.renderScale();
+            float height = 1.6F * tier.renderScale();
+            EntityType<MountHorseEntity> type = Registry.register(
+                    Registries.ENTITY_TYPE,
+                    key,
+                    EntityType.Builder
+                            .<MountHorseEntity>create(
+                                    (entityType, world) -> new MountHorseEntity(entityType, world, tier),
+                                    SpawnGroup.MISC)
+                            .dimensions(width, height)
+                            .eyeHeight(height * 0.85F)
+                            // Saddle top sits at 1.5625 blocks at natural scale (see
+                            // docs/visual-style-guide.md 22.6); the rider sinks slightly in,
+                            // matching vanilla horse convention (back 1.4, attachment 1.44).
+                            .passengerAttachments(1.5F * tier.renderScale())
+                            .build(key));
+            mounts.put(tier, type);
+        }
+        return java.util.Collections.unmodifiableMap(mounts);
     }
 
     /** The silverfish boss guarding the west grand cave mouth (3x-scale vanilla model). */
@@ -120,6 +156,8 @@ public class ModEntities {
     public static void registerAttributes() {
         FALLEN_COMET_STONES.forEach((definition, type) ->
                 FabricDefaultAttributeRegistry.register(type, FallenCometStoneEntity.createAttributes(definition)));
+        MOUNT_HORSES.forEach((tier, type) ->
+                FabricDefaultAttributeRegistry.register(type, MountHorseEntity.createMountAttributes(tier)));
         FabricDefaultAttributeRegistry.register(SILVERFISH_BROODCALLER,
                 SilverfishBroodcallerEntity.createBroodcallerAttributes());
         FabricDefaultAttributeRegistry.register(SPIDER_QUEEN, SpiderQueenEntity.createSpiderQueenAttributes());

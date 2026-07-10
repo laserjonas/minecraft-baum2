@@ -3842,3 +3842,541 @@ self-consistency check.
   landscape (ArmorStand itself jumped from "1.21.5" to "1.21.8" support within its own recent
   history) — worth a fresh five-minute check of Modrinth/CurseForge before concluding "still no
   path" if this is ever revisited months from now, rather than trusting this snapshot indefinitely.
+
+## Custom rideable mount entity (summon-and-ride, GeckoLib-rendered) — researched 2026-07-11
+
+Researched ahead of a "mount system" feature: a custom horse-like entity, summoned by an item
+(no vanilla saddle needed), player-steered with normal WASD + sprint + jump/step, fought from
+while mounted. Verified against this project's own decompiled sources — `net/minecraft/entity/
+Entity.java`, `net/minecraft/entity/LivingEntity.java`, `net/minecraft/entity/passive/
+AbstractHorseEntity.java`, `net/minecraft/entity/JumpingMount.java`, `net/minecraft/entity/
+Mount.java`, `net/minecraft/entity/attribute/EntityAttributes.java`, `net/minecraft/entity/
+player/PlayerEntity.java` — all from `.gradle/loom-cache/minecraftMaven/net/minecraft/
+minecraft-common-6dd721cd7d/1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.6-v2/
+minecraft-common-6dd721cd7d-...-sources.jar` (this project's own project-local Loom cache, per
+the convention noted in the Custom-Blocks section above — **not** the user-profile-wide
+`~/.gradle/caches/fabric-loom`, which only holds pre-decompile jars for this project).
+
+### The controlling-passenger mechanism lives on `LivingEntity` itself, not on `AbstractHorseEntity`
+
+Confirmed exact — these four `protected` methods are declared directly on `LivingEntity`
+(`AbstractHorseEntity` only *overrides* them, it does not introduce them):
+
+```java
+// net/minecraft/entity/LivingEntity.java, confirmed exact bodies:
+protected void tickControlled(PlayerEntity controllingPlayer, Vec3d movementInput) {
+}
+
+protected Vec3d getControlledMovementInput(PlayerEntity controllingPlayer, Vec3d movementInput) {
+    return movementInput;
+}
+
+protected float getSaddledSpeed(PlayerEntity controllingPlayer) {
+    return this.getMovementSpeed();
+}
+
+@Nullable
+public LivingEntity getControllingPassenger() { // declared on Entity, returns null by default
+    return null;
+}
+```
+
+The actual per-tick call site, also on `LivingEntity` (`travel(Vec3d)`):
+
+```java
+Vec3d vec3d2 = new Vec3d(this.sidewaysSpeed, this.upwardSpeed, this.forwardSpeed);
+if (this.getControllingPassenger() instanceof PlayerEntity playerEntity && this.isAlive()) {
+    this.travelControlled(playerEntity, vec3d2);   // private, calls the 3 methods below in order
+} else if (this.canMoveVoluntarily() && this.canActVoluntarily()) {
+    this.travel(vec3d2);
+}
+// travelControlled(...) body:
+Vec3d vec3d = this.getControlledMovementInput(controllingPlayer, movementInput);
+this.tickControlled(controllingPlayer, vec3d);
+if (this.canMoveVoluntarily()) {
+    this.setMovementSpeed(this.getSaddledSpeed(controllingPlayer));
+    this.travel(vec3d);
+} else {
+    this.setVelocity(Vec3d.ZERO);
+}
+```
+
+Practical meaning: **the WASD input plumbing (`sidewaysSpeed`/`upwardSpeed`/`forwardSpeed` on
+the ridden vehicle itself, sourced from the controlling player's own input) is entirely vanilla
+plumbing that already runs for any `LivingEntity` playing the "vehicle" role — confirmed by the
+fact `AbstractHorseEntity` itself needs no extra input-capture code beyond overriding these 4
+methods.** Nothing mount-specific to wire up here beyond implementing the 4 overrides below.
+
+### Recommendation: extend `PathAwareEntity` (`net.minecraft.entity.mob.PathAwareEntity`) directly, NOT `AbstractHorseEntity`
+
+`AbstractHorseEntity extends AnimalEntity implements RideableInventory, Tameable, JumpingMount`
+drags in, confirmed by reading the full class: `Tameable`/owner tracking, `AnimalMateGoal`/
+breeding (`canBreedWith`, `createChild`, temper, `HorseBondWithPlayerGoal`), a chest/saddle-bag
+`SimpleInventory` + `MountScreenHandler` GUI opened on sneak-interact (`openInventory` calling
+`player.openHorseInventory(...)`), and — the equipment-slot detail the question specifically
+flagged — **`canUseSlot(EquipmentSlot.SADDLE)` requires `isTame()` to even accept a saddle at
+all**:
+```java
+// AbstractHorseEntity.java, confirmed exact:
+@Override
+public boolean canUseSlot(EquipmentSlot slot) {
+    return slot != EquipmentSlot.SADDLE ? super.canUseSlot(slot) : this.isAlive() && !this.isBaby() && this.isTame();
+}
+```
+None of that baggage is needed for a summoned, always-rideable, single-owner mount, and
+disabling all of it via overrides (fake `isTame()`, no-op `openInventory`, `canBreedWith` always
+`false`, etc.) is strictly more code than just not inheriting it. **`PathAwareEntity` (plain
+`MobEntity` subclass with pathfinding/navigation, extends neither `AnimalEntity` nor
+`AbstractHorseEntity`) is the cleaner base** — implement the controlling-passenger contract
+directly:
+
+```java
+public class MountEntity extends PathAwareEntity implements GeoEntity /* GeckoLib, already documented above */ {
+
+    @Override
+    public @Nullable LivingEntity getControllingPassenger() {
+        // no hasSaddleEquipped()/EquipmentSlot.SADDLE gating needed — always controllable
+        return this.getFirstPassenger() instanceof PlayerEntity player ? player : null;
+    }
+
+    @Override
+    protected Vec3d getControlledMovementInput(PlayerEntity controllingPlayer, Vec3d movementInput) {
+        float sideways = controllingPlayer.sidewaysSpeed * 0.5F;
+        float forward = controllingPlayer.forwardSpeed;
+        if (forward <= 0.0F) forward *= 0.25F; // matches vanilla horse's backing-up slowdown, optional to keep
+        return new Vec3d(sideways, 0.0, forward);
+    }
+
+    @Override
+    protected float getSaddledSpeed(PlayerEntity controllingPlayer) {
+        return (float) this.getAttributeValue(EntityAttributes.MOVEMENT_SPEED); // sprint is automatic — see below
+    }
+
+    @Override
+    protected void tickControlled(PlayerEntity controllingPlayer, Vec3d movementInput) {
+        super.tickControlled(controllingPlayer, movementInput);
+        this.setYaw(controllingPlayer.getYaw());
+        this.setPitch(controllingPlayer.getPitch() * 0.5F);
+        this.bodyYaw = this.headYaw = this.getYaw();
+    }
+
+    @Override
+    public boolean isPushable() {
+        return !this.hasPassengers(); // matches AbstractHorseEntity's own convention
+    }
+}
+```
+
+**Sprint speed "for free"**: `getSaddledSpeed(PlayerEntity)`'s return value is what
+`travelControlled` feeds into `setMovementSpeed(...)` every tick, and `PlayerEntity`'s own
+sprint state already scales `forwardSpeed`/`sidewaysSpeed` before they ever reach the vehicle
+(same mechanism vanilla horses use) — reading `EntityAttributes.MOVEMENT_SPEED` off the mount's
+own attribute instance (optionally boosted by an `EntityAttributeModifier` for "mount is
+sprinting" if a bonus multiplier is wanted) is sufficient; no separate sprint-detection code is
+needed on the mount side.
+
+**Do NOT implement `JumpingMount`/`Mount` unless a vanilla-horse-style charged space-bar jump
+(the jump-strength meter) is actually wanted.** `JumpingMount extends Mount` (`Mount` is a
+literally-empty marker interface, confirmed: `public interface Mount {}`) exists purely to hook
+into the client's jump-bar HUD and the horse-specific space-bar-hold-to-charge input path; a
+mount that doesn't need a charged jump can skip both interfaces entirely.
+
+### Player controls the mount via `player.startRiding(entity)` — confirmed signatures, `force` flag, and auto-sync
+
+```java
+// net/minecraft/entity/Entity.java, confirmed exact:
+public final boolean startRiding(Entity entity) {                 // convenience overload
+    return this.startRiding(entity, false, true);
+}
+public boolean startRiding(Entity entity, boolean force, boolean emitEvent) {
+    // checks: entity != vehicle already, entity.couldAcceptPassenger(), not saveable client-side,
+    // no passenger-loop, then:
+    if (force || this.canStartRiding(entity) && entity.canAddPassenger(this)) { ... this.vehicle = entity; this.vehicle.addPassenger(this); ... }
+}
+protected boolean canStartRiding(Entity entity) {
+    return !this.isSneaking() && this.ridingCooldown <= 0;         // on the RIDER (player) side
+}
+protected boolean canAddPassenger(Entity passenger) {
+    return this.passengerList.isEmpty();                          // on the VEHICLE side, default: single-seat
+}
+```
+- The plain 1-arg `player.startRiding(mount)` call **can silently fail** (return `false`, no
+  mount happens) if the player happens to be sneaking or is still on a post-dismount
+  `ridingCooldown` (`Entity.MAX_RIDING_COOLDOWN = 60` ticks after a dismount) at the exact
+  moment the summon item is used. For a summon-item flow (not a right-click-the-mob interact),
+  **use `player.startRiding(mount, true, true)` (force = true)** to bypass both checks
+  unconditionally — this is exactly what the `force` parameter is for (also used by things like
+  `WitherEntity` bypassing its own `canStartRiding` override).
+- **Sync to clients is fully automatic — confirmed, not assumed.** `startRiding` itself sends no
+  packet. Read `net/minecraft/server/network/EntityTrackerEntry.java`:
+  ```java
+  List<Entity> list = this.entity.getPassengerList();
+  if (!list.equals(this.lastPassengers)) {
+      this.packetSender.sendToListenersIf(new EntityPassengersSetS2CPacket(this.entity), ...);
+      this.lastPassengers = list;
+  }
+  ```
+  This runs every tick per tracked entity — any passenger-list change (mount or dismount) is
+  detected and broadcast via `EntityPassengersSetS2CPacket` with zero manual networking code,
+  same mechanism vanilla horses/boats/minecarts rely on.
+
+### Dismount detection (sneak-to-dismount) — the real hook
+
+**Sneak-to-dismount is entirely client-and-server-side vanilla `PlayerEntity` logic, not
+something the mount entity has to detect from movement input.** Confirmed exact:
+```java
+// net/minecraft/entity/player/PlayerEntity.java:
+protected boolean shouldDismount() {
+    return this.isSneaking();
+}
+@Override
+public void tickRiding() {
+    if (!this.getEntityWorld().isClient() && this.shouldDismount() && this.hasVehicle()) {
+        this.stopRiding();
+        this.setSneaking(false);
+    } else {
+        super.tickRiding();
+    }
+}
+```
+So on the server, sneaking while mounted calls `player.stopRiding()` automatically every tick —
+no mixin needed just to detect "player pressed sneak while riding." `stopRiding()` →
+`dismountVehicle()` → **`vehicle.removePassenger(passenger)`** (protected, defined on `Entity`,
+overridable in the mount's own class):
+```java
+// Entity.java:
+public void dismountVehicle() {
+    if (this.vehicle != null) {
+        Entity entity = this.vehicle;
+        this.vehicle = null;
+        entity.removePassenger(this);   // <-- override THIS in MountEntity to react to dismount
+        ...
+    }
+}
+```
+**This is the correct override point for "despawn the summoned mount on dismount"**:
+```java
+@Override
+protected void removePassenger(Entity passenger) {
+    super.removePassenger(passenger);
+    if (passenger instanceof PlayerEntity && !this.getEntityWorld().isClient()) {
+        this.discard(); // or a delayed-despawn/particle-poof, run only server-side
+    }
+}
+```
+(`removePassenger` is also called for other dismount paths — teleport, death, vehicle removal —
+so this hook fires for "any way the player stops riding," which is the more robust behavior for
+a summoned companion anyway, not just the sneak-specific path.)
+
+### Step height / climbing 1-block steps — `EntityAttributes.STEP_HEIGHT` confirmed, and a ridden mount gets a free minimum of 1.0 regardless
+
+- **Attribute name confirmed**: `EntityAttributes.STEP_HEIGHT` (registry id `"step_height"`,
+  `ClampedEntityAttribute` with **default base value `0.6`**, range `0.0`–`10.0`, `.setTracked(true)`
+  — i.e. it's a real, synced attribute like any other, not a special-cased field).
+  `AbstractHorseEntity.createBaseHorseAttributes()` explicitly sets it to `1.0` for vanilla
+  horses (`.add(EntityAttributes.STEP_HEIGHT, 1.0)`).
+- **`LivingEntity.getStepHeight()` (the method `Entity`'s movement/collision code actually calls)
+  forces a minimum of `1.0F` whenever the entity has a controlling player passenger, regardless
+  of its own attribute value** — confirmed exact:
+  ```java
+  // LivingEntity.java:
+  @Override
+  public float getStepHeight() {
+      float f = (float) this.getAttributeValue(EntityAttributes.STEP_HEIGHT);
+      return this.getControllingPassenger() instanceof PlayerEntity ? Math.max(f, 1.0F) : f;
+  }
+  ```
+  Practical consequence: **a ridden mount can already step up 1-block obstacles even if its own
+  `STEP_HEIGHT` attribute is left at the plain-mob default `0.6`**, purely because
+  `getControllingPassenger()` returns the riding player. Still worth explicitly setting the
+  attribute to `1.0` (or higher) in the mount's own `createMountAttributes()` builder, matching
+  vanilla horse convention, so step height stays sensible when the mount is *not* currently
+  ridden (e.g. wandering AI, if any is added later) — the free `1.0F` floor only applies while a
+  player is actively controlling it.
+- No `JumpingMount`/space-bar jump implementation is required just to get step-climbing — that
+  interface is only for the charged, held-space-bar "jump higher over a gap" mechanic, a
+  separate and optional feature from ordinary step-up movement.
+
+## Knockback suppression for a mounted player — researched 2026-07-11
+
+- **Exact signature confirmed unchanged from older-version training data**: `net.minecraft.
+  entity.LivingEntity.takeKnockback(double strength, double x, double z)` — `public void`, not
+  `boolean`, still exactly 3 params (`strength`, direction `x`, direction `z`). Body (confirmed
+  exact):
+  ```java
+  public void takeKnockback(double strength, double x, double z) {
+      strength *= 1.0 - this.getAttributeValue(EntityAttributes.KNOCKBACK_RESISTANCE);
+      if (!(strength <= 0.0)) {
+          this.velocityDirty = true;
+          Vec3d vec3d = this.getVelocity();
+          // ...randomize near-zero direction, then:
+          Vec3d vec3d2 = new Vec3d(x, 0.0, z).normalize().multiply(strength);
+          this.setVelocity(vec3d.x / 2.0 - vec3d2.x, this.isOnGround() ? Math.min(0.4, vec3d.y / 2.0 + strength) : vec3d.y, vec3d.z / 2.0 - vec3d2.z);
+      }
+  }
+  ```
+  It only ever mutates `this` (the entity the method is called on) — no vehicle-propagation
+  logic lives inside `takeKnockback` itself.
+- **Knockback is applied to whichever entity is the actual damage target, called from
+  `LivingEntity.damage(...)`'s own body** (confirmed, same method documented in this file's
+  existing "Combat / Damage" section):
+  ```java
+  if (!source.isIn(DamageTypeTags.NO_KNOCKBACK)) {
+      // ...compute d, e from the damage source's position...
+      this.takeKnockback(0.4F, d, e);
+  }
+  ```
+  So **if the mounted player is the one taking damage (the normal case — a mob targets the rider,
+  not the mount), knockback is applied to the player entity, not the mount.** There is no
+  separate "propagate knockback to vehicle" step in vanilla; whichever entity `damage()` runs on
+  is the one whose velocity gets set. In practice the player's position is overwritten every tick
+  to follow the mount's passenger-attachment point regardless of velocity, so a naive knockback
+  on a mounted player mostly shows as a velocity flicker rather than an actual displacement — but
+  it can still visibly perturb camera/velocity-dependent effects (fall damage calc, `tiltScreen`),
+  so suppressing it server-side is still worth doing if a "can't be knocked off/around while
+  mounted" feel is wanted.
+- **No Fabric API event exists for this** — confirmed by reading `fabric-entity-events-v1`'s
+  full public API surface (`ServerLivingEntityEvents`, `ServerEntityCombatEvents`,
+  `EntitySleepEvents`, `EntityElytraEvents`, `ServerMobEffectEvents`, `ServerPlayerEvents`): none
+  mention knockback. **A Mixin is the correct and only tool here.**
+- **Recommended hook**: `@Inject` at `HEAD`, `cancellable = true`, targeting
+  `LivingEntity.takeKnockback(DDD)V`, guarded by `hasVehicle()` (or a more specific "is riding
+  our mount type" check if only our mount should suppress it, not literally any vehicle):
+  ```java
+  @Mixin(LivingEntity.class)
+  public abstract class MountKnockbackMixin {
+      @Inject(method = "takeKnockback(DDD)V", at = @At("HEAD"), cancellable = true)
+      private void baum2$suppressKnockbackWhileMounted(double strength, double x, double z, CallbackInfo ci) {
+          LivingEntity self = (LivingEntity) (Object) this;
+          if (self.getVehicle() instanceof MountEntity) {
+              ci.cancel();
+          }
+      }
+  }
+  ```
+  (Mixin target descriptor `(DDD)V` for `takeKnockback` needs no `@ModifyVariable`/`@Redirect`
+  finesse here since it's a simple `void` method with no brittle decompiled-local-variable
+  targeting concerns, unlike the fall-damage `@ModifyArg` case already documented in this file's
+  "Combat / Damage" section.)
+
+## Custom 1-slot equipment `ScreenHandler`/`HandledScreen` (e.g. mount item slot) — researched 2026-07-11
+
+Verified against `net/minecraft/screen/ScreenHandler.java`, `ScreenHandlerType.java`,
+`NamedScreenHandlerFactory.java`, `SimpleNamedScreenHandlerFactory.java`,
+`ScreenHandlerFactory.java`, `slot/Slot.java`, `registry/Registries.java`,
+`entity/player/PlayerEntity.java`/`server/network/ServerPlayerEntity.java`, and `item/
+ItemStack.java` (same project-local `minecraft-common-...-sources.jar` as above), plus Fabric
+API's `fabric-screen-handler-api-v1-1.3.162+4fc5413f3e` sources jar (`ExtendedScreenHandlerType.
+java`, `ExtendedScreenHandlerFactory.java`) for the "no extra data needed" comparison.
+
+- **`ScreenHandlerType<T>` registration confirmed**: registered in `Registries.SCREEN_HANDLER`
+  (`public static final Registry<ScreenHandlerType<?>> SCREEN_HANDLER = ...`), same
+  `Registry.register(Registries.SCREEN_HANDLER, id, new ScreenHandlerType<>(factory,
+  FeatureFlags.VANILLA_FEATURES))` shape vanilla uses for its own generic containers:
+  ```java
+  public static final ScreenHandlerType<MountInventoryScreenHandler> MOUNT_INVENTORY =
+      Registry.register(Registries.SCREEN_HANDLER, Identifier.of("baum2", "mount_inventory"),
+          new ScreenHandlerType<>(MountInventoryScreenHandler::new, FeatureFlags.VANILLA_FEATURES));
+  ```
+- **Plain `ScreenHandlerType`, not `ExtendedScreenHandlerType`, is correct here** — confirmed by
+  reading Fabric's own `ExtendedScreenHandlerType`: it exists specifically to synchronize *extra
+  opening data* (a `PacketCodec<RegistryByteBuf, D>`-serialized payload sent alongside the open-
+  screen packet, e.g. a block's world position) to the client at open time. A single-slot
+  inventory tied to the player themselves needs no such extra data — the screen handler's own
+  constructor (`syncId`, `PlayerInventory`) is everything required, so plain `ScreenHandlerType`
+  + `SimpleNamedScreenHandlerFactory` (below) is the right, simpler tool, exactly per Fabric's
+  own doc comment: "Screen handler types should not be used to create a new screen handler on the
+  server... see `ScreenHandlerFactory`" for the server-creation side, and `ExtendedScreenHandlerType`
+  is reserved for the extra-data case only.
+- **`HandledScreens.register` on the client — confirmed still this exact call, per this
+  project's existing GUI research conventions** (not re-derived here, same as any other
+  `HandledScreen`): `HandledScreens.register(ModScreenHandlers.MOUNT_INVENTORY,
+  MountInventoryScreen::new)` in client init.
+- **Opening it — confirmed exact, `SimpleNamedScreenHandlerFactory` is real and this shape**:
+  ```java
+  // net/minecraft/screen/SimpleNamedScreenHandlerFactory.java, confirmed exact:
+  public final class SimpleNamedScreenHandlerFactory implements NamedScreenHandlerFactory {
+      public SimpleNamedScreenHandlerFactory(ScreenHandlerFactory baseFactory, Text name) { ... }
+      // ScreenHandlerFactory is @FunctionalInterface: ScreenHandler createMenu(int syncId, PlayerInventory inv, PlayerEntity player);
+  }
+  ```
+  ```java
+  serverPlayer.openHandledScreen(new SimpleNamedScreenHandlerFactory(
+      (syncId, inv, p) -> new MountInventoryScreenHandler(syncId, inv, mountInventory),
+      Text.translatable("container.baum2.mount_inventory")));
+  ```
+  **`ServerPlayerEntity.openHandledScreen(@Nullable NamedScreenHandlerFactory)` returns
+  `OptionalInt`** (the assigned sync id, or `OptionalInt.empty()` if the factory was `null` or
+  its `createMenu` returned `null` — e.g. spectator mode). Confirmed exact body: it closes any
+  currently-open non-player screen handler first, calls `factory.createMenu(syncId, inventory,
+  this)`, then sends `OpenScreenS2CPacket` and sets `this.currentScreenHandler` — i.e. **this one
+  call is the entire open flow, no separate "send open packet" step needed.**
+  `PlayerEntity.openHandledScreen(...)` itself is a no-op stub (`return OptionalInt.empty();`) —
+  the real logic only exists on `ServerPlayerEntity`, so **this must be called server-side**
+  (which is naturally where a C2S payload handler runs) — **yes, safe and correct to call
+  directly from inside a C2S payload's server-side handler**, exactly the same threading
+  requirement this project's existing C2S payload handlers already run under (server thread via
+  the payload's `.execute(...)`/networking-handler callback, per the already-documented
+  Networking section above) — no extra synchronization needed.
+- **`Slot.canInsert(ItemStack)` — confirmed still the exact override point**, `public boolean
+  canInsert(ItemStack stack)` on `net.minecraft.screen.slot.Slot`, called internally by both the
+  drag-and-drop insert path and `canTakeItems`+`canInsert` gating swap-clicks. For a
+  flute-only slot:
+  ```java
+  new Slot(mountInventory, 0, 80, 35) {
+      @Override
+      public boolean canInsert(ItemStack stack) {
+          return stack.isOf(ModItems.MOUNT_FLUTE);
+      }
+  };
+  ```
+- **`ScreenHandler.quickMove(PlayerEntity, int)` — confirmed exact abstract signature,
+  unchanged**: `public abstract ItemStack quickMove(PlayerEntity player, int slot);` (shift-click
+  handler; must be implemented, no default). Standard pattern (move flute slot ↔ player
+  inventory) is unaffected by any 1.21.11-specific change — same shape as any older-version
+  tutorial gets right here, this part didn't change.
+- **Persisting the single `ItemStack` via the Fabric Attachment API (already the established
+  pattern in this project per the "Player data / attributes" section above) — use
+  `ItemStack.OPTIONAL_CODEC`, NOT `ItemStack.CODEC`, and this is a real, confirmed gotcha**:
+  ```java
+  // net/minecraft/item/ItemStack.java, confirmed exact:
+  public static final Codec<ItemStack> CODEC = Codec.lazyInitialized(MAP_CODEC::codec);
+  public static final Codec<ItemStack> OPTIONAL_CODEC = Codecs.optional(CODEC)
+      .xmap(optional -> optional.orElse(ItemStack.EMPTY), stack -> stack.isEmpty() ? Optional.empty() : Optional.of(stack));
+  ```
+  `CODEC`/`MAP_CODEC` encode an item stack as `{id, count, components}` — `id` is a **required**
+  field (`Item.ENTRY_CODEC.fieldOf("id")`), so encoding `ItemStack.EMPTY` directly through the
+  plain `CODEC` has no clean "empty slot" representation and is the wrong codec to reach for once
+  the slot can legitimately be empty (the default/no-flute-inserted state). `OPTIONAL_CODEC`
+  wraps it in an `Optional<ItemStack>` at the Codec level specifically to give `ItemStack.EMPTY`
+  a real, round-trippable encoding (encodes as "absent"/no value, decodes back to
+  `ItemStack.EMPTY`) — this is the one to register the attachment with:
+  ```java
+  public static final AttachmentType<ItemStack> MOUNT_FLUTE_SLOT =
+      AttachmentRegistry.createPersistent(Identifier.of("baum2", "mount_flute_slot"), ItemStack.OPTIONAL_CODEC);
+  ```
+
+## GeckoLib 5.4.5 — triggerable one-shot animations for a `GeoEntity` — researched 2026-07-11
+
+Verified by reading this project's own remapped GeckoLib `5.4.5` sources jar directly
+(`.gradle/loom-cache/remapped_mods/remapped/software/bernie/geckolib/geckolib-fabric-1.21.11-
+16c8840d/5.4.5/geckolib-fabric-1.21.11-16c8840d-5.4.5-sources.jar` — already Yarn-remapped by
+Loom, unlike the raw Cloudsmith-published jar part F of the GeckoLib section above had to
+cross-reference against intermediary names): `animatable/GeoEntity.java`, `animatable/
+GeoAnimatable.java`, `animatable/manager/AnimatableManager.java`, `animation/
+AnimationController.java`, `service/GeckoLibNetworking.java`.
+
+- **`AnimationController.triggerableAnim(String name, RawAnimation animation)` — confirmed
+  exact, registers into the controller's own internal map, chainable**:
+  ```java
+  // software/bernie/geckolib/animation/AnimationController.java, confirmed exact:
+  public AnimationController<T> triggerableAnim(String name, RawAnimation animation) {
+      this.triggerableAnimations.get().put(name, animation);
+      return this;
+  }
+  ```
+  Register it once, in `registerControllers(...)`, e.g.:
+  ```java
+  @Override
+  public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+      controllers.add(new AnimationController<>("attack_controller", 5, this::attackPredicate)
+          .triggerableAnim("attack", RawAnimation.begin().thenPlay("animation.mount.attack")));
+  }
+  ```
+- **`GeoEntity.triggerAnim(String controllerName, String animName)` — confirmed exact,
+  explicitly marked `@ApiStatus.NonExtendable`/`DO NOT OVERRIDE` (it's a `default` method, call
+  it, don't override it)**:
+  ```java
+  // software/bernie/geckolib/animatable/GeoEntity.java, confirmed exact:
+  default void triggerAnim(@Nullable String controllerName, String animName) {
+      Entity entity = (Entity) this;
+      if (entity.getEntityWorld().isClient()) {
+          // client-side: routes straight to this entity's own AnimatableManager, no network needed
+      } else {
+          GeckoLibServices.NETWORK.triggerEntityAnim(entity, false, controllerName, animName);
+      }
+  }
+  ```
+  `controllerName` can be `null` for an "inefficient lazy search" across all of the entity's
+  controllers (`AnimatableManager.tryTriggerAnimation(String)`, no controller name) — passing the
+  real controller name is the efficient path and is what's shown above.
+- **Yes — calling `mountEntity.triggerAnim(...)` server-side auto-syncs to clients, confirmed
+  directly, and requires ZERO extra network registration for entities specifically.** The
+  `else` branch above (server-side call) goes through GeckoLib's own `GeckoLibNetworking`
+  service, whose `triggerEntityAnim` default implementation is:
+  ```java
+  // software/bernie/geckolib/service/GeckoLibNetworking.java, confirmed exact:
+  default void triggerEntityAnim(Entity entity, boolean isReplacedEntity, @Nullable String controllerName, String animName) {
+      sendToAllPlayersTrackingEntity(new EntityAnimTriggerPacket(entity.getId(), isReplacedEntity, Optional.ofNullable(controllerName), animName), entity);
+  }
+  ```
+  This broadcasts to every client currently tracking that entity automatically (same "entity
+  tracker" concept as vanilla's own entity-state sync, e.g. `EntityTrackerEntry` documented
+  above) — **no `SingletonGeoAnimatable.registerSyncedAnimatable`-style registration is needed
+  for a normal `Entity`/`GeoEntity`.** That registration path is a **separate, `SingletonGeoAnimatable`-
+  specific** concern (for non-`Entity` animatables — Items, `BlockEntity`s, armor — which don't
+  have their own per-instance entity-tracker id to broadcast against, so they need an explicit
+  synced-ID registration instead). For a mount entity (a real `Entity` subclass), that mechanism
+  is simply not relevant — just call `triggerAnim(...)` from server-side game logic (e.g. the
+  attack-input C2S payload handler) and it works.
+- **Setup needed on the entity class**: nothing beyond what this project's existing GeckoLib
+  section (part F above) already documents for making an entity a `GeoEntity` at all
+  (`registerControllers`, `getAnimatableInstanceCache`, a `GeoModel`/`GeoEntityRenderer` pair) —
+  `triggerAnim`/`triggerableAnim` need no additional interfaces, fields, or Mixins.
+
+## Attacking while mounted — `AttackEntityCallback` and a real, version-relevant gotcha in `doAttack()` — researched 2026-07-11
+
+Verified against `net/minecraft/client/MinecraftClient.java` and `net/minecraft/client/network/
+ClientPlayerEntity.java` from this project's own `minecraft-clientOnly-6dd721cd7d-...-sources.jar`.
+
+- **Real, confirmed gotcha, read directly from `MinecraftClient.doAttack()` (the method that
+  fires the already-documented `AttackEntityCallback.EVENT`)**:
+  ```java
+  // net/minecraft/client/MinecraftClient.java, confirmed exact, early in doAttack():
+  if (this.player.isRiding()) {
+      return false;
+  }
+  ```
+  At first read this looks like "attacking is disabled while mounted, full stop" — **it is not.**
+  `ClientPlayerEntity.isRiding()` is **not** a generic "has a vehicle" check; it's a narrow,
+  boat-paddling-specific flag, confirmed exact:
+  ```java
+  // net/minecraft/client/network/ClientPlayerEntity.java, confirmed exact:
+  @Override
+  public void tickRiding() {
+      super.tickRiding();
+      this.riding = false;                                    // reset every tick, defaults false
+      if (this.getControllingVehicle() instanceof AbstractBoatEntity abstractBoatEntity) {
+          abstractBoatEntity.setInputs(left, right, forward, backward);
+          this.riding = this.riding | (left || right || forward || backward); // true only while actively paddling a BOAT
+      }
+  }
+  public boolean isRiding() {
+      return this.riding;
+  }
+  ```
+  **`this.riding` is only ever set `true` when the controlling vehicle is specifically an
+  `AbstractBoatEntity` AND the player is currently holding a movement key** (i.e. "actively
+  rowing" — presumably to prevent attacking while visibly paddling a boat with both hands). For
+  **any other vehicle type — including a custom `PathAwareEntity`-based mount — `isRiding()` is
+  always `false`**, so `doAttack()`'s early return never triggers and attack input works
+  completely normally while mounted on a non-boat vehicle. **Confirmed: attacking while riding a
+  custom horse-like mount works out of the box in vanilla 1.21.11, no special-casing needed** —
+  the one real caveat is purely naming/historical (`isRiding()` reads like "is mounted on
+  anything" but actually means "is actively paddling a boat"), worth remembering if this method
+  name is ever encountered again elsewhere in a different context.
+- **`AttackEntityCallback` itself needs no changes for the mounted case** — it fires from inside
+  `doAttack()` → `this.interactionManager.attackEntity(this.player, ...)`, the exact same call
+  path whether the player is standing or mounted (once the `isRiding()`/boat gate above is
+  understood to not apply). Returning a non-`PASS` `ActionResult` from the registered callback
+  cancels the attack exactly as already documented in this file's existing `AttackEntityCallback`
+  entry — no vehicle-specific branch exists in that call path to worry about.
+- **Melee reach/range while mounted**: `doAttack()`'s entity-hit branch also checks an optional
+  `AttackRangeComponent` data component on the held item (`attackRangeComponent.isWithinRange(...)`)
+  — this is purely per-item attack range, unrelated to riding state; the crosshair
+  raycast (`this.crosshairTarget`) is computed from the player's actual eye position each frame,
+  which already follows the mount (the player's position is overwritten every tick to the
+  vehicle's passenger-attachment point, per the `updatePassengerPosition`/`getPassengerRidingPos`
+  mechanism used throughout the mount research above) — so melee reach against nearby mobs works
+  normally while mounted, exactly like standing on the ground, no reach penalty or bonus from
+  riding itself.

@@ -49,7 +49,7 @@ public final class StoneSlotManager {
     public static final long RESPAWN_DELAY_TICKS = 60L;  // 3 seconds (user-decided)
 
     /** No slot closer to the village center than this - the clearing stays safe. */
-    private static final int MIN_RADIUS = 100;
+    private static final int MIN_RADIUS = 140;
     /** Minimum distance between two slots. */
     private static final int MIN_SLOT_SPACING = 40;
     /** Mountain-zone slots stay on the climbable inner ramp, below the cliff band. */
@@ -241,24 +241,24 @@ public final class StoneSlotManager {
     }
 
     /**
-     * Fixed-seed scatter, independent of the world seed (like all of Heimgrund).
-     * Zone-matched to the biome spawner lists: silverfish stones in the meadow (the
-     * weakest ring, nearest the village), zombie stones in the desert patches.
-     * NO stones in the mountains (user rule, 2nd playtest) - spiders there stay
-     * stone-less natural monsters. Five silverfish anchors form a deliberate ring
-     * around the stone hot spot the south pathway leads to.
+     * Fixed-seed scatter, independent of the world seed (like all of Heimgrund). Per the
+     * user's rework map (5th playtest): three stone TERRITORIES - zombie stones on the
+     * forced desert disc in the north-east, silverfish stones in the south-west meadow,
+     * spider stones in the south-east (across the lake bridge) - each a double ring
+     * around its territory center, plus a light scatter of the two common types along
+     * the meadow/desert in between. Still NO stones in the mountains (standing user rule).
      */
     private static List<StoneSlot> generateSlots() {
         Random random = Random.create(ZoneLayout.FIXED_SEED ^ 0x57_0E5L);
         List<StoneSlot> slots = new ArrayList<>();
-        // The stone-POI destinations of the road network get deliberate rings; the rest
-        // is scattered between the roads.
-        ring(slots, "stone_of_silverfish", ZoneLayout.STONE_HOTSPOT_X, ZoneLayout.STONE_HOTSPOT_Z, 5, 16);
-        ring(slots, "stone_of_silverfish", ZoneLayout.WEST_CLUSTER_X, ZoneLayout.WEST_CLUSTER_Z, 3, 14);
-        ring(slots, "stone_of_silverfish", ZoneLayout.NORTH_CLUSTER_X, ZoneLayout.NORTH_CLUSTER_Z, 3, 14);
-        ring(slots, "stone_of_zombies", ZoneLayout.DESERT_POCKET_X, ZoneLayout.DESERT_POCKET_Z, 3, 14);
-        scatter(slots, random, "stone_of_silverfish", 7, ZoneLayout.Zone.MEADOW);
-        scatter(slots, random, "stone_of_zombies", 9, ZoneLayout.Zone.DESERT);
+        ring(slots, "stone_of_zombies", ZoneLayout.ZOMBIE_STONES_X, ZoneLayout.ZOMBIE_STONES_Z, 4, 14);
+        ring(slots, "stone_of_zombies", ZoneLayout.ZOMBIE_STONES_X, ZoneLayout.ZOMBIE_STONES_Z, 3, 26);
+        ring(slots, "stone_of_silverfish", ZoneLayout.SILVERFISH_STONES_X, ZoneLayout.SILVERFISH_STONES_Z, 4, 14);
+        ring(slots, "stone_of_silverfish", ZoneLayout.SILVERFISH_STONES_X, ZoneLayout.SILVERFISH_STONES_Z, 3, 26);
+        ring(slots, "stone_of_spiders", ZoneLayout.SPIDER_STONES_X, ZoneLayout.SPIDER_STONES_Z, 4, 14);
+        ring(slots, "stone_of_spiders", ZoneLayout.SPIDER_STONES_X, ZoneLayout.SPIDER_STONES_Z, 3, 26);
+        scatter(slots, random, "stone_of_silverfish", 5, ZoneLayout.Zone.MEADOW);
+        scatter(slots, random, "stone_of_zombies", 4, ZoneLayout.Zone.DESERT);
         return List.copyOf(slots);
     }
 

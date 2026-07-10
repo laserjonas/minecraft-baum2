@@ -3,8 +3,12 @@ package de.baum2dev.baum2;
 import net.fabricmc.api.ClientModInitializer;
 import net.minecraft.client.render.entity.EmptyEntityRenderer;
 import net.minecraft.client.render.entity.EntityRendererFactories;
+import net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry;
+import net.minecraft.client.render.entity.model.SilverfishEntityModel;
+import net.minecraft.client.render.entity.model.ModelTransformer;
 import de.baum2dev.baum2.entity.DrevathisEntityRenderer;
 import de.baum2dev.baum2.entity.FallenCometStoneEntityRenderer;
+import de.baum2dev.baum2.entity.SilverfishBroodcallerEntityRenderer;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
 import de.baum2dev.baum2.entity.ZombieColossusEntityRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
@@ -38,6 +42,15 @@ public class Baum2Client implements ClientModInitializer {
         // its own geo.json/animation.json/texture assets directly, see docs/fabric-modding.md's
         // "GeckoLib integration" section, part D) - the old ModelTransformer.scaling(3.0F) call
         // is now SpiderQueenEntityRenderer's own withScale(3.0F).
+        // Silverfish Broodcaller: NOT GeckoLib - reuses vanilla's SilverfishEntityModel under
+        // a 3x-scaled model layer (the recovered pre-GeckoLib Spider Queen approach; see the
+        // renderer's javadoc). This DOES need an EntityModelLayerRegistry call.
+        EntityModelLayerRegistry.registerModelLayer(
+                SilverfishBroodcallerEntityRenderer.LAYER,
+                () -> SilverfishEntityModel.getTexturedModelData().transform(ModelTransformer.scaling(3.0F)));
+        EntityRendererFactories.register(ModEntities.SILVERFISH_BROODCALLER,
+                SilverfishBroodcallerEntityRenderer::new);
+
         EntityRendererFactories.register(ModEntities.SPIDER_QUEEN, SpiderQueenEntityRenderer::new);
 
         // GeckoLib-based, like Spider Queen: no model-layer registration, scale lives in the

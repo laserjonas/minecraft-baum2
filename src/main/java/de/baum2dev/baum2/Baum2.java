@@ -21,6 +21,7 @@ import de.baum2dev.baum2.registry.ModBlocks;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.registry.ModItems;
 import de.baum2dev.baum2.skills.DelayedSpellEffectScheduler;
+import de.baum2dev.baum2.world.BossSpawnManager;
 import de.baum2dev.baum2.world.ModWorldgen;
 import de.baum2dev.baum2.world.PlayerStartHandler;
 import de.baum2dev.baum2.world.StoneSlotManager;
@@ -42,6 +43,7 @@ public class Baum2 implements ModInitializer {
         PlayerStartHandler.bootstrap();
         VillageStamper.bootstrap();
         StoneSlotManager.bootstrap();
+        BossSpawnManager.bootstrap();
 
         // Must run before any player can join: widens vanilla's max-health clamp so the Life
         // formula (up to 1500 at level 100) isn't silently capped at vanilla's default 1024.
@@ -77,6 +79,7 @@ public class Baum2 implements ModInitializer {
         WorldProtectionHandler.registerEvents();
         VillageStamper.registerEvents();
         StoneSlotManager.registerEvents();
+        BossSpawnManager.registerEvents();
         ZoneSpawnDirector.registerEvents();
 
         LOGGER.info("Baum2 progression system loaded");

@@ -1500,6 +1500,72 @@ content was an `Entity` or `Item`).
 
 ## Last change (on `fischey_workbranch`)
 
+**User-designed map rework (2026-07-10) — the user drew the map, this implements it.** The
+user annotated the exported layout PNG (their file described as heimgrund_rework_map.png)
+with a full redesign: bigger village with the biggest building at its south and a gray
+respawn point at center; curved ("no straight") roads; three stone TERRITORIES (zombies N/NE,
+silverfish SW, spiders SE — spider stones return to the map, in flatland, mountains still
+stone-free); three BOSS spawn points on 3-minute respawn timers (spider boss at the east
+cave, zombie boss NW, silverfish boss at the west cave); and a bridge (violet on their map)
+crossing the southeast lake. Implemented as:
+1. **Geometry** (`ZoneLayout`): clearing r 60→100 (blend →130); POI set replaced (zombie
+   stones on a forced desert disc at (130,-194), silverfish stones (-148,170), spider stones
+   (256,162), zombie-boss clearing (-102,-284), both grand cave mouths kept); road router
+   step-cost now carries a Perlin bias so roads MEANDER (user: "no straight paths" — heuristic
+   stays admissible, multiplier >= 1); fixed BRIDGE segment (128,76)-(184,116) allowed over
+   water, rendered by the generator as a dark-oak plank deck at SEA_LEVEL+2 with log piles,
+   self-adapting (deck only where terrain is below deck height; on land the same line is
+   ordinary path). Village keep-out for the router r 20→34, roads start at the 4 gates (0,±36),
+   (±36,0).
+2. **Stones** (`StoneSlotManager`): 30 slots as three territories (double ring 4@r14 + 3@r26
+   each) + light scatter (5 silverfish, 4 zombies); MIN_RADIUS 140.
+3. **New boss: Silverfish Broodcaller** (`entity/SilverfishBroodcallerEntity` + client
+   renderer): the user's "Mother of Silverfish" concept — L8, 160 HP, 5 dmg, calls 2
+   silverfish every 5s in combat (max 20/life, brood cascade-dies with it). **RENAMED from
+   the user's proposed "Mother of Silverfish" after `ip-naming-compliance-checker` FLAGGED it
+   as a near-identical rename of the existing "Mother Silverfish" CurseForge mod (same
+   oversized-silverfish-summons-minions boss)** — flag this rename to the user. Rendering
+   uses the recovered PRE-GeckoLib pattern (vanilla SilverfishEntityModel under a 3x-scaled
+   EntityModelLayer via ModelTransformer.scaling — dug out of git history commit b9a403c;
+   vanilla texture referenced in place, bespoke palette is a future art-pass item).
+4. **`world/BossSpawnManager.java` (new)**: StoneSlotManager's persistent-slot machinery for
+   the three bosses — fixed positions (cave-mouth aprons east/west, NW clearing), 3600-tick
+   respawn, AFTER_DEATH detection, entity-ticking-gated driver, world-attachment persistence.
+5. **Village** (`tools/gen_village.py` regenerated, 71x71): gray smooth-stone respawn circle
+   at center (spawn cell kept clear), Heimstein stones on its rim, 17x11 copper-roofed Great
+   Hall at the SOUTH (user: biggest building at the bottom), werkstatt east, 3 cottages,
+   garden court, ring path with 4 cardinal gate spokes matching the road network,
+   perimeter r33 with 4 gates. Stamper origin now (-35,64,-35).
+Verified headlessly in a fresh world: village stamps; 30 stones; 3 boss points generate; all
+three bosses spawn on chunk load (entity tests passed); **Broodcaller kill → respawned after
+~176s (3-min timer verified live)**; the bridge was initially DRY (the r=100 clearing erased
+the lake arm the user's violet line crossed — found by fill-probing zero water in the old
+bridge box), relocated by analyzing the exported map PNG programmatically to the lake
+finger at (218,176)-(246,178) west of the spider territory, then re-verified: 38 plank deck
+blocks over real water. Client checks pending: Broodcaller's 3x-scale render (render-state
+code paths only fail at render time), bridge deck look, hall interior, brood-call fight feel.
+
+**`balance-reviewer` findings on this pass — 3 fixed, 3 logged for a human decision**:
+FIXED: (a) ZoneSpawnDirector still sent silverfish/zombie ambients to the new SE spider
+territory (cross-file drift) — a 70-radius spider-territory override now supplies ambient
+spiders there; (b) Broodcaller was the only boss with ZERO drops — now drops 2 iron ingots +
+12 iron nuggets ("paid in the monster's own currency" like the stones); (c) Broodcaller's
+0.6 knockback resistance exceeded both stronger siblings, contradicting its "weakest boss"
+framing — lowered to 0.3. LOGGED, NOT FIXED (design calls): (1) **brood XP loophole** — brood
+silverfish a player kills BEFORE the boss dies pay normal XP (14 each; only the death-cascade
+is XP-free), so kiting the weak boss and farming all 20 brood nets ~370 XP/3-min cycle vs the
+90 XP boss kill — decide: tag brood as XP-free entirely, or accept "the fight is the reward";
+(2) **3-min bosses + unchanged guaranteed full-item drops = repeatable BiS loop** — Spider
+Queen drops ALL FOUR armor pieces every kill, Colossus the Warclub every kill; at known road-
+connected spots every 3 minutes this is an infinite-gear faucet (frame as a drop-table
+decision, e.g. one random piece per repeat kill — the timer itself is user-decided);
+(3) **difficulty-vs-distance inverted** — the direction-based territories put L20 zombie
+stones as close as L5 silverfish stones and the hardest boss (Colossus) CLOSER than the
+weakest (Broodcaller); the layout is the user's own map, so treat as their explicit design
+unless they say otherwise.
+
+Previous change, same day:
+
 **Road network rework (2026-07-09, follow-up to the 4th playtest screenshot).** User: roads
 must never cross lakes (the ford still read as wrong — "just around the lake"), the network
 must cover the WHOLE map ("balanced"), and every road must end at a cave or a stone spot.

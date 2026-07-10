@@ -23,7 +23,7 @@ DATA_VERSION = 4671  # 1.21.11 (read from a template the game itself saved)
 
 # Template size. Ground layer is y=0 in template space (world y=64: replaces the
 # clearing's grass surface); buildings rise above it.
-SX, SY, SZ = 47, 17, 47
+SX, SY, SZ = 71, 17, 71
 CX, CZ = SX // 2, SZ // 2  # village center in template space (23, 23)
 
 # ---------------------------------------------------------------------------------
@@ -211,6 +211,7 @@ COLORS = {
     "minecraft:potted_lily_of_the_valley": (235, 240, 235),
     "minecraft:moss_carpet": (85, 115, 60),
     "minecraft:vine": (60, 105, 45),
+    "minecraft:smooth_stone": (158, 158, 158),
 }
 DEFAULT_COLOR = (200, 60, 200)  # loud magenta: material missing from COLORS
 
@@ -439,166 +440,153 @@ def window(x, z, x2=None, z2=None):
 
 
 def build():
-    # --- Arrival plaza (11x11, banded andesite, stone-brick border) ------------------
-    for x in range(18, 29):
-        for z in range(18, 29):
-            if x in (18, 28) or z in (18, 28):
-                put(x, 0, z, "minecraft:stone_bricks")
-            else:
+    # --- Gray respawn plaza (user rework map: "the gray one is the respawn point") -----
+    for x in range(SX):
+        for z in range(SZ):
+            d = dist(x, z)
+            if d <= 4.5:
+                put(x, 0, z, "minecraft:smooth_stone")
+            elif d <= 5.5:
+                put(x, 0, z, "minecraft:polished_deepslate")
+
+    # --- Arrival plaza ring (banded andesite) around the gray core --------------------
+    for x in range(SX):
+        for z in range(SZ):
+            d = dist(x, z)
+            if 5.5 < d <= 13:
                 band = ((x // 2) + (z // 2)) % 2 == 0
                 put(x, 0, z, "minecraft:polished_andesite" if band else "minecraft:andesite")
+            elif 13 < d <= 14:
+                put(x, 0, z, "minecraft:stone_bricks")
 
-    # --- Heimstein monument: standing stones AROUND the spawn cell (23,1,23), --------
-    # so the player materialises among them, never inside one.
-    put(21, 1, 23, "minecraft:polished_deepslate")
-    put(21, 2, 23, "minecraft:polished_deepslate")
-    put(21, 3, 23, "minecraft:chiseled_deepslate")
-    put(21, 4, 23, "minecraft:oxidized_cut_copper_slab[type=bottom]")  # Verdigris crown
-    put(25, 2 - 1, 22, "minecraft:polished_deepslate")
-    put(25, 2, 22, "minecraft:chiseled_deepslate")
-    put(23, 1, 25, "minecraft:chiseled_deepslate")
-    put(23, 2, 25, "minecraft:oxidized_cut_copper_slab[type=bottom]")
-    put(24, 1, 21, "minecraft:cobbled_deepslate")
-    # shallow lily pond arcs on the plaza diagonals (cardinal walk lanes stay dry)
-    for x in range(18, 29):
-        for z in range(18, 29):
-            d = dist(x, z)
-            if 2.4 <= d <= 3.4 and abs(x - CX) > 1 and abs(z - CZ) > 1:
-                put(x, 0, z, "minecraft:water")
-                if det(x, z, 3) == 0:
-                    put(x, 1, z, "minecraft:lily_pad")
-    # soul lanterns flanking the monument (motif 3: cold light = significant place)
-    for px, pz in ((21, 21), (25, 25)):
+    # --- Heimstein monument stones on the gray circle's rim (never on the spawn cell) --
+    put(CX - 5, 1, CZ, "minecraft:polished_deepslate")
+    put(CX - 5, 2, CZ, "minecraft:chiseled_deepslate")
+    put(CX - 5, 3, CZ, "minecraft:oxidized_cut_copper_slab[type=bottom]")
+    put(CX + 5, 1, CZ - 2, "minecraft:polished_deepslate")
+    put(CX + 5, 2, CZ - 2, "minecraft:chiseled_deepslate")
+    put(CX, 1, CZ - 5, "minecraft:cobbled_deepslate")
+    put(CX + 2, 1, CZ + 5, "minecraft:chiseled_deepslate")
+    put(CX + 2, 2, CZ + 5, "minecraft:oxidized_cut_copper_slab[type=bottom]")
+    for px, pz in ((CX - 4, CZ - 4), (CX + 4, CZ + 4)):
         put(px, 1, pz, "minecraft:andesite_wall")
         put(px, 2, pz, "minecraft:andesite_wall")
         put(px, 3, pz, "minecraft:soul_lantern")
 
-    # --- Ring path (3 wide, cobble/mossy) --------------------------------------------
+    # --- Ring path + gate spokes (4 gates N/E/S/W, aligned to the road network) --------
     for x in range(SX):
         for z in range(SZ):
-            if 10.5 <= dist(x, z) <= 13.4:
+            if 19.5 <= dist(x, z) <= 22.4:
                 cobble_path(x, z)
-
-    # --- Spoke paths (2 wide) + main gate spokes (3 wide) ----------------------------
-    for z in range(10, 18):  # north spoke: plaza -> Gathering Hall
-        cobble_path(22, z)
-        cobble_path(23, z)
-    for x in range(29, 36):  # east spoke: plaza -> Werkstatt door
-        cobble_path(x, 16)
-        cobble_path(x, 17)
-    for z in range(27, 31):  # southwest spoke: ring -> cottage A
-        cobble_path(9, z)
-        cobble_path(10, z)
-    for z in range(26, 30):  # southeast spoke: ring -> cottage B
-        cobble_path(33, z)
-        cobble_path(34, z)
-    for x in range(10, 14):  # west spoke: ring -> herb garden entrance
-        cobble_path(x, 22)
-        cobble_path(x, 23)
-    for z in range(29, 46):  # SOUTH MAIN GATE spoke (3 wide), opposite the Hall
-        for x in (22, 23, 24):
+    for z in list(range(1, 16)) + list(range(56, SZ - 1)):   # N + S spokes
+        for x in (CX - 1, CX, CX + 1):
             cobble_path(x, z)
-    for x in range(36, 46):  # east gate spoke (3 wide)
-        for z in (22, 23, 24):
+    for x in list(range(1, 16)) + list(range(56, SX - 1)):   # W + E spokes
+        for z in (CZ - 1, CZ, CZ + 1):
+            cobble_path(x, z)
+    for x in range(15, 21):   # N/S spokes continue to the plaza edge
+        pass
+    for z in range(15, 21):
+        for x in (CX - 1, CX, CX + 1):
+            cobble_path(x, z)
+    for z in range(50, 56):
+        for x in (CX - 1, CX, CX + 1):
+            cobble_path(x, z)
+    for x in range(15, 21):
+        for z in (CZ - 1, CZ, CZ + 1):
+            cobble_path(x, z)
+    for x in range(50, 56):
+        for z in (CZ - 1, CZ, CZ + 1):
             cobble_path(x, z)
 
-    # --- Gathering Hall (11x9, copper Verdigris-crown roof, entrance faces plaza) ----
-    fachwerk_walls(18, 2, 28, 10, 5, ("S", (22, 23)))
-    for z in (4, 7):
-        window(18, z)
-        window(28, z)
-    for x in (20, 26):
-        window(x, 2)
-    gable_roof(18, 2, 28, 10, 6, "minecraft:oxidized_cut_copper",
+    # --- GREAT HALL (user: "the building at the bottom is the biggest one"): south, ----
+    # 17x11, verdigris-copper roof, wide entrance facing the plaza (north side).
+    fachwerk_walls(27, 52, 43, 62, 6, ("N", (34, 35, 36)))
+    for x in (30, 40):
+        window(x, 52)
+        window(x, 62)
+    for z in (55, 59):
+        window(27, z)
+        window(43, z)
+    gable_roof(27, 52, 43, 62, 7, "minecraft:oxidized_cut_copper",
                "minecraft:oxidized_cut_copper_stairs", "minecraft:oxidized_cut_copper_slab")
 
-    # --- Werkstatt (7x7 + open lean-to bay south, deepslate roof) ---------------------
-    fachwerk_walls(36, 14, 42, 20, 4, ("W", (16, 17)))
-    window(39, 14)
-    window(42, 17)
-    gable_roof(36, 14, 42, 20, 5, "minecraft:deepslate_tiles",
+    # --- Werkstatt (east) ---------------------------------------------------------------
+    fachwerk_walls(53, 30, 61, 38, 4, ("W", (33, 34)))
+    window(57, 30)
+    window(61, 34)
+    gable_roof(53, 30, 61, 38, 5, "minecraft:deepslate_tiles",
                "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
-    # lean-to: open-sided bay with a single-slope roof and a campfire "chimney" corner
-    for x, z in ((37, 23), (41, 23)):
-        for y in range(1, 4):
-            put(x, y, z, "minecraft:dark_oak_log[axis=y]")
-    for x in range(36, 43):
-        put(x, 4, 21, "minecraft:deepslate_tiles")
-        put(x, 4, 22, f"minecraft:deepslate_tile_stairs[facing=north,half=bottom]")
-        put(x, 3, 23, f"minecraft:deepslate_tile_stairs[facing=north,half=bottom]")
-    put(38, 0, 22, "minecraft:polished_andesite")
-    put(38, 1, 22, "minecraft:campfire[lit=true]")
-    put(40, 1, 22, "minecraft:barrel")
-    put(40, 1, 21, "minecraft:composter")
+    put(55, 1, 40, "minecraft:barrel")
+    put(56, 1, 40, "minecraft:composter")
 
-    # --- Cottages (plain deepslate gables) --------------------------------------------
-    fachwerk_walls(7, 31, 12, 36, 4, ("N", (9, 10)))
-    window(7, 33)
-    window(12, 34)
-    gable_roof(7, 31, 12, 36, 5, "minecraft:deepslate_tiles",
+    # --- Cottages (NW, NE, W) -----------------------------------------------------------
+    fachwerk_walls(12, 13, 19, 19, 4, ("S", (15, 16)))
+    window(12, 16)
+    window(19, 16)
+    gable_roof(12, 13, 19, 19, 5, "minecraft:deepslate_tiles",
                "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
 
-    fachwerk_walls(31, 30, 37, 35, 4, ("N", (33, 34)))
-    window(31, 32)
-    window(37, 33)
-    gable_roof(31, 30, 37, 35, 5, "minecraft:deepslate_tiles",
+    fachwerk_walls(49, 12, 56, 18, 4, ("S", (52, 53)))
+    window(49, 15)
+    window(56, 15)
+    gable_roof(49, 12, 56, 18, 5, "minecraft:deepslate_tiles",
                "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
 
-    # --- Kraeutergarten (herb court: hedge border, moss/path beds, potted accents) ----
-    gx1, gz1, gx2, gz2 = 2, 19, 9, 26
+    fachwerk_walls(8, 40, 15, 46, 4, ("E", (42, 43)))
+    window(11, 40)
+    window(11, 46)
+    gable_roof(8, 40, 15, 46, 5, "minecraft:deepslate_tiles",
+               "minecraft:deepslate_tile_stairs", "minecraft:deepslate_tile_slab")
+
+    # --- Kraeutergarten (north-west court between cottage and ring) ----------------------
+    gx1, gz1, gx2, gz2 = 22, 8, 31, 16
     for x in range(gx1, gx2 + 1):
         for z in range(gz1, gz2 + 1):
             edge = x in (gx1, gx2) or z in (gz1, gz2)
-            if edge and not (x == gx2 and z in (22, 23)):  # east opening to the spoke
+            if edge and not (z == gz2 and x in (26, 27)):
                 hedge(x, z)
             elif not edge:
                 if (x + z) % 2 == 0:
                     put(x, 0, z, "minecraft:moss_block")
                 else:
                     put(x, 0, z, "minecraft:dirt_path")
-    put(4, 1, 21, "minecraft:potted_allium")
-    put(6, 1, 24, "minecraft:potted_lily_of_the_valley")
-    put(7, 1, 20, "minecraft:potted_allium")
+    put(25, 1, 11, "minecraft:potted_allium")
+    put(29, 1, 14, "minecraft:potted_lily_of_the_valley")
 
-    # --- Ring-path lanterns (amber, motif 3 keeps soul light for thresholds) ----------
+    # --- Ring-path lanterns ---------------------------------------------------------------
     for angle_deg in range(0, 360, 45):
-        a = math.radians(angle_deg + 22)  # offset so posts miss the spokes
-        x = round(CX + 14.6 * math.cos(a))
-        z = round(CZ + 14.6 * math.sin(a))
+        a = math.radians(angle_deg + 22)
+        x = round(CX + 23.6 * math.cos(a))
+        z = round(CZ + 23.6 * math.sin(a))
         if (x, 1, z) not in blocks and (x, 0, z) not in blocks:
             lantern_post(x, z)
 
-    # --- Perimeter: low wall alternating with hedge, 2 gates --------------------------
+    # --- Perimeter: low wall alternating hedge, 4 gates (N/E/S/W) -------------------------
     for x in range(SX):
         for z in range(SZ):
             d = dist(x, z)
-            if not (21.6 <= d <= 22.4):
+            if not (32.6 <= d <= 33.4):
                 continue
-            # gate gaps: south main gate + east gate, 3 wide
-            if (22 <= x <= 24 and z > CZ) and abs(x - 23) <= 1 and z >= 40:
-                continue
-            if (22 <= z <= 24 and x > CX) and abs(z - 23) <= 1 and x >= 40:
-                continue
-            bucket = int((math.atan2(z - CZ, x - CX) + math.pi) / (2 * math.pi) * 24)
+            if abs(x - CX) <= 1 and (z < 8 or z > SZ - 9):
+                continue  # N + S gate openings
+            if abs(z - CZ) <= 1 and (x < 8 or x > SX - 9):
+                continue  # W + E gate openings
+            bucket = int((math.atan2(z - CZ, x - CX) + math.pi) / (2 * math.pi) * 32)
             if bucket % 3 == 2:
                 hedge(x, z)
             else:
                 put(x, 1, z, "minecraft:cobblestone_wall")
                 put(x, 2, z, "minecraft:cobblestone_wall")
                 put(x, 3, z, "minecraft:stone_brick_slab[type=bottom]")
-
-    # gate pillars + soul lanterns (motif 3)
-    for px, pz in ((21, 45), (25, 45)):  # south main gate
+    for gx, gz in ((CX - 2, 1), (CX + 2, 1), (CX - 2, SZ - 2), (CX + 2, SZ - 2),
+                   (1, CZ - 2), (1, CZ + 2), (SX - 2, CZ - 2), (SX - 2, CZ + 2)):
         for y in range(1, 4):
-            put(px, y, pz, "minecraft:andesite_wall")
-        put(px, 4, pz, "minecraft:soul_lantern")
-    for px, pz in ((45, 21), (45, 25)):  # east gate
-        for y in range(1, 4):
-            put(px, y, pz, "minecraft:andesite_wall")
-        put(px, 4, pz, "minecraft:soul_lantern")
+            put(gx, y, gz, "minecraft:andesite_wall")
+        put(gx, 4, gz, "minecraft:soul_lantern")
 
     # keep the spawn cell and headroom guaranteed clear
-    clear(23, 1, 23, 23, 4, 23)
+    clear(CX, 1, CZ, CX, 4, CZ)
 
 
 if __name__ == "__main__":

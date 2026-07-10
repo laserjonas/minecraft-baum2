@@ -59,6 +59,16 @@ public final class ZoneSpawnDirector {
                             new WeightedType(EntityType.CAVE_SPIDER, 1)), 12)
     );
 
+    /**
+     * The spider TERRITORY (user rework map: spider stones live in the SE flatland now, not
+     * the mountains) overrides the underlying zone's mix - a player near the spider stones
+     * gets ambient spiders, matching the stone waves there (balance-reviewer drift finding).
+     */
+    private static final ZonePopulation SPIDER_TERRITORY = new ZonePopulation(
+            List.of(new WeightedType(EntityType.SPIDER, 4),
+                    new WeightedType(EntityType.CAVE_SPIDER, 1)), 10);
+    private static final int SPIDER_TERRITORY_RADIUS = 70;
+
     public static void registerEvents() {
         ServerTickEvents.END_WORLD_TICK.register(world -> {
             if (!Baum2WorldKeys.isHeimgrund(world) || world.getTime() % CHECK_INTERVAL_TICKS != 0) {
@@ -78,6 +88,12 @@ public final class ZoneSpawnDirector {
         ZonePopulation population = POPULATIONS.get(zone);
         if (population == null) {
             return;  // village clearing: stays safe
+        }
+        long dxSpider = playerPos.getX() - ZoneLayout.SPIDER_STONES_X;
+        long dzSpider = playerPos.getZ() - ZoneLayout.SPIDER_STONES_Z;
+        if (dxSpider * dxSpider + dzSpider * dzSpider
+                <= (long) SPIDER_TERRITORY_RADIUS * SPIDER_TERRITORY_RADIUS) {
+            population = SPIDER_TERRITORY;
         }
         Box scanBox = player.getBoundingBox().expand(SCAN_RADIUS);
         int present = world.getEntitiesByClass(MobEntity.class, scanBox,

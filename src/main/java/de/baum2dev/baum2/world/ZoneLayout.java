@@ -35,9 +35,9 @@ public final class ZoneLayout {
     public static final int MIN_Y = 0;
     public static final int WORLD_HEIGHT = 256;
 
-    public static final int CLEARING_RADIUS = 60;
+    public static final int CLEARING_RADIUS = 100;
     /** Clearing blends into meadow across this band so there is no terrain seam. */
-    public static final int CLEARING_BLEND_RADIUS = 90;
+    public static final int CLEARING_BLEND_RADIUS = 130;
     /** Desert patches only occur beyond this radius (tier 2 sits farther out than tier 1). */
     public static final int DESERT_MIN_RADIUS = 180;
     public static final int MEADOW_OUTER_RADIUS = 380;
@@ -57,6 +57,9 @@ public final class ZoneLayout {
             new PerlinNoiseSampler(Random.create(FIXED_SEED ^ 0xD35E27L));
     private static final PerlinNoiseSampler RIDGE_NOISE =
             new PerlinNoiseSampler(Random.create(FIXED_SEED ^ 0x51D6EL));
+    /** Biases the road router's step cost so roads meander instead of running straight. */
+    private static final PerlinNoiseSampler WIND_NOISE =
+            new PerlinNoiseSampler(Random.create(FIXED_SEED ^ 0x3EADL));
 
     public enum Zone {
         CLEARING,
@@ -68,70 +71,75 @@ public final class ZoneLayout {
 
     // --- Hot spots & pathways ------------------------------------------------------------
     //
-    // Two authored destinations (2nd-playtest feedback: the map needs places to head FOR),
-    // each reached by a visible path from a village gate:
-    //  - STONE hot spot: a gravel clearing in the south meadow where several stone slots
-    //    cluster (StoneSlotManager anchors a ring of stones here).
-    //  - CAVE hot spot: a gravel apron at the mountain foot due east, where carveCaves()
-    //    bores a guaranteed, extra-wide "grand mouth" tunnel into the ring.
+    // POI layout per the user's hand-drawn rework map (5th playtest iteration,
+    // run/heimgrund_rework_map.png): three stone territories, three boss spawns, curved
+    // roads, one bridge over the southeast lake.
 
-    public static final int STONE_HOTSPOT_X = 30;
-    public static final int STONE_HOTSPOT_Z = 240;
-    /** Lakes/desert are masked out this close to the stone hot spot - it is always meadow. */
-    public static final int STONE_HOTSPOT_CLEAR_RADIUS = 28;
-    public static final int STONE_HOTSPOT_APRON_RADIUS = 12;
+    /** Zombie-stone territory (north-east), on a FORCED desert disc. */
+    public static final int ZOMBIE_STONES_X = 130;
+    public static final int ZOMBIE_STONES_Z = -194;
+    public static final int ZOMBIE_STONES_DESERT_RADIUS = 26;
+    public static final int ZOMBIE_STONES_APRON_RADIUS = 10;
 
-    /** Where the east path meets the mountain ring; the grand cave mouth opens here. */
+    /** Silverfish-stone territory (south-west meadow, lake/desert masked clear). */
+    public static final int SILVERFISH_STONES_X = -148;
+    public static final int SILVERFISH_STONES_Z = 170;
+    public static final int SILVERFISH_STONES_CLEAR_RADIUS = 26;
+    public static final int SILVERFISH_STONES_APRON_RADIUS = 10;
+
+    /** Spider-stone territory (south-east; whatever ground the noise gives, lakes masked). */
+    public static final int SPIDER_STONES_X = 256;
+    public static final int SPIDER_STONES_Z = 162;
+    public static final int SPIDER_STONES_CLEAR_RADIUS = 26;
+    public static final int SPIDER_STONES_APRON_RADIUS = 10;
+
+    /** East grand cave mouth - the spider boss (Spider Queen) spawns at its entrance. */
     public static final int CAVE_HOTSPOT_X = 378;
     public static final int CAVE_HOTSPOT_Z = 0;
     public static final int CAVE_HOTSPOT_APRON_RADIUS = 10;
 
-    /** Branch-path destination: a smaller stone cluster in the west meadow. */
-    public static final int WEST_CLUSTER_X = -140;
-    public static final int WEST_CLUSTER_Z = 180;
-    public static final int WEST_CLUSTER_CLEAR_RADIUS = 24;
-    public static final int WEST_CLUSTER_APRON_RADIUS = 8;
-
-    /**
-     * Branch-path destination: a FORCED desert disc (the noise mask is overridden here),
-     * so a zombie-stone destination exists regardless of where the noise puts patches.
-     */
-    public static final int DESERT_POCKET_X = 240;
-    public static final int DESERT_POCKET_Z = -140;
-    public static final int DESERT_POCKET_RADIUS = 30;
-    public static final int DESERT_POCKET_APRON_RADIUS = 8;
-
-    /** New (4th playtest): a second stone cluster due north, balancing the compass. */
-    public static final int NORTH_CLUSTER_X = -40;
-    public static final int NORTH_CLUSTER_Z = -240;
-    public static final int NORTH_CLUSTER_CLEAR_RADIUS = 24;
-    public static final int NORTH_CLUSTER_APRON_RADIUS = 8;
-
-    /** New (4th playtest): a second grand cave mouth due west, balancing the east one. */
+    /** West grand cave mouth - the silverfish boss (Silverfish Broodcaller) spawns here. */
     public static final int WEST_CAVE_X = -378;
     public static final int WEST_CAVE_Z = -30;
     public static final int WEST_CAVE_APRON_RADIUS = 10;
 
+    /** Zombie boss (Zombie Colossus) spawn clearing, north-west meadow. */
+    public static final int ZOMBIE_BOSS_X = -102;
+    public static final int ZOMBIE_BOSS_Z = -284;
+    public static final int ZOMBIE_BOSS_CLEAR_RADIUS = 20;
+    public static final int ZOMBIE_BOSS_APRON_RADIUS = 8;
+
     /**
-     * The road NETWORK (4th playtest: paths must cover the whole map, never cross water,
-     * and every road must end at a cave or a stone spot). Edges connect the six POIs into
-     * a ring around the map plus the two village-gate spokes; each edge is ROUTED around
-     * lakes at class-init time by A* over the deterministic terrain (2-block grid, lakes
-     * with margin and the mountain ring as obstacles), so no path ever enters water.
+     * The bridge over the southeast lake (the violet line on the user's map): a fixed,
+     * straight road segment allowed to cross water; the generator renders a plank deck
+     * over any span where the terrain is below the waterline.
+     */
+    public static final int BRIDGE_WEST_X = 218;
+    public static final int BRIDGE_WEST_Z = 176;
+    public static final int BRIDGE_EAST_X = 246;
+    public static final int BRIDGE_EAST_Z = 178;
+    public static final int BRIDGE_DECK_Y = SEA_LEVEL + 2;
+
+    /**
+     * The road NETWORK: curved (the router's step cost carries a noise bias, so roads
+     * meander organically instead of running straight - user request), routed around
+     * lakes/mountains by A* at class-init, covering the map as a ring plus village-gate
+     * spokes. Every edge ends at a stone territory, a cave, or a boss clearing.
      */
     private static final int[][][] ROAD_EDGES = {
-            // village gates -> nearest POI
-            {{0, 24}, {STONE_HOTSPOT_X, STONE_HOTSPOT_Z}},           // south gate -> stone hot spot
-            {{24, 0}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},             // east gate -> east cave
-            // the ring road, POI to POI around the compass
-            {{STONE_HOTSPOT_X, STONE_HOTSPOT_Z}, {WEST_CLUSTER_X, WEST_CLUSTER_Z}},
-            {{WEST_CLUSTER_X, WEST_CLUSTER_Z}, {WEST_CAVE_X, WEST_CAVE_Z}},
-            {{WEST_CLUSTER_X, WEST_CLUSTER_Z}, {NORTH_CLUSTER_X, NORTH_CLUSTER_Z}},
-            {{NORTH_CLUSTER_X, NORTH_CLUSTER_Z}, {DESERT_POCKET_X, DESERT_POCKET_Z}},
-            {{DESERT_POCKET_X, DESERT_POCKET_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
-            {{DESERT_POCKET_X, DESERT_POCKET_Z}, {24, 0}},           // pocket also links to the east spoke
-            // closes the ring through the southeast quadrant (it was a C-shape without this)
-            {{STONE_HOTSPOT_X, STONE_HOTSPOT_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
+            // village gates (village clearing is r=100; gates sit on the template edge)
+            {{0, -36}, {ZOMBIE_STONES_X, ZOMBIE_STONES_Z}},          // north gate -> zombie stones
+            {{36, 0}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},             // east gate -> east cave (spider boss)
+            {{0, 36}, {SILVERFISH_STONES_X, SILVERFISH_STONES_Z}},   // south gate -> silverfish stones
+            {{-36, 0}, {WEST_CAVE_X, WEST_CAVE_Z}},                  // west gate -> west cave (broodcaller)
+            {{0, 36}, {BRIDGE_WEST_X, BRIDGE_WEST_Z}},               // south gate -> bridge west end
+            {{BRIDGE_EAST_X, BRIDGE_EAST_Z}, {SPIDER_STONES_X, SPIDER_STONES_Z}},  // bridge -> spider stones
+            // outer connections (the ring around the map)
+            {{ZOMBIE_STONES_X, ZOMBIE_STONES_Z}, {ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z}},
+            {{ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z}, {WEST_CAVE_X, WEST_CAVE_Z}},
+            {{WEST_CAVE_X, WEST_CAVE_Z}, {SILVERFISH_STONES_X, SILVERFISH_STONES_Z}},
+            {{ZOMBIE_STONES_X, ZOMBIE_STONES_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
+            {{SPIDER_STONES_X, SPIDER_STONES_Z}, {CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z}},
     };
     private static final double PATH_HALF_WIDTH = 1.6;
     private static final int ROUTE_GRID_STEP = 2;
@@ -164,18 +172,24 @@ public final class ZoneLayout {
 
     /** True inside any hot-spot/POI gravel apron circle. */
     public static boolean isHotspotApron(int x, int z) {
-        return sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
-                <= STONE_HOTSPOT_APRON_RADIUS * STONE_HOTSPOT_APRON_RADIUS
+        return sqDist(x, z, ZOMBIE_STONES_X, ZOMBIE_STONES_Z)
+                <= ZOMBIE_STONES_APRON_RADIUS * ZOMBIE_STONES_APRON_RADIUS
+                || sqDist(x, z, SILVERFISH_STONES_X, SILVERFISH_STONES_Z)
+                <= SILVERFISH_STONES_APRON_RADIUS * SILVERFISH_STONES_APRON_RADIUS
+                || sqDist(x, z, SPIDER_STONES_X, SPIDER_STONES_Z)
+                <= SPIDER_STONES_APRON_RADIUS * SPIDER_STONES_APRON_RADIUS
                 || sqDist(x, z, CAVE_HOTSPOT_X, CAVE_HOTSPOT_Z)
                 <= CAVE_HOTSPOT_APRON_RADIUS * CAVE_HOTSPOT_APRON_RADIUS
-                || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
-                <= WEST_CLUSTER_APRON_RADIUS * WEST_CLUSTER_APRON_RADIUS
-                || sqDist(x, z, DESERT_POCKET_X, DESERT_POCKET_Z)
-                <= DESERT_POCKET_APRON_RADIUS * DESERT_POCKET_APRON_RADIUS
-                || sqDist(x, z, NORTH_CLUSTER_X, NORTH_CLUSTER_Z)
-                <= NORTH_CLUSTER_APRON_RADIUS * NORTH_CLUSTER_APRON_RADIUS
                 || sqDist(x, z, WEST_CAVE_X, WEST_CAVE_Z)
-                <= WEST_CAVE_APRON_RADIUS * WEST_CAVE_APRON_RADIUS;
+                <= WEST_CAVE_APRON_RADIUS * WEST_CAVE_APRON_RADIUS
+                || sqDist(x, z, ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z)
+                <= ZOMBIE_BOSS_APRON_RADIUS * ZOMBIE_BOSS_APRON_RADIUS;
+    }
+
+    /** True on the bridge line over the southeast lake. */
+    public static boolean isBridge(int x, int z) {
+        return distanceToSegment(x, z, BRIDGE_WEST_X, BRIDGE_WEST_Z, BRIDGE_EAST_X, BRIDGE_EAST_Z)
+                <= PATH_HALF_WIDTH;
     }
 
     // --- Road routing (A*, runs once at class init; fully deterministic) -----------------
@@ -188,6 +202,9 @@ public final class ZoneLayout {
                 addRoadSegment(byChunk, route.get(i), route.get(i + 1));
             }
         }
+        // The bridge is a fixed straight segment allowed over water (rendered as a deck).
+        addRoadSegment(byChunk, new int[]{BRIDGE_WEST_X, BRIDGE_WEST_Z},
+                new int[]{BRIDGE_EAST_X, BRIDGE_EAST_Z});
         return byChunk;
     }
 
@@ -243,7 +260,14 @@ public final class ZoneLayout {
                             || routeBlocked((cx + dx) * ROUTE_GRID_STEP, (cz + dz) * ROUTE_GRID_STEP, to)) {
                         continue;
                     }
-                    double tentative = gScore.get(current) + Math.hypot(dx, dz);
+                    // Step cost carries a noise bias (1.0 .. ~1.8): the router follows
+                    // noise valleys, which is what makes the roads curve organically
+                    // (user request: "no straight paths"). Heuristic stays admissible
+                    // because the multiplier never drops below 1.
+                    double wind = 1.0 + 0.4 * (WIND_NOISE.sample(
+                            (cx + dx) * ROUTE_GRID_STEP * 0.012, 0.0,
+                            (cz + dz) * ROUTE_GRID_STEP * 0.012) + 1.0);
+                    double tentative = gScore.get(current) + Math.hypot(dx, dz) * wind;
                     if (tentative < gScore.getOrDefault(next, Double.MAX_VALUE)) {
                         gScore.put(next, tentative);
                         cameFrom.put(next, current);
@@ -311,7 +335,7 @@ public final class ZoneLayout {
             return true;
         }
         // Keep roads out of the village interior (they start at the gates).
-        if (r < 20) {
+        if (r < 34) {
             return true;
         }
         // Water plus a safety margin: sample the cell and its margin ring.
@@ -456,12 +480,12 @@ public final class ZoneLayout {
         if (r < CLEARING_BLEND_RADIUS || r >= MEADOW_OUTER_RADIUS || isDesert(x, z, r)) {
             return false;
         }
-        if (sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
-                        <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS
-                || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
-                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS
-                || sqDist(x, z, NORTH_CLUSTER_X, NORTH_CLUSTER_Z)
-                        <= (long) NORTH_CLUSTER_CLEAR_RADIUS * NORTH_CLUSTER_CLEAR_RADIUS) {
+        if (sqDist(x, z, SILVERFISH_STONES_X, SILVERFISH_STONES_Z)
+                        <= (long) SILVERFISH_STONES_CLEAR_RADIUS * SILVERFISH_STONES_CLEAR_RADIUS
+                || sqDist(x, z, SPIDER_STONES_X, SPIDER_STONES_Z)
+                        <= (long) SPIDER_STONES_CLEAR_RADIUS * SPIDER_STONES_CLEAR_RADIUS
+                || sqDist(x, z, ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z)
+                        <= (long) ZOMBIE_BOSS_CLEAR_RADIUS * ZOMBIE_BOSS_CLEAR_RADIUS) {
             return false;
         }
         return lakeDepth(x, z) > 0.0;
@@ -504,21 +528,19 @@ public final class ZoneLayout {
         if (r < DESERT_MIN_RADIUS || r >= MEADOW_OUTER_RADIUS) {
             return false;
         }
-        // The desert-branch destination is a FORCED desert disc, so the zombie-stone POI
-        // exists regardless of where the noise puts patches.
-        if (sqDist(x, z, DESERT_POCKET_X, DESERT_POCKET_Z)
-                <= (long) DESERT_POCKET_RADIUS * DESERT_POCKET_RADIUS) {
+        // The zombie-stone territory is a FORCED desert disc, so it exists regardless of
+        // where the noise puts patches.
+        if (sqDist(x, z, ZOMBIE_STONES_X, ZOMBIE_STONES_Z)
+                <= (long) ZOMBIE_STONES_DESERT_RADIUS * ZOMBIE_STONES_DESERT_RADIUS) {
             return true;
         }
-        // Stone POI clearings are always meadow; paths however KEEP the desert biome they
+        // Meadow POI clearings are never desert; paths however KEEP the desert biome they
         // cross (only the surface material changes) - a 3-wide meadow biome sliver through
         // a desert patch would look broken.
-        if (sqDist(x, z, STONE_HOTSPOT_X, STONE_HOTSPOT_Z)
-                <= (long) STONE_HOTSPOT_CLEAR_RADIUS * STONE_HOTSPOT_CLEAR_RADIUS
-                || sqDist(x, z, WEST_CLUSTER_X, WEST_CLUSTER_Z)
-                        <= (long) WEST_CLUSTER_CLEAR_RADIUS * WEST_CLUSTER_CLEAR_RADIUS
-                || sqDist(x, z, NORTH_CLUSTER_X, NORTH_CLUSTER_Z)
-                        <= (long) NORTH_CLUSTER_CLEAR_RADIUS * NORTH_CLUSTER_CLEAR_RADIUS) {
+        if (sqDist(x, z, SILVERFISH_STONES_X, SILVERFISH_STONES_Z)
+                <= (long) SILVERFISH_STONES_CLEAR_RADIUS * SILVERFISH_STONES_CLEAR_RADIUS
+                || sqDist(x, z, ZOMBIE_BOSS_X, ZOMBIE_BOSS_Z)
+                        <= (long) ZOMBIE_BOSS_CLEAR_RADIUS * ZOMBIE_BOSS_CLEAR_RADIUS) {
             return false;
         }
         return DESERT_NOISE.sample(x * 0.006, 0.0, z * 0.006) > 0.5;

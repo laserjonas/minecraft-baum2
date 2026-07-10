@@ -15,6 +15,7 @@ import de.baum2dev.baum2.entity.DarkWaveProjectileEntity;
 import de.baum2dev.baum2.entity.DrevathisEntity;
 import de.baum2dev.baum2.entity.FallenCometStoneDefinition;
 import de.baum2dev.baum2.entity.FallenCometStoneEntity;
+import de.baum2dev.baum2.entity.SilverfishBroodcallerEntity;
 import de.baum2dev.baum2.entity.SpiderQueenEntity;
 import de.baum2dev.baum2.entity.ZombieColossusEntity;
 
@@ -51,6 +52,19 @@ public class ModEntities {
         }
         return java.util.Collections.unmodifiableMap(stones);
     }
+
+    /** The silverfish boss guarding the west grand cave mouth (3x-scale vanilla model). */
+    public static final RegistryKey<EntityType<?>> SILVERFISH_BROODCALLER_KEY =
+            RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "silverfish_broodcaller"));
+
+    public static final EntityType<SilverfishBroodcallerEntity> SILVERFISH_BROODCALLER = Registry.register(
+            Registries.ENTITY_TYPE,
+            SILVERFISH_BROODCALLER_KEY,
+            EntityType.Builder.create(SilverfishBroodcallerEntity::new, SpawnGroup.MONSTER)
+                    // 3x a vanilla silverfish's 0.4x0.3 hitbox, matching the renderer scale
+                    .dimensions(1.2F, 0.9F)
+                    .build(SILVERFISH_BROODCALLER_KEY)
+    );
 
     public static final RegistryKey<EntityType<?>> SPIDER_QUEEN_KEY =
             RegistryKey.of(RegistryKeys.ENTITY_TYPE, Identifier.of("baum2", "spider_queen"));
@@ -106,6 +120,8 @@ public class ModEntities {
     public static void registerAttributes() {
         FALLEN_COMET_STONES.forEach((definition, type) ->
                 FabricDefaultAttributeRegistry.register(type, FallenCometStoneEntity.createAttributes(definition)));
+        FabricDefaultAttributeRegistry.register(SILVERFISH_BROODCALLER,
+                SilverfishBroodcallerEntity.createBroodcallerAttributes());
         FabricDefaultAttributeRegistry.register(SPIDER_QUEEN, SpiderQueenEntity.createSpiderQueenAttributes());
         FabricDefaultAttributeRegistry.register(ZOMBIE_COLOSSUS, ZombieColossusEntity.createZombieColossusAttributes());
         FabricDefaultAttributeRegistry.register(DREVATHIS, DrevathisEntity.createDrevathisAttributes());

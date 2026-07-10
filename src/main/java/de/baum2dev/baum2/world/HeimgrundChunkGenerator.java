@@ -65,6 +65,9 @@ public class HeimgrundChunkGenerator extends ChunkGenerator {
                 int surfaceY = ZoneLayout.surfaceHeight(x, z);
                 ZoneLayout.Zone zone = ZoneLayout.zoneAt(x, z);
                 int columnTop = Math.max(surfaceY, ZoneLayout.SEA_LEVEL);
+                if (ZoneLayout.isBridge(x, z)) {
+                    columnTop = Math.max(columnTop, ZoneLayout.BRIDGE_DECK_Y);
+                }
                 for (int y = bottomY; y <= columnTop; y++) {
                     BlockState state = stateAt(zone, x, y, z, surfaceY, bottomY);
                     if (state.isAir()) {
@@ -90,6 +93,17 @@ public class HeimgrundChunkGenerator extends ChunkGenerator {
             return Blocks.BEDROCK.getDefaultState();
         }
         if (y > surfaceY) {
+            // The bridge over the southeast lake: a plank deck wherever the line crosses
+            // ground lower than the deck, with log piles down to the lakebed every few
+            // blocks. On land the same line renders as an ordinary path instead.
+            if (surfaceY < ZoneLayout.BRIDGE_DECK_Y && ZoneLayout.isBridge(x, z)) {
+                if (y == ZoneLayout.BRIDGE_DECK_Y) {
+                    return Blocks.DARK_OAK_PLANKS.getDefaultState();
+                }
+                if (y < ZoneLayout.BRIDGE_DECK_Y && Math.floorMod(x + z, 6) == 0) {
+                    return Blocks.DARK_OAK_LOG.getDefaultState();
+                }
+            }
             if (zone == ZoneLayout.Zone.LAKE && y <= ZoneLayout.SEA_LEVEL) {
                 return Blocks.WATER.getDefaultState();
             }

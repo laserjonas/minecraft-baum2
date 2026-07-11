@@ -7,6 +7,7 @@ import de.baum2dev.baum2.classes.ClassManager;
 import de.baum2dev.baum2.combat.BurnDamageManager;
 import de.baum2dev.baum2.combat.DrevathisCursedBladeHandler;
 import de.baum2dev.baum2.combat.PoisonDaggerHandler;
+import de.baum2dev.baum2.combat.SwordAnimationHandler;
 import de.baum2dev.baum2.commands.Baum2Commands;
 import de.baum2dev.baum2.events.LevelUpHandler;
 import de.baum2dev.baum2.events.MobDeathHandler;
@@ -74,6 +75,7 @@ public class Baum2 implements ModInitializer {
         Baum2Networking.registerServerReceivers();
         Baum2Networking.registerMountReceivers();
         MountedCombatHandler.registerEvents();
+        SwordAnimationHandler.registerEvents();
         LevelUpHandler.registerEvents();
         MobDeathHandler.registerEvents();
         ProgressionTickHandler.registerEvents();

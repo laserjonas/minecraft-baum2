@@ -4,8 +4,10 @@ import java.util.Map;
 
 import de.baum2dev.baum2.items.CursedBladeItem;
 import de.baum2dev.baum2.items.HorseFluteItem;
+import de.baum2dev.baum2.items.TemplateSwordItem;
 import de.baum2dev.baum2.mounts.MountTier;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroups;
 import net.minecraft.item.ToolMaterial;
@@ -19,6 +21,7 @@ import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.Unit;
 
 public class ModItems {
 
@@ -143,6 +146,27 @@ public class ModItems {
     );
 
     /**
+     * "Espenklinge" - the first sword of the GeckoLib sword-template line (see
+     * TemplateSwordItem's javadoc for the template contract): a wooden training longsword.
+     * Stats are EXACTLY vanilla's wooden sword (3.0F/-2.4F on ToolMaterial.WOOD - the
+     * baseline tier, no new balance surface), plus UNBREAKABLE: a showcase/visual-focus item
+     * with no recipe shouldn't die mid-demonstration. No crafting recipe by design, and it
+     * can't be manually dropped (UndroppableItem) - /give or creative only for now.
+     */
+    public static final RegistryKey<Item> ESPENKLINGE_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "espenklinge"));
+
+    public static final Item ESPENKLINGE = Registry.register(
+            Registries.ITEM,
+            ESPENKLINGE_KEY,
+            new TemplateSwordItem(new Item.Settings()
+                    .registryKey(ESPENKLINGE_KEY)
+                    .sword(ToolMaterial.WOOD, 3.0F, -2.4F)
+                    .component(DataComponentTypes.UNBREAKABLE, Unit.INSTANCE),
+                    "espenklinge")
+    );
+
+    /**
      * The three horse flutes (mount system), named after the horse each one calls
      * (Wanderross/Eisenross/Schlachtross - see MountTier's naming javadoc for why the tiers
      * are deliberately not "basic/advanced/military"). maxCount(1): each flute represents one
@@ -183,6 +207,7 @@ public class ModItems {
             entries.add(QUEEN_SPIDER_LEGGINGS);
             entries.add(QUEEN_SPIDER_BOOTS);
             entries.add(DREVATHIS_CURSED_BLADE);
+            entries.add(ESPENKLINGE);
         });
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.INGREDIENTS).register(entries -> entries.add(RISSSPLITTER));
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.TOOLS).register(entries -> {

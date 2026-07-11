@@ -15,8 +15,12 @@ import de.baum2dev.baum2.entity.FallenCometStoneEntityRenderer;
 import de.baum2dev.baum2.entity.SilverfishBroodcallerEntityRenderer;
 import de.baum2dev.baum2.entity.SpiderQueenEntityRenderer;
 import de.baum2dev.baum2.entity.ZombieColossusEntityRenderer;
+import de.baum2dev.baum2.items.TemplateSwordItem;
+import de.baum2dev.baum2.items.TemplateSwordItemRenderer;
 import de.baum2dev.baum2.networking.ClientNetworkingHandler;
 import de.baum2dev.baum2.registry.ModEntities;
+import software.bernie.geckolib.animatable.client.GeoRenderProvider;
+import software.bernie.geckolib.renderer.GeoItemRenderer;
 import de.baum2dev.baum2.ui.Baum2KeyBindings;
 import de.baum2dev.baum2.ui.MountKeyBindings;
 import de.baum2dev.baum2.ui.MobNameplateHud;
@@ -79,5 +83,23 @@ public class Baum2Client implements ClientModInitializer {
         // Equipment inventory (mount/flute slot) screen for the ScreenHandler opened via
         // OpenMountEquipmentPayload.
         HandledScreens.register(MountEquipmentScreenHandler.TYPE, MountEquipmentScreen::new);
+
+        // GeckoLib sword-template items: inject the client-only renderer factory into the
+        // main-side item class (splitEnvironmentSourceSets - the item can't name the
+        // renderer class itself). One lazily-created renderer per item instance, each
+        // pointing the shared sword_template geometry/animations at that sword's own
+        // texture (see TemplateSwordItemRenderer).
+        TemplateSwordItem.setClientRenderProviderFactory((item, consumer) ->
+                consumer.accept(new GeoRenderProvider() {
+                    private TemplateSwordItemRenderer renderer;
+
+                    @Override
+                    public GeoItemRenderer<?> getGeoItemRenderer() {
+                        if (this.renderer == null) {
+                            this.renderer = new TemplateSwordItemRenderer(item.assetName());
+                        }
+                        return this.renderer;
+                    }
+                }));
     }
 }

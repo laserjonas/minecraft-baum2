@@ -3264,8 +3264,106 @@ assets/specs, not gameplay Java, per `CLAUDE.md`'s own division of labor):
 
 ---
 
+## 23. Weapon-line visual identity: the GeckoLib "sword template" and "Espenklinge" (`baum2:espenklinge`)
+
+The mod's first ANIMATED weapon line, and the template every future sword of the line reuses —
+the item-side sibling of the Fallen Comet Stone / Mount Horse shared-template pattern
+(Sections 13.5 / 22): **ONE geometry + animation set for all swords, per-sword texture only.**
+
+### 23.1 Template contract (adding sword #2, #3, ...)
+
+- Shared, never per-sword: `geckolib/models/item/sword_template.geo.json` +
+  `geckolib/animations/item/sword_template.animation.json` (generator:
+  `tools/gen_sword_template.py`; per-face-UV atlas layout is asserted identical across
+  palettes in-script, so the shared geometry stays valid for every texture).
+- Per-sword (all emitted by the same generator run — add one palette entry to its `SWORDS`
+  table): `textures/item/<name>_geo.png` (the 64x64 3D atlas), `textures/item/<name>.png`
+  (flat 16x16 GUI icon), `models/item/<name>.json` (icon model), `models/item/<name>_base.json`
+  (display transforms), `items/<name>.json` (display-context select), one
+  `TemplateSwordItem(..., "<name>")` registration in `ModItems`, one lang line. No new Java
+  classes, geometry, or animation work.
+- Held contexts render the GeckoLib model (`minecraft:special` → `geckolib:geckolib`, base =
+  `<name>_base.json`); `gui`/`ground`/`fixed`/`on_shelf` select the flat icon — exactly
+  vanilla's own trident split.
+
+### 23.2 Shape (shared geometry: 4 bones / 11 cubes, reach −6.6..21.0 = ~1.7 blocks)
+
+Silhouette follows a real-world late-medieval longsword (museum-piece reference supplied by
+the user — historical artifact, no game IP): straight double-edged blade tapering in two
+width-steps to the point, raised **midrib ridge** running most of the blade (reads as a
+diamond cross-section + catches light as its own strip), straight slender **crossguard** with
+slightly flared end caps, two-hand tapering **wrapped grip**, and the signature **disc
+("wheel") pommel with a small protruding boss** at its center. Length sits deliberately in
+family with the Colossal Warclub (~1.6) and Drevathis blade (~1.65).
+
+Bones (origin = grip center = the wielder's fist; GeoItemRenderer centers the geo origin in
+the item cube, so display transforms and all animations pivot around the fist): `root` (grip
+cubes) → `guard` / `blade` (3 blade steps + ridge) / `pommel` (disc + boss). A future sword
+wanting an extra animated flourish (glow shard, tassel) hangs it off `blade`/`pommel` — but
+new cubes mean a new template version for ALL swords, so prefer texture-only variation.
+
+### 23.3 "Espenholz" palette (Espenklinge — pinned)
+
+| Role | Hex | Notes |
+|---|---|---|
+| BLADE / DARK / LIT | `#CFB68C` / `#A48960` / `#E8D5AC` | pale aspen, long vertical grain, NO speckle (flecked versions read as dirt at 2px/unit) |
+| EDGE | `#E0CA9E` | sanded lighter cutting edges (east/west faces) |
+| RIDGE / LIT | `#B29466` / `#D5BC8C` | darker lacquer strip + spine highlight |
+| GUARD family | `#5E452A` / `#402D1A` / `#7B5E3B` | walnut, horizontal grain (guard, pommel disc) |
+| GRIP family | `#7E5230` / `#593820` / `#9C6D44` | leather, diagonal wrap bands at (x+y)%4 |
+| BOSS family | `#B8893D` / `#DAAE62` / `#8F662A` | brass medallion — the single metal accent |
+
+Original palette, checked distinct from every prior weapon palette (Sections 14/16/18/19).
+Wood-material rendering of a "real" sword shape = the line's tier-zero/training identity;
+future swords express tier via material palette on the SAME shape.
+
+### 23.4 Animations (shared keys `animation.sword_template.*`, preview-verified)
+
+- `idle` (6.0s loop): ±1° breathing sway + slow rise, with ONE late-loop accent (t≈4.2–5.2, a
+  2.6° wrist roll — "adjusting the grip"), the same accent-event idiom as the horses' idle
+  head dip. Amplitudes intentionally tiny: it plays inside a held hand.
+- `attack` (0.55s one-shot, trigger `attack`): vertical **moulinet** — 8° back-cock, full
+  360° forward circle around the fist (X-axis), +8° overshoot, settle. Final key = −360° ≡ 0°
+  so the blend back to idle can't pop.
+- `attack_mounted` (0.7s one-shot, trigger `attack_mounted`): **cavalry sweep** — windup
+  horizontal over the left shoulder (rz −60/ry −35), low forward pass (rx −60 at 0.22s), wide
+  cut across to the right (rz +80 at 0.42s) with a y-dip + forward reach, follow-through with
+  a small negative overshoot. Reads clearly distinct from the moulinet in both perspectives.
+- Both one-shots are server-triggered on LANDED melee hits only (`SwordAnimationHandler`,
+  same AFTER_DAMAGE + PLAYER_ATTACK scoping as the horses' own attack animation — a mounted
+  hit animates horse and blade in the same tick). `blade` bone carries small whip-lag
+  counter-rotations in all three.
+
+### 23.5 Display transforms (`<name>_base.json` — first in-game tuning pass pending)
+
+Authored vertical (blade +Y), so `rotation:[x,−90,z]` maps the broad face where a vanilla
+sprite sword's face ends up (rotationXYZ order: Z→Y→X; derivation in the generator's
+docstring): thirdperson_r `[−10,−90,0] t[0,3.5,1] s0.85`, firstperson_r `[20,−95,5] t[−1,3,1]
+s0.68`, lefthand mirrored explicitly (trident-style), `head` for fun. These are
+geometry-derived ballparks matched to vanilla's net handheld orientation — they frame
+correctly by construction, but the fine feel (how high in view, exact lean) is the one thing
+the offline preview can't judge; expect one small in-game nudge pass.
+
+### 23.6 Icon (16x16)
+
+Standard bottom-left→top-right tool diagonal: pale 2px blade with lit edge + ridge shadow +
+tip glint, perpendicular walnut guard bar crossing at the blade base, 2 leather grip cells,
+2x2 walnut pommel block with ONE brass glint pixel (the palette's single metal accent,
+mirroring the 3D boss).
+
+---
+
 ## Changelog
 
+- **2026-07-11 (later)** — Added Section 23: the GeckoLib "sword template" weapon line and its
+  first sword, the wooden training longsword "Espenklinge" (name compliance-checked CLEAR
+  against Metin2's full sword list/WoW-de/ESO/GW2 et al.). One shared item geometry (4 bones/
+  11 cubes, longsword silhouette from a real-world museum reference) + 3 shared animations
+  (`idle` breathing loop with grip-settle accent, `attack` 360° moulinet, `attack_mounted`
+  cavalry sweep — all preview-verified via `tools/render_geckolib_preview.py`, which gained
+  `--fit`/`--no-floor` flags for tall thin item models), per-sword "Espenholz" texture +
+  icon + 3 tiny JSONs from `tools/gen_sword_template.py`. First use of GeckoLib's item
+  pipeline (`minecraft:special` → `geckolib:geckolib`) in this mod.
 - **2026-07-11** — Added Section 22: full visual asset pass for the mount system's 3 rideable
   horses (Wanderross/Eisenross/Schlachtross), sharing ONE GeckoLib geometry + animation set
   (`mount_horse.geo.json`/`.animation.json`, `tools/gen_mount_horse.py`) per the "Fallen Comet

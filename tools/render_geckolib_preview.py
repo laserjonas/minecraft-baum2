@@ -385,6 +385,12 @@ def main():
                     help=f"comma-separated, from: {','.join(VIEWS)}")
     ap.add_argument("--size", type=int, default=430, help="per-view image size in px")
     ap.add_argument("--out", default="preview.png")
+    ap.add_argument("--fit", type=float, default=1.0,
+                    help="camera distance multiplier; >1 zooms out (tall thin models like "
+                         "weapons crop at the default framing, which was tuned for mobs)")
+    ap.add_argument("--no-floor", action="store_true",
+                    help="skip the y=0 checker floor (items are authored around the origin, "
+                         "so the floor slices through / hides their lower half)")
     args = ap.parse_args()
 
     assets = "src/main/resources/assets/baum2"
@@ -406,10 +412,12 @@ def main():
     rows_polys = [build_polys(bones, tex, tex_w, tex_h, pose_from_anim(anim, t) if anim else {})
                   for t in times]
     center, dist = fit_camera(rows_polys)
+    dist *= args.fit
     floor_extent = int(max(24, dist * 0.45))
     rows = []
     for polys in rows_polys:
-        add_floor(polys, floor_extent, max(2, floor_extent // 7))
+        if not args.no_floor:
+            add_floor(polys, floor_extent, max(2, floor_extent // 7))
         rows.append([render_view(list(polys), args.size, *VIEWS[v], center, dist) for v in views])
 
     sheet = Image.new("RGBA", (args.size * len(views), args.size * len(rows)))

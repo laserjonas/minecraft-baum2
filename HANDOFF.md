@@ -16,8 +16,11 @@ village hub, zone-tiered daylight monster spawns, respawning stone slots; see th
 section above), and — newest, 2026-07-11, uncommitted working tree — **the Mount System v1**
 (three summonable rideable horses via flute items, Ctrl+H toggle, equipment inventory with a
 mount slot, mounted-combat tier rules, GeckoLib-animated; see the "Mount System v1" section
-below). `master` is fast-forwarded to match this branch up to the Heimgrund commit. See "Last
-change" below for detail.
+below) **plus the GeckoLib Sword Template v1** (the mod's first animated GeckoLib ITEM: a
+reusable sword line — shared geometry/animations, per-sword texture — whose first sword is
+the wooden "Espenklinge": idle/attack/mounted-attack animations, undroppable, uncraftable;
+see the "GeckoLib Sword Template v1" section below). `master` is fast-forwarded to match this
+branch up to the Heimgrund commit. See "Last change" below for detail.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -1567,7 +1570,84 @@ every horse attack animated, GeckoLib prioritized, per-tier size/armor visuals.
   attack-block message, Eisenross normal hits + horse attack animation, Schlachtross AOE
   splash + speed, knockback immunity vs. a zombie crowd, relog with flute equipped.
 
+### GeckoLib Sword Template v1 (2026-07-11, same day, after Mount System v1) — animated sword line, first sword "Espenklinge"
+
+User brief: a beautiful reusable sword TEMPLATE (python-generator pipeline like the prior
+asset work), first sword in wood with better-than-vanilla GeckoLib animation, a distinct
+animation when fighting on horseback, not droppable/craftable for now (visualization/
+animation focus). Visual reference was a real-world museum longsword photo (historical
+artifact — silhouette only, no game IP).
+
+- **This is the mod's first GeckoLib ITEM** (everything GeckoLib so far was entities). The
+  1.21.11 pipeline, verified against GeckoLib 5.4.5 sources (not docs/memory): item JSON
+  (`assets/baum2/items/espenklinge.json`) selects by display context — gui/ground/fixed/
+  on_shelf → flat icon model, everything else → `{"type":"minecraft:special","base":
+  "baum2:item/espenklinge_base","model":{"type":"geckolib:geckolib"}}` (GeckoLib registers
+  that special-renderer type via its own SpecialModelRenderersMixin; resolution goes
+  item → GeoRenderProvider → GeoItemRenderer). The `_base` model is display-transforms-only,
+  exactly like vanilla `trident_in_hand.json`. GeoItemRenderer centers the geo origin in the
+  item cube (`adjustRenderPose` +0.5/+0.51/+0.5), so the geometry is authored with origin =
+  grip = fist, and display rotations pivot the fist.
+- **Template contract** (same shape as Fallen Comet Stone/Mount Horse): ONE shared
+  `geckolib/{models,animations}/item/sword_template.*` for ALL future swords; per sword only
+  a palette entry in `tools/gen_sword_template.py` (emits texture/icon/3 JSONs, atlas layout
+  asserted identical) + one `TemplateSwordItem(settings, "<asset_name>")` registration + a
+  lang line. Full spec: `docs/visual-style-guide.md` Section 23.
+- **Java (main)**: `items/TemplateSwordItem.java` (GeoItem; idle controller + 2 triggerable
+  one-shots `attack`/`attack_mounted`; `registerSyncedAnimatable` in ctor; client renderer
+  injected via static factory because of splitEnvironmentSourceSets), `items/
+  UndroppableItem.java` (marker interface + bound message), `combat/SwordAnimationHandler
+  .java` (AFTER_DAMAGE + `DamageTypes.PLAYER_ATTACK` + skip-blocked — deliberately identical
+  scoping to MountedCombatHandler's horse-attack anim, so a mounted hit animates horse and
+  blade in the same tick; mounted = `getVehicle() instanceof MountHorseEntity` → cavalry
+  sweep, else moulinet), `mixin/ServerPlayerEntityDropGuardMixin.java` (see below).
+  **Java (client)**: `items/TemplateSwordItemRenderer.java` (shared geo/anim via
+  `DefaultedItemGeoModel` + `withAltTexture` per sword), factory hookup in `Baum2Client`.
+- **Espenklinge** (`baum2:espenklinge`, name compliance-checked CLEAR — checker fetched
+  Metin2's actual full sword list + WoW-de/ESO/GW2/EQ/etc.; "[German tree]+klinge" noted as
+  a safe reusable pattern for the line): wooden training longsword, stats EXACTLY vanilla
+  wooden sword (`.sword(ToolMaterial.WOOD, 3.0F, -2.4F)` — baseline tier, no new balance
+  surface, so no balance-reviewer pass was run on it) + `UNBREAKABLE` component (showcase
+  item shouldn't break mid-demo). **No recipe by design; in the COMBAT creative tab; /give
+  only in survival.**
+- **No-drop**: no Fabric event exists for item drops → new Mixin on `ServerPlayerEntity`:
+  `dropSelectedItem` (hotbar Q/Ctrl+Q) cancelled at HEAD pre-removal (zero loss risk; client
+  prediction snaps back on next inventory sync — sub-tick blip), and `dropItem(ItemStack,ZZ)`
+  (inventory-screen throws) re-inserts + cancels ONLY if the re-insert succeeded, falls
+  through to vanilla drop if the inventory is full (losing the guarantee in that edge case
+  beats deleting the stack). `isDead()` exempts the death-drop path on purpose — cancelling
+  there would delete the item since the inventory is already being cleared (dying drops it
+  like vanilla; that's the documented intent, not an oversight). Method descriptors were
+  javap-verified against the mapped 1.21.11 jar.
+- **Animations** (all preview-verified via `tools/render_geckolib_preview.py`, which gained
+  backwards-compatible `--fit`/`--no-floor` flags because the mob-tuned auto-framing crops
+  tall thin item models): 6s idle breathing loop with a late-loop grip-settle accent (the
+  horses' accent-event idiom), 0.55s 360° forward moulinet ending at -360°≡0° so the idle
+  handoff can't pop, 0.7s mounted cavalry sweep (left-shoulder windup → low forward pass →
+  wide right cut; one keyframe sign bug — mid-sweep leaning toward the rider instead of the
+  target — was caught in preview and fixed before anything shipped).
+- **Verified**: `./gradlew build` passes; **headless dedicated-server boot is clean** (mod
+  init, item registration, mixin config, GeoItem sync registration — no errors, world gen
+  fine). **NOT yet play-verified** (standing GeckoLib caveat, plus two sword-specific ones):
+  (a) the drop-guard mixin's injection points only actually apply when ServerPlayerEntity
+  first CLASS-LOADS, i.e. on first player join — descriptors are javap-verified but the
+  first join is the real proof; (b) the display transforms in `espenklinge_base.json` are
+  geometry-derived ballparks (docs/visual-style-guide.md 23.5) — expect one in-game nudge
+  pass on how the sword sits in hand. Playtest checklist: `/give @s baum2:espenklinge` →
+  hotbar icon is the flat sprite; hold it (1st + F5 3rd person) → 3D wooden longsword with
+  the subtle idle sway; hit a mob → moulinet spin flourish; summon Eisenross/Schlachtross
+  flute, mount, hit a mob → cavalry sweep INSTEAD of the moulinet (and the horse's own
+  attack anim in the same instant; Wanderross blocks the attack entirely, so no anim —
+  correct); press Q / Ctrl+Q → actionbar "This blade is bound to you…", item stays; open
+  inventory, drag it out of the screen → same; die with it → it DOES drop (intended); pick
+  any anim moment → confirm no pop back to idle.
+
 ## Last change (on `fischey_workbranch`)
+
+**GeckoLib Sword Template v1 + Espenklinge (2026-07-11, uncommitted, same working tree as
+Mount System v1)** — see the section directly above. Also in this change: `tools/
+gen_sword_template.py` (new generator), `--fit`/`--no-floor` flags on `tools/
+render_geckolib_preview.py`, `docs/visual-style-guide.md` Section 23.
 
 **Mount System v1 (2026-07-11, uncommitted)** — see the "Mount System v1" section above for
 the full narrative; this entry exists so the next session knows the working tree contains it.
@@ -2447,6 +2527,13 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
   effect on a real server/launcher session.
 
 ## Next recommended step
+
+**New (2026-07-11, latest): playtest the GeckoLib Sword Template v1** — checklist at the end
+of its section above. Natural to combine with the mount playtest below (the cavalry-sweep
+animation needs a mount anyway). The two things a build can't prove: the drop-guard mixin
+applying on first join, and how the sword sits in hand (display transforms may need one nudge
+pass — the exact numbers live in `assets/baum2/models/item/espenklinge_base.json`, tweakable
+without touching Java or the generator).
 
 **New (2026-07-11): playtest the Mount System v1** — the full checklist is at the end of the
 "Mount System v1" section above; it's unplayed code with GeckoLib renderers, so treat the

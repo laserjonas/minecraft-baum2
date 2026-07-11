@@ -1,0 +1,27 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:display_context",
+    "cases": [
+      {
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ],
+        "model": {
+          "type": "minecraft:model",
+          "model": "baum2:item/espenklinge"
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:special",
+      "base": "baum2:item/espenklinge_base",
+      "model": {
+        "type": "geckolib:geckolib"
+      }
+    }
+  }
+}

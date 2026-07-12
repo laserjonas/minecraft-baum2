@@ -37,8 +37,8 @@ public abstract class ServerPlayerEntityDropGuardMixin {
     @Inject(method = "dropSelectedItem(Z)V", at = @At("HEAD"), cancellable = true)
     private void baum2$blockHotbarDrop(boolean entireStack, CallbackInfo ci) {
         ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
-        if (self.getInventory().getSelectedStack().getItem() instanceof UndroppableItem) {
-            self.sendMessage(Text.literal(UndroppableItem.BOUND_MESSAGE), true);
+        if (self.getInventory().getSelectedStack().getItem() instanceof UndroppableItem undroppable) {
+            self.sendMessage(Text.literal(undroppable.boundMessage()), true);
             ci.cancel();
         }
     }
@@ -51,11 +51,11 @@ public abstract class ServerPlayerEntityDropGuardMixin {
             ItemStack stack, boolean throwRandomly, boolean retainOwnership,
             CallbackInfoReturnable<ItemEntity> cir) {
         ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
-        if (!(stack.getItem() instanceof UndroppableItem) || self.isDead()) {
+        if (!(stack.getItem() instanceof UndroppableItem undroppable) || self.isDead()) {
             return;
         }
         if (self.getInventory().insertStack(stack)) {
-            self.sendMessage(Text.literal(UndroppableItem.BOUND_MESSAGE), true);
+            self.sendMessage(Text.literal(undroppable.boundMessage()), true);
             cir.setReturnValue(null);
         }
     }

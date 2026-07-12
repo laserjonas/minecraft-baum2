@@ -29,6 +29,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Heightmap;
 import net.minecraft.world.TeleportTarget;
 import de.baum2dev.baum2.classes.ClassDefinition;
+import de.baum2dev.baum2.economy.BaumCreditsManager;
 import de.baum2dev.baum2.classes.ClassManager;
 import de.baum2dev.baum2.classes.ClassRegistry;
 import de.baum2dev.baum2.classes.ClassSubspec;
@@ -70,6 +71,22 @@ public class Baum2Commands {
                         context.getSource(),
                         context.getSource().getPlayer()
                     ))
+                )
+                .then(CommandManager.literal("credits")
+                    .executes(context -> creditsCommand(
+                        context.getSource(),
+                        context.getSource().getPlayer()
+                    ))
+                    .then(CommandManager.literal("add")
+                        .requires(CommandManager.requirePermissionLevel(CommandManager.GAMEMASTERS_CHECK))
+                        .then(CommandManager.argument("amount", LongArgumentType.longArg(1))
+                            .executes(context -> creditsAddCommand(
+                                context.getSource(),
+                                context.getSource().getPlayer(),
+                                LongArgumentType.getLong(context, "amount")
+                            ))
+                        )
+                    )
                 )
                 .then(CommandManager.literal("class")
                     .then(CommandManager.literal("list")
@@ -220,6 +237,32 @@ public class Baum2Commands {
                 progress.getExperience(),
                 progress.getExperienceForNextLevel()
             )),
+            false
+        );
+        return 1;
+    }
+
+    private static int creditsCommand(ServerCommandSource source, ServerPlayerEntity player) {
+        if (player == null) {
+            source.sendError(Text.literal("Must be run by a player"));
+            return 0;
+        }
+
+        long balance = BaumCreditsManager.getCredits(player);
+        source.sendFeedback(() -> Text.literal("Baum Credits: " + balance), false);
+        return 1;
+    }
+
+    private static int creditsAddCommand(ServerCommandSource source, ServerPlayerEntity player, long amount) {
+        if (player == null) {
+            source.sendError(Text.literal("Must be run by a player"));
+            return 0;
+        }
+
+        BaumCreditsManager.addCredits(player, amount);
+        long balance = BaumCreditsManager.getCredits(player);
+        source.sendFeedback(
+            () -> Text.literal(String.format("Added %d Baum Credits. Balance: %d", amount, balance)),
             false
         );
         return 1;

@@ -17,6 +17,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
+import de.baum2dev.baum2.economy.CreditRewardHandler;
 import de.baum2dev.baum2.events.LevelUpHandler;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.registry.ModBlockEntities;
@@ -37,6 +38,10 @@ public class RissobeliskBlockEntity extends BlockEntity {
     private static final double SPAWN_RADIUS_MIN = 2.0;
     private static final double SPAWN_RADIUS_MAX = 4.0;
     private static final long XP_REWARD = 10L + MAX_HEALTH / 2; // matches events.MobDeathHandler's own per-mob formula
+    // Stone-equivalent credit rate: 200 HP / 20 HP-per-stone-level = level 10, at the stone factor.
+    // Balance review found this reward path pays XP but bypassed the credit system entirely
+    // (block break, never fires AFTER_DEATH), breaking "everything that gives XP gives credits".
+    private static final long CREDIT_REWARD = CreditRewardHandler.STONE_FACTOR * (MAX_HEALTH / 20);
 
     private int health = MAX_HEALTH;
     private int wavesTriggered = 0;
@@ -94,6 +99,7 @@ public class RissobeliskBlockEntity extends BlockEntity {
 
         PlayerLevelSystem.addExperience(attacker, XP_REWARD);
         LevelUpHandler.checkLevelUp(attacker);
+        CreditRewardHandler.awardCredits(attacker, CREDIT_REWARD);
         Block.dropStack(world, getPos(), new ItemStack(ModItems.RISSSPLITTER));
     }
 

@@ -35,8 +35,10 @@ public class MobDeathHandler {
      * balance review when the stone ladder started spawning them as wave mobs. Eligible =
      * implements Monster OR registered in the MONSTER spawn group - both together cover the
      * whole vanilla hostile roster without paying XP for passive animals.
+     * Public because CreditRewardHandler reuses the exact same eligibility for Baum Credits,
+     * so the XP and credit rewards can never drift apart.
      */
-    private static boolean isXpEligibleMonster(LivingEntity entity) {
+    public static boolean isXpEligibleMonster(LivingEntity entity) {
         return entity instanceof Monster || entity.getType().getSpawnGroup() == SpawnGroup.MONSTER;
     }
 

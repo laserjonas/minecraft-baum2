@@ -19,8 +19,11 @@ mount slot, mounted-combat tier rules, GeckoLib-animated; see the "Mount System 
 below) **plus the GeckoLib Sword Template v1** (the mod's first animated GeckoLib ITEM: a
 reusable sword line — shared geometry/animations, per-sword texture — whose first sword is
 the wooden "Espenklinge": idle/attack/mounted-attack animations, undroppable, uncraftable;
-see the "GeckoLib Sword Template v1" section below). `master` is fast-forwarded to match this
-branch up to the Heimgrund commit. See "Last change" below for detail.
+see the "GeckoLib Sword Template v1" section below) **plus Money System v1 (2026-07-12,
+uncommitted): "Baum Credits" — persistent attachment balance, an undroppable wallet item
+pinned to one inventory slot showing the balance, level×type kill rewards (normal 1x /
+stone 5x / boss 10x), `/baum2 credits`; see the "Money System v1" section below**. `master`
+is fast-forwarded to match this branch up to the Heimgrund commit. See "Last change" below for detail.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -1642,7 +1645,74 @@ artifact — silhouette only, no game IP).
   inventory, drag it out of the screen → same; die with it → it DOES drop (intended); pick
   any anim moment → confirm no pop back to idle.
 
+### Money System v1 (2026-07-12) — "Baum Credits", the mod's first currency
+
+User request: a money system. "Baum Credits" are shown in the inventory and take an inventory
+slot; every monster drops credits by level and type (normal 1x, boss 10x, stone 5x factor);
+credits will later buy items — **the purchase/shop side is explicitly out of scope for v1**
+(only a `spendCredits` API exists for it). New `economy/` package.
+
+- **Balance storage** (`economy/BaumCreditsManager.java`): persistent player Attachment
+  (`baum2:baum_credits`, `Codec.LONG`, `.copyOnDeath()`, same pattern/bootstrap-ordering
+  gotcha as `PlayerLevelSystem`) — the money itself survives restarts, disconnects, death.
+  API: `getCredits`/`addCredits`/`spendCredits(player, amount): boolean` (floor-clamped at 0,
+  rejects negative/insufficient — the future shop system's entry point).
+- **Inventory display** (`items/BaumCreditsItem.java`, `baum2:baum_credits`): an undroppable
+  (`UndroppableItem`) wallet item pinned into every player's inventory — occupies exactly one
+  slot and shows the balance via the stack's `ITEM_NAME` component ("Baum Credits: 152", so
+  no client payload is needed; inventory sync carries it). **The stack is DISPLAY ONLY** — no
+  value lives on it, so losing/duping the stack can never lose/dupe money. Upkeep (exactly
+  one wallet, name current) runs on join, after respawn, and a once-per-second server-tick
+  pass (also removes extra wallets picked up off the ground — death still drops the wallet
+  like any item per `UndroppableItem`'s documented death-drop rule; the ground copy is
+  worthless and despawns). `maxCount(1)`, deliberately in no creative item group.
+  `UndroppableItem` gained a default `boundMessage()` (the old shared constant said "This
+  blade…" — wrong for a wallet); the drop-guard mixin now uses it.
+- **Kill rewards** (`economy/CreditRewardHandler.java`): on `AFTER_DEATH`, killer gets
+  `credits = factor × max(1, monsterLevel)` — factors NORMAL 1x / STONE 5x (any
+  `FallenCometStoneEntity`) / BOSS 10x (Drevathis L40 → 400, Zombie Colossus L25 → 250,
+  Spider Queen L15 → 150, Silverfish Broodcaller L8 → 80; stones L5-95 → 25-475). Mobs
+  without a `MonsterLevelProvider` level (all vanilla/zone/wave mobs today) count as level 1
+  → 1 credit, matching the nameplate's "Lvl. 1" placeholder. Eligibility reuses
+  `MobDeathHandler.isXpEligibleMonster` (made public) so XP and credits can't drift apart.
+  Actionbar "+N Baum Credits" on every payout via the shared `awardCredits` helper.
+- **Rissobelisk pays credits too** (balance-reviewer finding, fixed): its kill is a block
+  break that never fires `AFTER_DEATH`, so it granted XP but zero credits. Now grants 50
+  (stone-equivalent: 200 HP / 20 HP-per-stone-level = L10 × stone factor 5) via
+  `CreditRewardHandler.awardCredits` in `destroyAndReward`.
+- **Commands**: `/baum2 credits` (own balance), `/baum2 credits add <amount>` (gamemaster,
+  testing — same permission gate as the other admin subcommands).
+- **Assets**: `textures/item/baum_credits.png` (16x16 placeholder by `graphics-designer`: flat
+  brass coin stamped with a tiny tree glyph — a pun on "Baum"; reuses the Deepwood & Verdigris
+  chrome palette per Section 1.1's governance rule, documented in `docs/visual-style-guide.md`
+  Section 24, generator at `tools/gen_baum_credits_item.py`), plus standard item-definition/
+  model JSONs and the `en_us.json` entry.
+- **`ip-naming-compliance-checker`: clear** — "Baum Credits" is self-branded + a generic
+  cross-genre currency word; no existing game's currency name is nearby (Metin2's is "Yang").
+- **`balance-reviewer` findings, logged, NOT fixed (judgment calls — see "Next recommended
+  step")**: (a) **the stone-respawn discrepancy is now an economy problem too** —
+  `StoneSlotManager.RESPAWN_DELAY_TICKS` is 60 ticks (3s, comment says "user-decided") while
+  its own javadoc and this file say 5 minutes; at 3s a farmed L95 stone yields ~580k
+  credits/hr vs. ~180-360/hr from zone-mob grinding (~1,600-3,000x), and even at 5 min a
+  single L5 stone beats zone grinding 2-4x; (b) wave mobs always pay 1 credit regardless of
+  parent-stone tier (a L95 stone's Ravager = a L5 stone's Silverfish) while their XP scales
+  with health — intentional only if "waves pay XP, the stone pays credits" is the design;
+  (c) boss credits (level-driven) and boss XP (health-driven) don't move together because
+  bosses pick HP/level independently (20-30 HP/level across the 4) — minor.
+- **Verified**: `./gradlew build` passes. **Not yet play-verified** — checklist: join a world
+  → wallet appears in inventory named "Baum Credits: 0"; kill any zone mob → actionbar "+1
+  Baum Credits" and the wallet name ticks up; Q/Ctrl+Q and inventory-drag the wallet →
+  blocked with the wallet-specific message; die → wallet drops but reappears (balance intact)
+  on respawn, ground copy vanishes when picked up (dedupe pass); `/baum2 credits` matches the
+  wallet name; kill a stone → 5x its level; destroy a Rissobelisk → +50.
+
 ## Last change (on `fischey_workbranch`)
+
+**Money System v1 — Baum Credits (2026-07-12, uncommitted)** — see the section directly
+above: persistent attachment balance, wallet display item pinned to one inventory slot,
+level×type kill rewards (1x/5x/10x), `/baum2 credits`, Rissobelisk credit fix, placeholder
+coin texture. Sits in the same uncommitted working tree as Mount System v1 and the GeckoLib
+Sword Template below.
 
 **GeckoLib Sword Template v1 + Espenklinge (2026-07-11, uncommitted, same working tree as
 Mount System v1)** — see the section directly above. Also in this change: `tools/
@@ -2528,7 +2598,16 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-**New (2026-07-11, latest): playtest the GeckoLib Sword Template v1** — checklist at the end
+**New (2026-07-12, latest): playtest Money System v1 + decide its two balance questions** —
+playtest checklist at the end of the "Money System v1" section above (wallet pinning,
+kill payouts, undroppable behavior, death/respawn). Decisions needed: (a) the
+`StoneSlotManager.RESPAWN_DELAY_TICKS` 3s-vs-documented-5min discrepancy is now an ECONOMY
+problem, not just a loot one — at 3s a farmed high stone pays ~1,600-3,000x what zone
+grinding pays (this merges with Heimgrund decision (a) below — one respawn decision settles
+both); (b) whether wave mobs staying at a flat 1 credit regardless of parent-stone tier is
+the intended "waves pay XP, stones pay credits" split.
+
+**New (2026-07-11): playtest the GeckoLib Sword Template v1** — checklist at the end
 of its section above. Natural to combine with the mount playtest below (the cavalry-sweep
 animation needs a mount anyway). The two things a build can't prove: the drop-guard mixin
 applying on first join, and how the sword sits in hand (display transforms may need one nudge

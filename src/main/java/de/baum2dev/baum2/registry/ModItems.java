@@ -2,6 +2,7 @@ package de.baum2dev.baum2.registry;
 
 import java.util.Map;
 
+import de.baum2dev.baum2.items.BaumCreditsItem;
 import de.baum2dev.baum2.items.CursedBladeItem;
 import de.baum2dev.baum2.items.HorseFluteItem;
 import de.baum2dev.baum2.items.TemplateSwordItem;
@@ -195,6 +196,21 @@ public class ModItems {
             Registries.ITEM,
             SCHLACHTROSS_FLUTE_KEY,
             new HorseFluteItem(new Item.Settings().registryKey(SCHLACHTROSS_FLUTE_KEY).maxCount(1), MountTier.SCHLACHTROSS)
+    );
+
+    /**
+     * "Baum Credits" - the currency wallet BaumCreditsManager pins into every player's
+     * inventory (one slot, display-only; the balance itself is a player Attachment).
+     * maxCount(1): there is exactly one wallet per player, a stack has no meaning.
+     * Deliberately in no creative item group - it is auto-given, never obtained as loot.
+     */
+    public static final RegistryKey<Item> BAUM_CREDITS_KEY =
+            RegistryKey.of(RegistryKeys.ITEM, Identifier.of("baum2", "baum_credits"));
+
+    public static final Item BAUM_CREDITS = Registry.register(
+            Registries.ITEM,
+            BAUM_CREDITS_KEY,
+            new BaumCreditsItem(new Item.Settings().registryKey(BAUM_CREDITS_KEY).maxCount(1))
     );
 
     public static void registerItemGroups() {

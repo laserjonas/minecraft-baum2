@@ -386,6 +386,7 @@ assets/baum2/
     item/
       gold_sword.png           (16x16, item icon - see Section 14)
       poison_dagger.png        (16x16, item icon - see Section 16)
+      baum_credits.png         (16x16, item icon - see Section 24)
       colossal_warclub.png     (16x16, item icon - see Section 18.3)
       drevathis_cursed_blade.png (16x16, item icon - see Section 19.4)
       risssplitter.png         (16x16, item icon - see Section 20.6)
@@ -3353,8 +3354,90 @@ mirroring the 3D boss).
 
 ---
 
+## 24. Currency visual identity: "Baum Credits" (`baum2:baum_credits`)
+
+The mod's first currency item — a wallet/pouch-style item meant to permanently occupy one
+inventory slot per player, with its live balance written into the item's `ITEM_NAME` data
+component (dynamic display text, not a texture concern). Monsters drop credits on death;
+credits will later buy items. Java/data-component wiring for this item is being written in a
+parallel session — this section covers texture + palette only.
+
+### 24.1 Design direction
+
+A flat brass coin, not a pouch/bag silhouette — coins read unambiguously as "currency" at
+16x16 in a hotbar/inventory slot, where a cinched-sack silhouette tends to blur into a blob at
+that resolution. Concept and rendering are original: a round token with a simple 3-tone bevel
+(outline / rim / base, plus one highlight) and a small stamped glyph in the center — not a
+recolor or trace of any existing game's coin/currency icon (no Metin2 yang symbol, no WoW gold
+piece, no generic "G"/"$"-styled token). The center glyph is a tiny two-pixel-tall tree
+silhouette (canopy over trunk) — a literal visual pun on **Baum** ("tree"), the mod's own
+namesake — rather than a generic coin motif borrowed from genre convention.
+
+### 24.2 Palette decision: reuses Deepwood & Verdigris chrome, not a new bespoke palette
+
+Per Section 1.1's palette-governance rule, the first question for any new visual element is
+"is this frame/structure/stable-identity, or a live resource/stat value read moment-to-moment?"
+Baum Credits is neither exactly — it's an ordinary **in-world item icon** (like Gold Sword,
+Poison Dagger, the mount flutes), not HUD chrome and not a Vitals-style resource bar. The
+relevant precedent is instead Section 1.2's boss-palette rule: bespoke, wholly-new palette
+families are reserved for boss-tier mobs and their drops, specifically because those are
+memorable, low-frequency set pieces where a player recognizing "this is a different boss" at a
+glance matters. Baum Credits is the opposite case — a single, ever-present, global utility item
+with no boss/class/faction affiliation to encode.
+
+**Decision: reuse the existing Deepwood & Verdigris chrome palette (Section 2) rather than
+invent a new "currency" palette family**, following the precedent Gold Sword already set in
+Section 14.1 (reusing Aged Brass for its pommel "for cross-system cohesion between this weapon
+and the mod's established chrome, rather than inventing an unrelated gold tone"). Concretely:
+the coin body reuses **Aged Brass (`#D9B36C`)** exactly — already the UI's "gold-associated"
+emphasis accent (Section 2.2, used for level numbers and the Mythisch rarity tier) — and the
+stamped tree glyph reuses **Verdigris Glow (`#5FA98C`)** and muted **Verdigris (`#33443B`)**
+from Sections 2.1/2.2. The result literally pairs "gold coin" with "verdigris patina" — the two
+words the whole art-direction name ("Deepwood & Verdigris") is built from — which is a stronger
+cohesion argument than inventing an unrelated new hue family for a single always-present item.
+
+### 24.3 Color palette
+
+| Role | Hex | Notes |
+|---|---|---|
+| Outline | `#0B0E0D` | Void Seam (Section 2.1), reused exactly — coin's outer 1px edge |
+| Rim (bevel ring) | `#B8934F` | New, in-family darker-brass tone between outline and base |
+| Coin body | `#D9B36C` | Aged Brass (Section 2.2), reused exactly |
+| Highlight | `#F0D999` | Light brass "shine," upper-left, kept clear of the center glyph |
+| Tree glyph — canopy | `#5FA98C` | Verdigris Glow (Section 2.2), reused exactly |
+| Tree glyph — trunk | `#33443B` | Verdigris, muted (Section 2.1), reused exactly — reads as a recessed engraving groove |
+
+*Compliance note:* a round brass coin with a center-stamped glyph is a generic, IP-free
+currency-icon convention (same bar as color-coded rarity — the mechanic/format is free, the
+specific execution is original). No hex, silhouette, or stamped symbol here matches any
+specific existing game's currency branding; the tree glyph is unique to this mod's own name.
+
+### 24.4 Files produced this pass
+
+- **Texture** (placeholder, per `MASTERPROMPT.md`'s asset rule — flat pixel art, no
+  anti-aliasing, generated via `tools/gen_baum_credits_item.py`/Pillow, not hand-drawn final
+  art): `assets/baum2/textures/item/baum_credits.png`, 16x16, RGBA, transparent background
+  outside the coin's circular silhouette. Verified 16x16 RGBA via Pillow after writing.
+- **Not produced by this pass** (explicitly out of scope per the brief that requested this
+  section — being written in a parallel session): the item-model/item-definition JSON pair
+  (`assets/baum2/models/item/baum_credits.json`, `assets/baum2/items/baum_credits.json`) and
+  all Java (`ModItems` registration, `ITEM_NAME` balance-display logic, monster drop wiring).
+  Whoever writes those should point the model at `baum2:item/baum_credits` following the exact
+  two-file pattern every other plain-`Item` icon in this doc already uses (e.g. Section 14.3's
+  Gold Sword, Section 22.5's mount flutes).
+
+---
+
 ## Changelog
 
+- **2026-07-12** — Added Section 24: the mod's first currency item, "Baum Credits"
+  (`baum2:baum_credits`) — a 16x16 flat-brass-coin placeholder icon stamped with a small
+  tree glyph (a pun on "Baum," the mod's namesake). Palette deliberately reuses the existing
+  Deepwood & Verdigris chrome palette (Aged Brass coin body, Verdigris Glow/muted-Verdigris
+  glyph) rather than inventing a new bespoke "currency" palette, per Section 1.1/1.2's
+  governance rules (bespoke palettes are for boss-tier content; this is a global utility item).
+  Texture only — no model/item-definition JSON or Java, per the requesting session's explicit
+  scope split (those are being written in parallel elsewhere).
 - **2026-07-11 (later)** — Added Section 23: the GeckoLib "sword template" weapon line and its
   first sword, the wooden training longsword "Espenklinge" (name compliance-checked CLEAR
   against Metin2's full sword list/WoW-de/ESO/GW2 et al.). One shared item geometry (4 bones/

@@ -63,5 +63,6 @@
   "entity.baum2.wanderross": "Wanderross",
   "entity.baum2.eisenross": "Eisenross",
   "entity.baum2.schlachtross": "Schlachtross",
-  "container.baum2.equipment": "Equipment"
+  "container.baum2.equipment": "Equipment",
+  "item.baum2.baum_credits": "Baum Credits"
 }

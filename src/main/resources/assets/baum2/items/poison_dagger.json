@@ -1,6 +1,12 @@
 {
   "model": {
-    "type": "minecraft:model",
-    "model": "baum2:item/poison_dagger"
+    "type": "minecraft:select",
+    "property": "minecraft:component",
+    "component": "baum2:weapon_tier",
+    "cases": [
+      { "when": "tempered", "model": { "type": "minecraft:model", "model": "baum2:item/poison_dagger_tempered" } },
+      { "when": "perfect",  "model": { "type": "minecraft:model", "model": "baum2:item/poison_dagger_perfect" } }
+    ],
+    "fallback": { "type": "minecraft:model", "model": "baum2:item/poison_dagger" }
   }
 }

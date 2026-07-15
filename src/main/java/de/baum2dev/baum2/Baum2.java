@@ -23,6 +23,8 @@ import de.baum2dev.baum2.block.RissobeliskBlock;
 import de.baum2dev.baum2.progression.PlayerLevelSystem;
 import de.baum2dev.baum2.progression.VitalsManager;
 import de.baum2dev.baum2.registry.ModBlockEntities;
+import de.baum2dev.baum2.registry.ModComponents;
+import de.baum2dev.baum2.registry.ModRecipeSerializers;
 import de.baum2dev.baum2.registry.ModBlocks;
 import de.baum2dev.baum2.registry.ModEntities;
 import de.baum2dev.baum2.registry.ModItems;
@@ -62,6 +64,10 @@ public class Baum2 implements ModInitializer {
 
         ModEntities.bootstrap();
         ModEntities.registerAttributes();
+        // Before ModItems: the weapon_tier component must exist before any stack with the
+        // component could possibly be deserialized (same ordering logic as the attachments).
+        ModComponents.bootstrap();
+        ModRecipeSerializers.bootstrap();
         ModItems.bootstrap();
         ModItems.registerItemGroups();
         ModBlocks.bootstrap();

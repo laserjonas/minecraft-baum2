@@ -1,0 +1,7 @@
+{
+  "parent": "baum2:item/drevathis_cursed_blade_in_hand",
+  "textures": {
+    "blade": "baum2:item/drevathis_cursed_blade_3d_perfect",
+    "particle": "baum2:item/drevathis_cursed_blade_3d_perfect"
+  }
+}

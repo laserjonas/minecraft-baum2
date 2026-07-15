@@ -4571,3 +4571,316 @@ protected int y;
     they draw immediately in call order, same as documented elsewhere in this file's
     `DrawContext` entries; this only matters relative to the *tooltip's own* deferred draw
     described above.
+
+## Per-`ItemStack` weapon upgrade tier (base/excellent/perfect): custom data component, per-stack model select, glint, attribute modifiers, single-item crafting recipe — researched 2026-07-15
+
+Researched ahead of a weapon-upgrade system (per-stack tier, changed by placing the weapon
+alone in a crafting grid). **All 5 items below verified directly against the real decompiled
+1.21.11 sources**, not training data — extracted the actual sources jars from this project's
+own Loom cache (`.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-common-*-sources.jar`
+and `minecraft-clientOnly-*-sources.jar`, matching `net.fabricmc.yarn.1_21_11.1.21.11+build.6`),
+since `genSources` output wasn't already unpacked anywhere else in this environment — the
+sources jars in Loom's own Maven-shaped cache are pre-decompiled and didn't need a fresh
+`genSources` run. Also cross-checked the actual vanilla `data/minecraft/recipe/*.json` files
+bundled inside `minecraft-common-*.jar` for the exact JSON shape (see item 5).
+
+### 1. Custom data component type — register a `ComponentType<T>` (e.g. `<String>`) in 1.21.11
+
+Confirmed exact shape from `net/minecraft/component/ComponentType.java` and vanilla's own
+registration helper in `net/minecraft/component/DataComponentTypes.java`:
+
+```java
+public static final ComponentType<String> WEAPON_TIER = Registry.register(
+    Registries.DATA_COMPONENT_TYPE,
+    Identifier.of("baum2", "weapon_tier"),
+    ComponentType.<String>builder()
+        .codec(Codec.STRING)               // persistent (NBT/save) codec — omit to make it transient/non-persistent
+        .packetCodec(PacketCodecs.STRING)  // network codec — this alone is what makes it sync to the client
+        .build()
+);
+```
+
+- **`ComponentType.builder()`** returns `ComponentType.Builder<T>` with `.codec(Codec<T>)`,
+  `.packetCodec(PacketCodec<? super RegistryByteBuf, T>)`, `.cache()` (wraps the codec in a
+  `DataComponentTypes.CACHE`-based memoizer — vanilla uses this for some larger components,
+  e.g. `ATTRIBUTE_MODIFIERS`, `TOOLTIP_DISPLAY`; optional, skip for a small `String`), and
+  `.skipsHandAnimation()` (vanilla uses this for `DAMAGE` — irrelevant here). `.build()`
+  returns the `ComponentType<T>`.
+- **Registry key is `Registries.DATA_COMPONENT_TYPE`** (registry id
+  `minecraft:data_component_type`), confirmed — same pattern as `Registries.ITEM`/
+  `Registries.ENTITY_TYPE`: `Registry.register(Registries.DATA_COMPONENT_TYPE, Identifier, ComponentType<T>)`.
+- **If `.codec(...)` is omitted**, `getCodec()` returns `null` and `shouldSkipSerialization()`
+  is `true` — the component still works in-memory/over-network (via `.packetCodec(...)`) but
+  won't survive a save/load round-trip (won't be written to the item's NBT). **For a weapon
+  tier that must survive server restarts, `.codec(...)` is required**, not optional — set both.
+- **No extra Fabric API dependency needed for sync.** Item *data components* (as opposed to
+  player-level persistent data, which needs Fabric's Data Attachment API — see the
+  "Attachment API reference" section elsewhere in this file) are synced automatically as part
+  of vanilla's own `ItemStack.PACKET_CODEC` whenever a stack crosses the network (inventory
+  sync, screen-handler slot updates, entity equipment tracking, etc.) **as long as the
+  `ComponentType` has a `packetCodec`** — confirmed by reading `CustomModelDataComponent`,
+  `AttributeModifiersComponent`, and `ENCHANTMENT_GLINT_OVERRIDE`'s own registrations, all of
+  which just set `.codec(...)` + `.packetCodec(...)` and nothing else network-related. There is
+  no separate "component sync registry" to register into, unlike Attachment API's
+  `AttachmentRegistry.create(...).persistent()/.syncWith(...)`.
+- Reading/writing on a stack (confirmed exact, `ItemStack.java`):
+  `stack.get(ComponentType<T>)` → `@Nullable T`; `stack.getOrDefault(ComponentType<T>, T default)`;
+  `stack.set(ComponentType<T> type, @Nullable T value)`; `stack.contains(ComponentType<T>)`.
+- **Enum vs. `String` codec**: either works. For an enum tier (`BASE`/`EXCELLENT`/`PERFECT`),
+  `Codec.STRING.xmap(WeaponTier::valueOf, Enum::name)` (or vanilla's own
+  `StringIdentifiable.createCodec(...)` pattern used throughout the codebase, e.g.
+  `AttributeModifiersComponent.Display.Type`) both work fine as the `.codec(...)` argument —
+  either way the **select item model property below only ever sees a plain `String`** (see
+  item 2), so an enum component still needs a `String`-valued companion if driving the model
+  select off `minecraft:custom_model_data`; driving it off `minecraft:component` directly (see
+  item 2, `ComponentSelectProperty`) works with the enum's own `String`-backed codec directly,
+  no separate string mirror needed.
+
+### 2. Per-stack model switching — `minecraft:select` in the 1.21.11 item-definition format
+
+**Two select properties are relevant, both confirmed working, from
+`net/minecraft/client/render/item/property/select/`:**
+
+**a) `"property": "minecraft:custom_model_data"`** (`CustomModelDataStringProperty.java`) —
+confirmed it dispatches on `CustomModelDataComponent`'s `strings` list specifically (there's a
+separate, older `minecraft:custom_model_data` *float* form used elsewhere in the format, but
+this `select`-property variant is fixed to the `String` list): reads
+`stack.get(DataComponentTypes.CUSTOM_MODEL_DATA)` then calls `.getString(index)` (`index`
+optional, default `0`). Registered under id `Identifier.ofVanilla("custom_model_data")` in
+`SelectProperties.bootstrap()`. JSON:
+```json
+{
+  "type": "minecraft:select",
+  "property": "minecraft:custom_model_data",
+  "index": 0,
+  "cases": [
+    { "when": "excellent", "model": { "type": "minecraft:model", "model": "baum2:item/my_sword_excellent" } },
+    { "when": "perfect",   "model": { "type": "minecraft:model", "model": "baum2:item/my_sword_perfect" } }
+  ],
+  "fallback": { "type": "minecraft:model", "model": "baum2:item/my_sword" }
+}
+```
+Java side to drive this: `stack.set(DataComponentTypes.CUSTOM_MODEL_DATA, new CustomModelDataComponent(List.of(), List.of(), List.of("excellent"), List.of()))`
+— confirmed exact record shape (`net/minecraft/component/type/CustomModelDataComponent.java`):
+```java
+public record CustomModelDataComponent(List<Float> floats, List<Boolean> flags, List<String> strings, List<Integer> colors)
+```
+with a `DEFAULT` (all-empty-lists) constant and per-index nullable getters
+`getFloat(i)`/`getFlag(i)`/`getString(i)`/`getColor(i)`. Only the `strings` list at the given
+`index` matters for this select property.
+
+**b) `"property": "minecraft:component"`** (`ComponentSelectProperty.java`) — **this is the
+direct "dispatch on an arbitrary/custom data component" property the task asked about, and it
+exists and works**: takes a `"component"` field naming any registered `ComponentType` (by its
+registry id, e.g. `"baum2:weapon_tier"`) and reads `stack.get(componentType)` directly — no
+`CustomModelDataComponent` indirection needed at all. **Constraint, confirmed in
+`ComponentSelectProperty.createType()`**: the referenced component type must NOT
+`shouldSkipSerialization()` (i.e. it must have been registered with a real `.codec(...)`, not
+left null) — the codec is validated with `DataResult.error("Component can't be serialized")`
+otherwise. Since item 1's `WEAPON_TIER` component was registered with `.codec(Codec.STRING)`,
+it qualifies. JSON, using the custom component directly (no `CustomModelDataComponent` at all):
+```json
+{
+  "type": "minecraft:select",
+  "property": "minecraft:component",
+  "component": "baum2:weapon_tier",
+  "cases": [
+    { "when": "excellent", "model": { "type": "minecraft:model", "model": "baum2:item/my_sword_excellent" } },
+    { "when": "perfect",   "model": { "type": "minecraft:model", "model": "baum2:item/my_sword_perfect" } }
+  ],
+  "fallback": { "type": "minecraft:model", "model": "baum2:item/my_sword" }
+}
+```
+**Recommendation: prefer (b), `minecraft:component` directly on the custom `ComponentType`**,
+over (a) piggybacking on `CUSTOM_MODEL_DATA`'s `strings` list — it's a dedicated field with a
+real semantic meaning (`weapon_tier`), doesn't collide with `CUSTOM_MODEL_DATA` if that
+component is ever also needed for something else on the same item, and needs no
+"which string index means what" convention.
+
+**Nesting confirmed either direction, no restriction.** Read `net/minecraft/client/render/item/model/ItemModelTypes.java`
+(the format's own top-level dispatcher): `"select"` (`SelectItemModel.Unbaked.CODEC`) is
+registered as just one more case alongside `"model"`, `"special"`, `"composite"`,
+`"range_dispatch"`, `"condition"`, all sharing the same generic `ItemModel.Unbaked` codec.
+`SelectItemModel.SwitchCase`'s own `"model"` field, and `Unbaked`'s `"fallback"` field, are both
+typed as this same generic `ItemModelTypes.CODEC` — i.e. **any case's model, or the fallback,
+can itself be another `minecraft:select` block (or `minecraft:special`, etc.) with no special
+casing anywhere in the parser.** Confirmed against this project's own already-shipped
+`assets/baum2/items/espenklinge.json`, which already nests a `minecraft:select` on
+`minecraft:display_context` as the outer node with a `minecraft:special` (GeckoLib) fallback.
+For the weapon-upgrade case, **either nesting order works**:
+- Outer `select` on `minecraft:component`/`weapon_tier`, each case (and the fallback) itself a
+  `select` on `minecraft:display_context` (so each tier still gets its own GUI/ground/fixed
+  vs. in-hand GeckoLib split) — **recommended**, since tier is per-stack-permanent while
+  display context changes every frame; putting the cheaper/more-stable property outermost is
+  the natural read, though functionally it doesn't matter which is outermost.
+- Or the reverse: outer `select` on `display_context`, each case a `select` on `weapon_tier`.
+  Also valid, just more verbose (the tier select would need to be duplicated per display
+  context case unless the GeckoLib `minecraft:special` fallback also needs to differ per tier,
+  in which case this order might actually be more natural).
+
+### 3. `DataComponentTypes.ENCHANTMENT_GLINT_OVERRIDE` — confirmed, still exists in 1.21.11
+
+Confirmed exact registration, `net/minecraft/component/DataComponentTypes.java`:
+```java
+public static final ComponentType<Boolean> ENCHANTMENT_GLINT_OVERRIDE = register(
+    "enchantment_glint_override", builder -> builder.codec(Codec.BOOL).packetCodec(PacketCodecs.BOOLEAN)
+);
+```
+i.e. `ComponentType<Boolean>`, registry id `minecraft:enchantment_glint_override`. Usage:
+`stack.set(DataComponentTypes.ENCHANTMENT_GLINT_OVERRIDE, true)` forces the glint on
+regardless of actual enchantments; `Boolean.FALSE` forces it off even if enchanted; leaving it
+unset (or `stack.remove(...)`) falls back to vanilla's normal "has enchantments → glint" logic.
+Good fit for a "perfect" tier that should always glint even before any real enchantment system
+exists in this project.
+
+### 4. Per-stack attribute modifiers — reading an item's default and building a scaled copy on one stack
+
+Builds on this file's existing `ATTRIBUTE_MODIFIERS` entry above (search "`Custom `Item`s in
+1.21.11`" section) which already confirmed the builder shape for an *item's* default modifiers.
+Confirmed additionally, for the **per-stack override** case:
+
+- **`AttributeModifiersComponent`** (`net/minecraft/component/type/AttributeModifiersComponent.java`)
+  is a `record AttributeModifiersComponent(List<Entry> modifiers)`, where
+  **`Entry` is `record Entry(RegistryEntry<EntityAttribute> attribute, EntityAttributeModifier modifier, AttributeModifierSlot slot, AttributeModifiersComponent.Display display)`**
+  — confirmed exact. A 3-arg `Entry(attribute, modifier, slot)` constructor overload also
+  exists, defaulting `display` to `AttributeModifiersComponent.Display.getDefault()`.
+- **Builder**: `AttributeModifiersComponent.builder()` → `.add(RegistryEntry<EntityAttribute>, EntityAttributeModifier, AttributeModifierSlot)`
+  (chainable) or the 4-arg overload with an explicit `Display`, → `.build()`.
+- **Reading an item's own default modifiers off a stack, to scale them**: since a fresh
+  `ItemStack`'s component map is initialized from the `Item`'s own default components, before
+  any override is set, `stack.getOrDefault(DataComponentTypes.ATTRIBUTE_MODIFIERS, AttributeModifiersComponent.DEFAULT)`
+  (confirmed call site, `ItemStack.applyAttributeModifier(...)`) returns the item's default
+  entries unless something has already overridden them on that specific stack. A concrete
+  ×1.15 scale-up pattern:
+  ```java
+  AttributeModifiersComponent base = stack.getOrDefault(
+      DataComponentTypes.ATTRIBUTE_MODIFIERS, AttributeModifiersComponent.DEFAULT);
+  AttributeModifiersComponent.Builder scaled = AttributeModifiersComponent.builder();
+  for (AttributeModifiersComponent.Entry entry : base.modifiers()) {
+      EntityAttributeModifier m = entry.modifier();
+      double newValue = entry.attribute().matches(EntityAttributes.ATTACK_DAMAGE)
+          ? m.value() * 1.15 : m.value();
+      scaled.add(entry.attribute(),
+          new EntityAttributeModifier(m.id(), newValue, m.operation()),
+          entry.slot());
+  }
+  stack.set(DataComponentTypes.ATTRIBUTE_MODIFIERS, scaled.build());
+  ```
+  (`EntityAttributeModifier` is itself a record with `id()`/`value()`/`operation()` accessors —
+  reuse the original modifier's own stable `Identifier` `id()` so it doesn't collide with/
+  duplicate vanilla's own `Item.BASE_ATTACK_DAMAGE_MODIFIER_ID` bookkeeping.)
+- **Replacing the component on the stack cleanly overrides the item defaults — confirmed, not
+  additive.** `stack.set(ComponentType, value)` (confirmed exact signature,
+  `ItemStack.java:1032`, `public <T> @Nullable T set(ComponentType<T> type, @Nullable T value)`)
+  replaces that component's value in the stack's own component map outright; every subsequent
+  `stack.get`/`getOrDefault(ATTRIBUTE_MODIFIERS, ...)` call (including the ones vanilla's own
+  combat/tooltip code uses internally) sees only the new value — the item's original default
+  entries are not merged in underneath. If any of the item's original modifiers should survive
+  onto the "excellent"/"perfect" stack unchanged, they must be explicitly copied into the new
+  `AttributeModifiersComponent` too (as the scaling loop above does for every entry, not just
+  the ones being changed).
+- **Tooltip rendering the green attack-damage lines correctly is confirmed to keep working
+  automatically**, no extra wiring needed: the tooltip render path (`ItemStack`'s attribute
+  tooltip section) walks the *current* `ATTRIBUTE_MODIFIERS` component's entries and calls each
+  `Entry.display()`'s `addTooltip(...)` — the default `Display.Default.addTooltip(...)`
+  (confirmed body, same file) formats via `"attribute.modifier.plus."/"attribute.modifier.take."
+  + operation` translation keys and `Formatting.DARK_GREEN`/attribute's own formatting, using
+  whatever `attribute`/`modifier` values are in the entry — it has no special-casing for "must
+  be the item's original component," so a stack-level override renders with the exact same
+  vanilla green-line styling automatically, using the *new* scaled numbers.
+
+### 5. Single-item crafting upgrade — `SpecialCraftingRecipe`, exact 1.21.11 shape
+
+Confirmed against `net/minecraft/recipe/SpecialCraftingRecipe.java` and the closest real
+vanilla analog, `net/minecraft/recipe/RepairItemRecipe.java` (combines two damageable stacks
+of the same item into one repaired stack — same "read the grid, inspect+combine stack
+components, produce a transformed result" shape as a weapon-upgrade recipe, just 2 input
+stacks instead of 1).
+
+- **Abstract class to extend**: `public abstract class SpecialCraftingRecipe implements CraftingRecipe`
+  (`CraftingRecipe extends Recipe<CraftingRecipeInput>`). Its constructor takes just a
+  `CraftingRecipeCategory category`. It already implements `isIgnoredInRecipeBook() → true` and
+  `getIngredientPlacement() → IngredientPlacement.NONE` (special recipes don't declare a static
+  ingredient shape — matching is fully custom code) — **neither needs overriding**.
+- **Methods to override, confirmed exact signatures** (both non-`@Override`-annotated in
+  vanilla's own subclasses since they're declared on the `Recipe<CraftingRecipeInput>`
+  interface, not re-declared abstract on `SpecialCraftingRecipe` itself, but they are the real
+  methods actually invoked):
+  ```java
+  public boolean matches(CraftingRecipeInput input, World world)
+  public ItemStack craft(CraftingRecipeInput input, RegistryWrapper.WrapperLookup registries)
+  ```
+  Plus the one `SpecialCraftingRecipe` *does* declare abstract:
+  ```java
+  public abstract RecipeSerializer<? extends SpecialCraftingRecipe> getSerializer();
+  ```
+  `CraftingRecipeInput` (confirmed methods used by `RepairItemRecipe`): `.getStackCount()`
+  (count of non-empty slots), `.size()` (total slot count), `.getStackInSlot(int)`. For a
+  single-item upgrade recipe, `matches(...)` should confirm exactly one non-empty stack in the
+  whole grid, that it `.isOf(YOUR_ITEM)`, and that its current `weapon_tier` component is
+  upgradeable (not already "perfect"); `craft(...)` should `.copy()` the input stack, `.set(...)`
+  the new tier component + rescaled `ATTRIBUTE_MODIFIERS` + swapped `CUSTOM_MODEL_DATA`/glint,
+  and return it.
+- **No separate `IngredientPlacement`/`getRecipeDisplays` override needed** for this shape —
+  `IngredientPlacement.NONE` (inherited) is exactly right for a recipe whose match logic is
+  fully custom code rather than a fixed shape; `getRecipeDisplays()` is **not** overridden by
+  `RepairItemRecipe` either (it's not part of what `SpecialCraftingRecipe` requires you to
+  implement — display entries for the recipe book come from a separate, optional mechanism not
+  needed for an `isIgnoredInRecipeBook() = true` special recipe).
+- **`SpecialRecipeSerializer` registration, confirmed exact**
+  (`SpecialCraftingRecipe.SpecialRecipeSerializer<T extends CraftingRecipe>`, a nested static
+  class already provided by `SpecialCraftingRecipe` itself — no need to write a custom
+  `RecipeSerializer` from scratch):
+  ```java
+  public static final RecipeSerializer<WeaponUpgradeRecipe> WEAPON_UPGRADE = Registry.register(
+      Registries.RECIPE_SERIALIZER,
+      Identifier.of("baum2", "weapon_upgrade"),
+      new SpecialCraftingRecipe.SpecialRecipeSerializer<>(WeaponUpgradeRecipe::new)
+  );
+  ```
+  — matches vanilla's own exact registration pattern for `REPAIR_ITEM`/`ARMOR_DYE`/etc. in
+  `RecipeSerializer.java`. The serializer's generated codec only ever reads/writes a `category`
+  field (`CraftingRecipeCategory`, optional, defaults to `MISC`) — confirmed from
+  `SpecialRecipeSerializer`'s own `RecordCodecBuilder`, which is exactly why the data file body
+  is so minimal (see below). `WeaponUpgradeRecipe`'s constructor must therefore have the shape
+  `WeaponUpgradeRecipe(CraftingRecipeCategory category)` to match the `Factory<T>` functional
+  interface `SpecialRecipeSerializer`'s constructor expects.
+- **Data file — confirmed exact folder and JSON body directly from the actual bundled vanilla
+  data** (extracted `data/minecraft/recipe/repair_item.json` from
+  `minecraft-common-*.jar` itself, not a guess): **the folder is `data/<namespace>/recipe/`,
+  singular** (`RegistryKeys.RECIPE = "recipe"` — confirmed in `net/minecraft/registry/
+  RegistryKeys.java`; recipes are a genuine dynamic `Registry<Recipe<?>>` as of the 1.21.2+
+  recipe-codec rework, not the old "recipes" plural resource-reload folder some older
+  tutorials/training data will show). Real vanilla example, byte-for-byte:
+  ```json
+  {
+    "type": "minecraft:crafting_special_repairitem",
+    "category": "misc"
+  }
+  ```
+  So `data/baum2/recipe/weapon_upgrade.json` for this project:
+  ```json
+  {
+    "type": "baum2:weapon_upgrade",
+    "category": "equipment"
+  }
+  ```
+  (`CraftingRecipeCategory` values, confirmed used elsewhere in this same enum:
+  `BUILDING`/`EQUIPMENT`/`REDSTONE`/`MISC` — `equipment` reads correctly for a weapon recipe,
+  though `misc` also works, it's cosmetic-only, affects only recipe-book grouping which is moot
+  since `isIgnoredInRecipeBook()` is already `true`.)
+- **Crafting-grid result preview is fully server-authoritative — confirmed, no client-side
+  `craft()` call and no missing-component pitfall.** Read
+  `net/minecraft/screen/CraftingScreenHandler.java`'s actual `updateResult(...)` (called from
+  `onContentChanged(...)`, which itself only proceeds `if (world instanceof ServerWorld
+  serverWorld)`): the server calls its own `RecipeManager.getFirstMatch(...)` then
+  `craftingRecipe.craft(craftingRecipeInput, world.getRegistryManager())` **entirely
+  server-side**, then sends the resulting `ItemStack` to the client purely as a rendered slot
+  update (`ScreenHandlerSlotUpdateS2CPacket`) — the client never invokes `matches()`/`craft()`
+  itself, it just displays whatever stack the server already computed and pushed. **This means
+  there is no pitfall about the input stack's custom components "not being available"
+  client-side** — all matching/crafting logic runs against the server's own authoritative
+  `ItemStack` object graph, which always has full component data. The only thing the client
+  needs is for `ItemModelTypes`/`SelectProperties` (item 2 above) to correctly render whatever
+  final stack+components the server sends back, which is a pure rendering concern, not a
+  data-availability one.

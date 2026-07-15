@@ -3425,8 +3425,169 @@ specific existing game's currency branding; the tree glyph is unique to this mod
 
 ---
 
+## 25. Weapon upgrade tiers: "Tempered" / "Perfect" texture identity (2026-07-15)
+
+> **Naming note (same day):** this section was authored while the tier names were
+> still pending compliance review. `ip-naming-compliance-checker` then flagged
+> "Excellent" as MU Online's (Webzen's) branded item-quality prefix - same word,
+> same name-prefix pattern - and Webzen is explicitly off-limits per CLAUDE.md, so
+> the shipped tier is **"Tempered"** ("Perfect" was cleared). File suffixes and all
+> mentions below were renamed accordingly; the "Silver Sheen" treatment itself is
+> unchanged.
+
+Visual identity for the weapon upgrade system's two upgrade tiers above a weapon's base
+texture (tier names pending a separate compliance check running in parallel at the time of
+this pass — do not read this section's tier names as final; they're file-suffix-only and
+easy to rename without touching any texture). **Texture variants + this section only** — no
+model/item-definition JSON and no Java were touched by this pass, per the requesting session's
+explicit scope split (those are being written in parallel elsewhere, same split precedent as
+Section 24's Baum Credits pass).
+
+### 25.1 Design direction
+
+Brief: the model/silhouette stays **identical** across all three tiers (Base / Tempered /
+Perfect) — only the *coloring* changes. Tempered gets "a slight silver tiny shiny"; Perfect
+gets "a stronger shiny effect and slightly more golden" coloring. (Java additionally applies
+the vanilla enchantment glint to both upgrade tiers; the textures below carry the silver/gold
+*identity*, independent of and in addition to that glint.)
+
+This is executed as a **derivation**, not a repaint: `tools/gen_weapon_tier_textures.py` reads
+each weapon's existing base PNG and programmatically produces both tier variants via one
+shared, deterministic pixel transform (same parameters for every weapon) — it never redraws
+geometry, so the silhouette-identical requirement holds by construction, and adding tier
+variants for weapon #6+ later is "add one filename entry to `WEAPONS` and rerun." The script is
+idempotent: every run reads only the base texture (never a previous `_tempered`/`_perfect`
+output), so re-running with unchanged inputs reproduces byte-identical outputs.
+
+Two layered passes, applied per-pixel in RGB space (see 25.2 for why RGB blending was chosen
+over an HSV hue rotation — the first version of this script hue-rotated and produced a visible
+green artifact on warm-hued weapons):
+
+1. **Global tint** — a weak, whole-sprite blend toward the tier's target color (pale cool
+   blue-gray for silver, warm amber for gold). Scaled down on shadow/dark pixels (a flat blend
+   applied equally to near-black and lit pixels visibly lightened very dark palettes like
+   Drevathis's Cursed Blade toward tan — fixed by scaling the blend fraction by the pixel's own
+   brightness, floor 35%, so shadows stay close to their original tone and the cast
+   concentrates on already-lit surfaces).
+2. **Highlight shine** — a stronger blend toward a bright glint color plus a "screen"
+   brightening step, gated by a weight that only activates on pixels already bright relative to
+   *that weapon's own* brightness range (targets the existing edge-highlight pixels every
+   item icon in this mod already paints lighter — the `BLADE_LIT`/`EDGE`-style convention from
+   `tools/gen_sword_template.py`). Perfect's threshold is lower and its blend/brighten amounts
+   are larger than Tempered's, so more of the sprite catches the glint and it reads visibly
+   brighter — "stronger shiny effect."
+
+Both passes preserve each weapon's own hue/palette identity (a tint pass, not a recolor) — the
+blend fractions are 10–20% for the global tint and cap at 55–75% only on the already-brightest
+pixels for the shine pass, so e.g. Poison Dagger's toxic-green blade stays recognizably green
+in both tiers, just with a cooler/warmer edge glint layered on top.
+
+### 25.2 Transform parameters (pinned)
+
+| Parameter | Tempered ("Silver Sheen") | Perfect ("Gilded Shine") |
+|---|---|---|
+| Global tint target color | `#C7D2DC` (pale cool blue-gray) | `#E8B454` (warm amber-gold) |
+| Global tint blend | 10% | 20% |
+| Global tint shadow floor | 35% of the blend above still applies at the darkest pixel in the sprite (v_norm=0); scales linearly up to 100% at the brightest pixel — shared by both tiers | (same) |
+| Highlight shine target color | `#F2F6FA` (near-white, cool) | `#FFE9A8` (bright warm gold-white) |
+| Highlight shine weight threshold | normalized brightness ≥ 62% before any shine applies | normalized brightness ≥ 50% (covers more of the sprite) |
+| Highlight shine blend (at full weight) | 55% | 75% |
+| Highlight shine screen-brighten (at full weight) | +12% | +22% |
+
+"Normalized brightness" = each pixel's HSV `V`, linearly rescaled per-image so the darkest
+opaque pixel in *that weapon's own texture* = 0 and the brightest = 1 — this is why identical
+parameters produce a sensible-looking shine band on every weapon regardless of how dark or
+light its base palette is, without per-weapon tuning.
+
+*Compliance note:* color-coded/tinted upgrade tiers on an identical silhouette (visually
+distinguishing an upgraded item by a metallic sheen shift rather than a new model) is a
+generic, IP-free item-upgrade convention — same bar as rarity-by-color (Section 2.4). No hex
+value, hue pairing, or "silver → gold" ladder here reproduces any specific existing game's
+known upgrade/enchant visual branding.
+
+### 25.3 Files produced this pass (all texture-only, placeholder-derived from existing placeholders)
+
+Generator: `tools/gen_weapon_tier_textures.py` (Pillow, deterministic, no `random` — reruns are
+byte-identical). Writes directly into
+`src/main/resources/assets/baum2/textures/item/` (resolved from the script's own location, not
+CWD — no manual copy step needed). Verified programmatically after every write: output loads,
+matches the source's exact dimensions and RGBA mode, and differs from the source by more than
+zero pixels (full table below — all 14 outputs passed).
+
+| Base texture | Tempered variant | Perfect variant | Size |
+|---|---|---|---|
+| `gold_sword.png` | `gold_sword_tempered.png` | `gold_sword_perfect.png` | 16x16 |
+| `poison_dagger.png` | `poison_dagger_tempered.png` | `poison_dagger_perfect.png` | 16x16 |
+| `colossal_warclub.png` | `colossal_warclub_tempered.png` | `colossal_warclub_perfect.png` | 16x16 |
+| `colossal_warclub_3d.png` | `colossal_warclub_3d_tempered.png` | `colossal_warclub_3d_perfect.png` | 32x32 |
+| `drevathis_cursed_blade.png` | `drevathis_cursed_blade_tempered.png` | `drevathis_cursed_blade_perfect.png` | 16x16 |
+| `drevathis_cursed_blade_3d.png` | `drevathis_cursed_blade_3d_tempered.png` | `drevathis_cursed_blade_3d_perfect.png` | 32x32 |
+| `espenklinge.png` | `espenklinge_tempered.png` | `espenklinge_perfect.png` | 16x16 (GUI sprite only — `espenklinge_geo.png`, the GeckoLib in-hand texture, is explicitly out of scope this pass) |
+
+Verification table (`diff_px` = count of pixels differing from the source; all must be > 0 to
+prove the transform actually did something):
+
+```
+file                                     size     mode  size_ok  diff_px>0
+---------------------------------------------------------------------------
+gold_sword_tempered.png                 16x16    RGBA  True             27
+gold_sword_perfect.png                   16x16    RGBA  True             27
+poison_dagger_tempered.png              16x16    RGBA  True             22
+poison_dagger_perfect.png                16x16    RGBA  True             22
+colossal_warclub_tempered.png           16x16    RGBA  True             41
+colossal_warclub_perfect.png             16x16    RGBA  True             41
+colossal_warclub_3d_tempered.png        32x32    RGBA  True            703
+colossal_warclub_3d_perfect.png          32x32    RGBA  True            703
+drevathis_cursed_blade_tempered.png     16x16    RGBA  True             39
+drevathis_cursed_blade_perfect.png       16x16    RGBA  True             39
+drevathis_cursed_blade_3d_tempered.png  32x32    RGBA  True            564
+drevathis_cursed_blade_3d_perfect.png    32x32    RGBA  True            564
+espenklinge_tempered.png                16x16    RGBA  True             32
+espenklinge_perfect.png                  16x16    RGBA  True             32
+---------------------------------------------------------------------------
+ALL CHECKS PASSED: True  (14 files)
+```
+
+No model/blockstate/item-definition JSON and no Java were added or edited by this pass — the
+weapon upgrade system's tier selection logic (which of the three textures a given item stack
+resolves to, plus the enchantment-glint application) is being implemented separately. Whoever
+wires that up should point each tier at `<base>_tempered.png`/`<base>_perfect.png` (or, for
+Colossal Warclub/Drevathis's Cursed Blade, the matching `_3d_tempered`/`_3d_perfect` for the
+in-hand model) rather than generating new textures — regenerating via this script if the base
+texture ever changes keeps all three tiers in sync automatically.
+
+### 25.4 Forward guidance for future weapons
+
+Adding tier variants for a new weapon added later: add its texture filename(s) as one new entry
+in `WEAPONS` in `tools/gen_weapon_tier_textures.py` and rerun — no new code path, no new
+parameters. Do not hand-author `_tempered`/`_perfect` variants for a new weapon by any other
+method (hand-editing pixels, a different tool, etc.) — the whole point of this pass is that
+every weapon's tier identity comes from the *same* transform, so a player who learns "Tempered
+= cool pale sheen, Perfect = warm gold sheen" once can read that at a glance on any weapon in
+the mod, not just the ones covered by this pass.
+
+---
+
 ## Changelog
 
+- **2026-07-15** — Added Section 25: texture identity for the weapon upgrade system's two
+  upgrade tiers, "Tempered" (Silver Sheen; originally "Excellent", renamed after an IP flag - see Section 25's naming note) and "Perfect" (Gilded Shine), on top of the 5
+  existing weapon textures (Gold Sword, Poison Dagger, Colossal Warclub incl. its 3D in-hand
+  texture, Drevathis's Cursed Blade incl. its 3D in-hand texture, Espenklinge's GUI sprite —
+  its GeckoLib in-hand texture explicitly out of scope). Silhouette-identical per the brief —
+  a new `tools/gen_weapon_tier_textures.py` derives both variants from each existing base PNG
+  via one shared, deterministic RGB-blend transform (weak whole-sprite tint + a
+  brightness-gated highlight "shine" pass), rather than hand-repainting, so a future weapon
+  gets tier variants by adding one filename entry and rerunning. Switched from an initial
+  HSV-hue-rotation approach to straight-line RGB blending after the former produced a visible
+  green artifact rotating from warm weapon hues toward the cool silver target through the hue
+  wheel's green/cyan band; also added a shadow-brightness floor to the global tint pass after
+  a flat blend fraction visibly lightened very dark palettes (Drevathis's Cursed Blade) toward
+  tan. Verified all 14 outputs load, match source dimensions/RGBA mode, and differ from their
+  source by a nonzero pixel count. Texture-only pass — no model/item-definition JSON or Java,
+  per the requesting session's explicit scope split (those are being written in parallel
+  elsewhere); tier names in this section are file-suffix-only and pending a parallel compliance
+  check.
 - **2026-07-12** — Added Section 24: the mod's first currency item, "Baum Credits"
   (`baum2:baum_credits`) — a 16x16 flat-brass-coin placeholder icon stamped with a small
   tree glyph (a pun on "Baum," the mod's namesake). Palette deliberately reuses the existing

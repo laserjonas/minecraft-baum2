@@ -24,8 +24,11 @@ commit `773168b`, merged to master; the not-an-item rework on top is uncommitted
 "Baum Credits" — persistent attachment balance, shown as text + coin icon drawn on the
 inventory screen (the originally-shipped wallet-ITEM display was user-rejected and removed),
 level×type kill rewards (normal 1x / stone 5x / boss 10x), `/baum2 credits`; see the "Money
-System v1" section below**. `master` is fast-forwarded to match this branch up to the Money
-System v1 commit. See "Last change" below for detail.
+System v1" section below**, **and the Weapon Upgrade System v1 (2026-07-15, uncommitted):
+per-stack Base → "Tempered" → "Perfect" tiers on the mod's own weapons — ×1.15/×1.35 damage,
+glint + silver/gilded tier textures, weapon-alone-in-grid placeholder recipe; see its
+section below**. `master` is fast-forwarded to match this branch up to the Money System v1
+rework commit (`481e3a3`). See "Last change" below for detail.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -1728,13 +1731,98 @@ was kept — harmless, generally useful.
   client accessor Mixin only proves itself when `HandledScreen` class-loads (first screen
   open), not at build time — same class of risk as every other Mixin here.
 
+### Weapon Upgrade System v1 (2026-07-15) — per-stack tiers Base → "Tempered" → "Perfect"
+
+User request: upgrade tiers for THIS MOD'S OWN weapons only (never vanilla items): base →
+"Excellent" → "Perfect", upgraded for now by placing the lower-tier weapon alone on a
+crafting bench ("we will need specific craft recipes but at the moment..."), better stats
+per tier, same model but Excellent = slight silver shine, Perfect = stronger shine + slightly
+more golden.
+
+- **Naming: "Excellent" did NOT survive compliance review.**
+  `ip-naming-compliance-checker` found it is MU Online's (Webzen's) branded item-quality
+  prefix — same word, same "prefix on the weapon name" display pattern ("Excellent
+  Bloodangel Sword"), and Webzen is explicitly named off-limits in CLAUDE.md. Shipped as
+  **"Tempered"** instead ("Perfect" was cleared as a generic quality word and kept, per the
+  user's original request). The checker also offered German pairs (Gehärtet→Vollendet,
+  Geschärft→Erhaben, Verstärkt→Makellos) if the contributors prefer — renaming means:
+  `WeaponTier`'s displayPrefix/componentValue, the select-case strings in the 5
+  `assets/baum2/items/*.json`, and the `_tempered` texture/model file suffixes.
+- **Architecture: per-STACK component, not per-tier Items.** New `baum2:weapon_tier`
+  `ComponentType<String>` (`registry/ModComponents.java` — registered before ModItems in
+  `Baum2.onInitialize()`, same "must exist before deserialization" ordering as attachments).
+  `items/WeaponTier.java` (enum BASE/TEMPERED/PERFECT: component value, display prefix,
+  damage multiplier 1.0/1.15/1.35) + `items/WeaponUpgradeSystem.java` (the shared upgrade
+  logic; `UPGRADEABLE_WEAPONS` = Gold Sword, Poison Dagger, Colossal Warclub, Drevathis's
+  Cursed Blade, Espenklinge). An upgrade sets on the stack: the tier component,
+  `ENCHANTMENT_GLINT_OVERRIDE=true`, `ITEM_NAME` ("Perfect Poison Dagger"), and
+  `ATTRIBUTE_MODIFIERS` rebuilt from the ITEM's pristine defaults (never the stack's
+  current, already-scaled component) with **positive attack-damage modifier values × the
+  tier multiplier** — negative values deliberately unscaled, so **Drevathis's Cursed Blade
+  (-1.0 damage by design, pure proc weapon) gets visual/name-only tiers** until its own
+  upgrade identity is designed.
+- **Crafting** (`items/WeaponUpgradeRecipe.java` + `registry/ModRecipeSerializers.java` +
+  `data/baum2/recipe/weapon_upgrade.json`): a `SpecialCraftingRecipe` — exactly one
+  non-empty grid stack, must be an upgradeable weapon below PERFECT → next-tier copy.
+  Matching/crafting is fully server-side (result preview is server-authoritative in
+  1.21.11). Replacing this placeholder with real material recipes later touches only this
+  class + its JSON — the tier logic lives in `WeaponUpgradeSystem`.
+- **Visuals**: tier textures by `graphics-designer` (`tools/gen_weapon_tier_textures.py`,
+  deterministic Pillow transforms — "Silver Sheen" tint+shine for Tempered, "Gilded Shine"
+  for Perfect; parameters pinned in `docs/visual-style-guide.md` Section 25): 14 new PNGs
+  (`*_tempered`/`*_perfect`, including 32x32 `_3d` in-hand variants for Warclub/Cursed
+  Blade). Item-definition JSONs dispatch on the component directly — outer
+  `minecraft:select` with `"property": "minecraft:component", "component":
+  "baum2:weapon_tier"` (confirmed 1.21.11 feature, cleaner than piggybacking
+  CUSTOM_MODEL_DATA; see `docs/fabric-modding.md` "Per-ItemStack weapon upgrade tier",
+  researched this session), nesting the pre-existing display_context selects per tier case.
+  Tier model JSONs are texture-override children (`"parent": "baum2:item/..._in_hand"`), no
+  geometry duplication. **Espenklinge limitation**: GUI sprite switches per tier; its
+  GeckoLib in-hand texture (`espenklinge_geo.png`) stays base — per-tier GeckoLib textures
+  are a separate task.
+- **Deprecation gotcha**: `RegistryEntry.matches(RegistryEntry)` is @Deprecated in 1.21.11 —
+  use `.equals()` (Reference entries are canonical).
+- **Verified**: `./gradlew build` passes. **Not yet play-verified** — checklist: `/give @s
+  baum2:gold_sword`, put it alone in a crafting grid → "Tempered Gold Sword" (glint, silver
+  sheen icon, tooltip attack-damage line reads 5.75-scaled); craft again → "Perfect Gold
+  Sword" (golden icon, stronger shine); a Perfect weapon alone in the grid → no result; a
+  vanilla sword alone → no result; Warclub/Cursed Blade in 1st+3rd person → tier texture
+  also on the 3D in-hand model; Espenklinge → GUI icon changes, in-hand 3D stays base
+  (expected).
+- **`balance-reviewer` findings (all logged, none code-blocking; no exploits found — no
+  dupe bug, no compounding-multiplier bug, `next()` terminates, safe defaults)**:
+  1. **The ×1.35 ceiling fear is inverted**: at max investment Strength's flat +104 swamps
+     the weapon modifier, so Perfect adds only +1-4% DPS at endgame (the flagged ~110x
+     ceiling becomes ~111x — negligible). The real effect is EARLY game: a fresh character
+     (str/dex 5) gains up to +24.5% DPS (Warclub) instantly and free — an early/mid power
+     spike, not endgame escalation.
+  2. **Zero-cost recipe = tiers are a mandatory pass-through, not a choice** — every kept
+     weapon is Perfect within seconds; Base/Tempered functionally don't exist in play. Known
+     v1-placeholder property; the new Baum Credits economy is a natural v2 cost hook.
+  3. **Perfect flips Gold Sword vs Warclub ordering at low investment** (multiplicative
+     damage scaling favors the big-modifier weapon while speed stays constant): Warclub
+     pulls +8.5% ahead at Perfect where Base was a tie. Disappears at high investment.
+  4. **Espenklinge inclusion contradicts its own "no new balance surface" design comment**
+     (ModItems.java) — creative/give-only today, but its Perfect is a real +35% while being
+     the one weapon whose upgrade is INVISIBLE in actual combat view (GeckoLib in-hand
+     texture doesn't change, only the GUI icon).
+  5. **Cursed Blade's upgrade is 100% placebo** (deliberate — negative damage unscaled):
+     glint/name/texture change, zero combat change. Free recipe means no player loss, but
+     worth a UI-level decision (block or label it) before players notice.
+
 ## Last change (on `fischey_workbranch`)
 
-**Money System v1 rework — not an item (2026-07-12, uncommitted)** — user rejected the
-wallet-item display right after `773168b` shipped; the balance now renders as text + coin
-icon on the inventory screen (see the reworked "Money System v1" section above). Removes the
-wallet item/JSONs/lang, adds attachment `syncWith`, `ui/BaumCreditsInventoryOverlay`
-(client), and the project's first client Mixin (`HandledScreenAccessor`).
+**Weapon Upgrade System v1 (2026-07-15, uncommitted)** — see the section directly above:
+per-stack `baum2:weapon_tier` component, Tempered/Perfect tiers (renamed from "Excellent"
+after an IP flag), ×1.15/×1.35 damage, glint + tier textures, weapon-alone-in-grid
+placeholder recipe.
+
+**Money System v1 rework — not an item (2026-07-12, commit `481e3a3`, merged to master)** —
+user rejected the wallet-item display right after `773168b` shipped; the balance now renders
+as text + coin icon on the inventory screen (see the reworked "Money System v1" section
+above). Removes the wallet item/JSONs/lang, adds attachment `syncWith`,
+`ui/BaumCreditsInventoryOverlay` (client), and the project's first client Mixin
+(`HandledScreenAccessor`).
 
 **Money System v1 — Baum Credits (2026-07-12, commit `773168b`, merged to master)** — see
 the section above: persistent attachment balance, level×type kill rewards (1x/5x/10x),
@@ -2625,7 +2713,14 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-**New (2026-07-12, latest): playtest Money System v1 (reworked, overlay version) + decide
+**New (2026-07-15, latest): playtest Weapon Upgrade System v1** — checklist at the end of
+its section above (upgrade both steps in a crafting grid, tier textures incl. the 3D
+in-hand models, glint, scaled tooltip damage, Perfect-tier and vanilla-item non-matches).
+Then decide: (a) keep "Tempered"/"Perfect" or switch to one of the German pairs the naming
+check suggested; (b) design the real material-based upgrade recipes that replace the
+placeholder weapon-alone recipe; (c) whatever the pending balance-reviewer findings flag.
+
+**New (2026-07-12): playtest Money System v1 (reworked, overlay version) + decide
 its two balance questions** — playtest checklist at the end of the "Money System v1" section
 above (inventory-screen overlay + recipe-book shift, kill payouts, death/respawn/relog
 balance persistence). Decisions needed: (a) the

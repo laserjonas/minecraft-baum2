@@ -1,19 +1,48 @@
 {
   "model": {
     "type": "minecraft:select",
-    "property": "minecraft:display_context",
+    "property": "minecraft:component",
+    "component": "baum2:weapon_tier",
     "cases": [
       {
-        "when": ["gui", "ground", "fixed", "on_shelf"],
+        "when": "tempered",
         "model": {
-          "type": "minecraft:model",
-          "model": "baum2:item/drevathis_cursed_blade"
+          "type": "minecraft:select",
+          "property": "minecraft:display_context",
+          "cases": [
+            {
+              "when": ["gui", "ground", "fixed", "on_shelf"],
+              "model": { "type": "minecraft:model", "model": "baum2:item/drevathis_cursed_blade_tempered" }
+            }
+          ],
+          "fallback": { "type": "minecraft:model", "model": "baum2:item/drevathis_cursed_blade_in_hand_tempered" }
+        }
+      },
+      {
+        "when": "perfect",
+        "model": {
+          "type": "minecraft:select",
+          "property": "minecraft:display_context",
+          "cases": [
+            {
+              "when": ["gui", "ground", "fixed", "on_shelf"],
+              "model": { "type": "minecraft:model", "model": "baum2:item/drevathis_cursed_blade_perfect" }
+            }
+          ],
+          "fallback": { "type": "minecraft:model", "model": "baum2:item/drevathis_cursed_blade_in_hand_perfect" }
         }
       }
     ],
     "fallback": {
-      "type": "minecraft:model",
-      "model": "baum2:item/drevathis_cursed_blade_in_hand"
+      "type": "minecraft:select",
+      "property": "minecraft:display_context",
+      "cases": [
+        {
+          "when": ["gui", "ground", "fixed", "on_shelf"],
+          "model": { "type": "minecraft:model", "model": "baum2:item/drevathis_cursed_blade" }
+        }
+      ],
+      "fallback": { "type": "minecraft:model", "model": "baum2:item/drevathis_cursed_blade_in_hand" }
     }
   }
 }

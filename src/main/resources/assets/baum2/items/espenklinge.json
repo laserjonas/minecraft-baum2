@@ -1,26 +1,59 @@
 {
   "model": {
     "type": "minecraft:select",
-    "property": "minecraft:display_context",
+    "property": "minecraft:component",
+    "component": "baum2:weapon_tier",
     "cases": [
       {
-        "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
-        ],
+        "when": "tempered",
         "model": {
-          "type": "minecraft:model",
-          "model": "baum2:item/espenklinge"
+          "type": "minecraft:select",
+          "property": "minecraft:display_context",
+          "cases": [
+            {
+              "when": ["gui", "ground", "fixed", "on_shelf"],
+              "model": { "type": "minecraft:model", "model": "baum2:item/espenklinge_tempered" }
+            }
+          ],
+          "fallback": {
+            "type": "minecraft:special",
+            "base": "baum2:item/espenklinge_base",
+            "model": { "type": "geckolib:geckolib" }
+          }
+        }
+      },
+      {
+        "when": "perfect",
+        "model": {
+          "type": "minecraft:select",
+          "property": "minecraft:display_context",
+          "cases": [
+            {
+              "when": ["gui", "ground", "fixed", "on_shelf"],
+              "model": { "type": "minecraft:model", "model": "baum2:item/espenklinge_perfect" }
+            }
+          ],
+          "fallback": {
+            "type": "minecraft:special",
+            "base": "baum2:item/espenklinge_base",
+            "model": { "type": "geckolib:geckolib" }
+          }
         }
       }
     ],
     "fallback": {
-      "type": "minecraft:special",
-      "base": "baum2:item/espenklinge_base",
-      "model": {
-        "type": "geckolib:geckolib"
+      "type": "minecraft:select",
+      "property": "minecraft:display_context",
+      "cases": [
+        {
+          "when": ["gui", "ground", "fixed", "on_shelf"],
+          "model": { "type": "minecraft:model", "model": "baum2:item/espenklinge" }
+        }
+      ],
+      "fallback": {
+        "type": "minecraft:special",
+        "base": "baum2:item/espenklinge_base",
+        "model": { "type": "geckolib:geckolib" }
       }
     }
   }

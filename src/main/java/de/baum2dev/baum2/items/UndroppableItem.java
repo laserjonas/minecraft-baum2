@@ -12,7 +12,7 @@ public interface UndroppableItem {
     /** Overlay (actionbar) message shown when a drop attempt is blocked. */
     String BOUND_MESSAGE = "This blade is bound to you and cannot be dropped.";
 
-    /** Override for items that aren't blades (e.g. the Baum Credits wallet). */
+    /** Override for items that aren't blades. */
     default String boundMessage() {
         return BOUND_MESSAGE;
     }

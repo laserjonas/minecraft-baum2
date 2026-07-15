@@ -4,6 +4,7 @@
   "package": "de.baum2dev.baum2.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "HandledScreenAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

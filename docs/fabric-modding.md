@@ -4380,3 +4380,194 @@ ClientPlayerEntity.java` from this project's own `minecraft-clientOnly-6dd721cd7
   mechanism used throughout the mount research above) — so melee reach against nearby mobs works
   normally while mounted, exactly like standing on the ground, no reach penalty or bonus from
   riding itself.
+
+## Overlay (text + icon) on a vanilla `HandledScreen` (e.g. `InventoryScreen`) via `ScreenEvents` — researched 2026-07-12
+
+Goal: draw a line of text + a 16x16 icon on top of the vanilla survival inventory screen
+(`net.minecraft.client.gui.screen.ingame.InventoryScreen`), positioned relative to the
+176x166 GUI panel. Verified against: `fabric-screen-api-v1-3.1.7+4ebb5c083e-sources.jar`
+(the exact version `fabric-api 0.141.4+1.21.11`'s POM pins as its `fabric-screen-api-v1`
+compile dependency — confirmed via that POM directly, so **no extra Gradle dependency is
+needed**, it's already inside the `fabric-api` fat jar this project depends on), plus this
+project's own genSourced, Yarn-1.21.11+build.6-mapped `HandledScreen.java`, `Screen.java`,
+`RecipeBookScreen.java` and `DrawContext.java` (under
+`.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-clientOnly-6dd721cd7d/...-sources.jar`
+in this project's own local Loom cache — this project has already run `genSources`, no need
+to re-run it for this research).
+
+### 1. `ScreenEvents` — exact hook, confirmed no extra dependency needed
+
+`net.fabricmc.fabric.api.client.screen.v1.ScreenEvents` (module `fabric-screen-api-v1`,
+confirmed at `3.1.7+4ebb5c083e` inside this project's pinned `fabric-api 0.141.4+1.21.11` —
+grep the resolved POM at
+`~/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api/0.141.4+1.21.11/*.pom`
+for `fabric-screen-api-v1` to reconfirm if needed):
+
+```java
+// Register once, e.g. in your ClientModInitializer:
+ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+    if (screen instanceof InventoryScreen) {
+        ScreenEvents.afterRender(screen).register((screen1, drawContext, mouseX, mouseY, tickDelta) -> {
+            // draw here, every frame, for the lifetime of this screen instance
+        });
+    }
+});
+```
+
+Confirmed exact functional-interface shapes (`ScreenEvents.java`, `fabric-screen-api-v1`):
+
+```java
+public interface AfterInit {
+    void afterInit(MinecraftClient client, Screen screen, int scaledWidth, int scaledHeight);
+}
+public interface AfterRender {
+    void afterRender(Screen screen, DrawContext drawContext, int mouseX, int mouseY, float tickDelta);
+}
+```
+
+- `ScreenEvents.afterRender(Screen)` returns an `Event<AfterRender>` **scoped to that one
+  screen instance** — register inside `AFTER_INIT` (or `BEFORE_INIT`) each time a new screen
+  instance is created, not once globally; the instance-scoped event is torn down and rebuilt
+  every `init()`/`resize()` per the class javadoc. This is why the doc-comment's own example
+  (reproduced above almost verbatim) registers `afterRender` from inside `AFTER_INIT`.
+- The 5th callback parameter, `tickDelta` (also called `deltaTicks`/`deltaTicks` elsewhere in
+  this doc), is the same per-frame partial-tick float `Screen.render(DrawContext, int, int,
+  float)` receives — **not** a "time since this event last fired" delta, just the standard
+  render partial-tick value, confirmed by the mixin (`GameRendererMixin`, below) passing
+  through the exact same `tickDelta` it received from the outer `Screen.renderWithTooltip(...)`
+  call unmodified.
+- Yes — `DrawContext` is provided directly as the 2nd parameter, exactly matching the type
+  used everywhere else in this doc's `DrawContext`/`drawTexture` entries; no separate context
+  needs to be obtained.
+
+### 2. Getting the panel origin / size from OUTSIDE `HandledScreen` — no public getter exists, use an `@Accessor` mixin
+
+Confirmed exact fields on `net.minecraft.client.gui.screen.ingame.HandledScreen<T>` (Yarn
+1.21.11+build.6, unchanged in shape from older versions):
+
+```java
+protected int backgroundWidth = 176;
+protected int backgroundHeight = 166;
+protected int x;
+protected int y;
+```
+
+- **All four are `protected`, no public getters exist** on `HandledScreen` itself, and
+  **Fabric API's own `Screens` utility class (`net.fabricmc.fabric.api.client.screen.v1.Screens`,
+  same module) does not expose them either** — confirmed by reading its full source: it only
+  has `getButtons(Screen)`, the deprecated `getTextRenderer(Screen)`, and `getClient(Screen)`.
+  There is no Fabric-API-provided getter for the panel rect.
+- **Correct fix: a small client-side `@Accessor` mixin**, exactly the same pattern this
+  project already uses for `ClampedEntityAttributeAccessor`
+  (`src/main/java/de/baum2dev/baum2/mixin/ClampedEntityAttributeAccessor.java`):
+  ```java
+  @Mixin(HandledScreen.class)
+  public interface HandledScreenAccessor {
+      @Accessor("x")
+      int baum2$getX();
+      @Accessor("y")
+      int baum2$getY();
+      @Accessor("backgroundWidth")
+      int baum2$getBackgroundWidth();
+      @Accessor("backgroundHeight")
+      int baum2$getBackgroundHeight();
+  }
+  ```
+  Target the raw `HandledScreen.class` (generics don't matter for `@Mixin` target matching);
+  cast any `HandledScreen<?>` instance (e.g. the `Screen screen` from `ScreenEvents.afterRender`,
+  after an `instanceof InventoryScreen` check) to `HandledScreenAccessor` to call the getters.
+  An Access Widener (`baum2.accesswidener`, widening the fields to `public`) would also work,
+  but is more invasive — it patches the shared remapped Minecraft jar bytecode globally rather
+  than scoping the reach-in to just this mod's own compiled code, so the `@Accessor` mixin is
+  the better fit for a read-only need like this.
+- **Real project gap found while checking this**: `fabric.mod.json` already references a
+  `"baum2.client.mixins.json"` config (`environment: "client"`, alongside the existing
+  `"baum2.mixins.json"`) but **that file does not currently exist** in
+  `src/main/resources/` — only `baum2.mixins.json` (used for `LivingEntityMixin`,
+  `ExperienceOrbSpawnMixin`, `ClampedEntityAttributeAccessor`, etc., none of which are
+  client-only) is present. Since `HandledScreen`/`Screen`/`DrawContext` are client-only
+  classes, a `HandledScreenAccessor` mixin (or any future client-only mixin) **must** go in
+  a client-only mixin config so it isn't loaded on a dedicated server (which lacks those
+  classes entirely) — either create `src/main/resources/baum2.client.mixins.json` (matching
+  the name already referenced in `fabric.mod.json`) with its own `"mixins": [...]` list, or
+  fix the reference if a different filename was intended. This wasn't broken by this research
+  session — it's a pre-existing gap noticed while researching where to add the accessor.
+- **Recipe book panel-shift — confirmed `x` already reflects it, no extra handling needed.**
+  `InventoryScreen extends RecipeBookScreen<PlayerScreenHandler> extends HandledScreen<...>`.
+  `RecipeBookScreen.init()` calls `super.init()` (which centers `x`/`y` the normal way: `x =
+  (width - backgroundWidth) / 2`), then immediately **overwrites** `this.x =
+  this.recipeBook.findLeftEdge(this.width, this.backgroundWidth)`. The recipe-book toggle
+  button's `onPress` does the exact same reassignment again (`this.x =
+  this.recipeBook.findLeftEdge(...)`) at the moment the book is opened/closed. Since `x` is a
+  plain mutable field re-read fresh every frame via the accessor (not cached), **any overlay
+  positioned via `screen.x`/`screen.y` inside `afterRender` automatically tracks the recipe
+  book shift with zero extra code** — confirmed exact by reading both
+  `RecipeBookScreen.java` and `InventoryScreen.java` (`InventoryScreen` itself adds no further
+  shifting logic beyond what its `RecipeBookScreen` parent already does).
+
+### 3. Matrix state, z-order vs. tooltips — a real, non-obvious gotcha
+
+- **No active translation matrix at `afterRender` time — coordinates are absolute screen
+  space, not panel-relative.** `HandledScreen.renderMain(...)` does `context.getMatrices()
+  .pushMatrix(); .translate(x, y); ...; .popMatrix();` **internally**, and that push/translate/
+  pop is fully resolved (popped) long before `ScreenEvents.afterRender` fires (which wraps the
+  entire outer `Screen.renderWithTooltip(...)` call, see below — well after `renderMain`
+  returns). **You must manually add the accessor's `x`/`y` to any panel-relative coordinate**,
+  e.g. `drawContext.drawText(tr, text, screen.baum2$getX() + 8, screen.baum2$getY() +
+  backgroundHeight + 4, color, false)` to draw just below the panel.
+- **`ScreenEvents.afterRender` fires AFTER tooltips are drawn, not before — confirmed exact,
+  this is the opposite of what the naming suggests.** Traced the full call chain:
+  1. `GameRendererMixin` (`fabric-screen-api-v1`) wraps `Screen`'s single per-frame render
+     entry point with `@WrapOperation`: `ScreenEvents.beforeRender(...)` fires, then
+     `operation.call(...)` (the real vanilla render), then `ScreenEvents.afterRender(...)`
+     fires — i.e. `afterRender` only fires once the *entire* vanilla per-frame render call has
+     returned.
+     (Side note: the mixin's own source literally names this wrapped method
+     `renderWithTooltipAndSubtitles` with package `.../gui/screens/Screen` — that's
+     Mojang's **official** mapping name/package, not Yarn's; Yarn 1.21.11+build.6 names the
+     same method `Screen.renderWithTooltip(DrawContext, int, int, float)`, package
+     `client.gui.screen` singular, confirmed by grepping the entire decompiled client source
+     tree for `renderWithTooltipAndSubtitles`/`AndSubtitles` — zero matches anywhere. This is
+     a harmless naming mismatch (Mixin resolves `@At` target strings by descriptor through the
+     refmap, not literal name equality), not a version-broken mixin — just don't be thrown off
+     if grepping Fabric API's own GitHub source directly for the Yarn name comes up empty.)
+  2. Confirmed exact body of `Screen.renderWithTooltip(...)` (Yarn 1.21.11+build.6):
+     ```java
+     public final void renderWithTooltip(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+         context.createNewRootLayer();
+         this.renderBackground(context, mouseX, mouseY, deltaTicks);
+         context.createNewRootLayer();
+         this.render(context, mouseX, mouseY, deltaTicks);   // background texture, slots, items, foreground text
+         context.drawDeferredElements();                      // <-- tooltip actually drawn HERE
+     }
+     ```
+  3. `DrawContext.drawTooltip(...)` (called by `HandledScreen.drawMouseoverTooltip(...)`,
+     itself called from inside step 2's `this.render(...)`) **does not draw immediately** — it
+     just stores a `this.tooltipDrawer` lambda:
+     ```java
+     this.tooltipDrawer = () -> this.drawTooltipImmediately(...);
+     ```
+     which is only actually invoked inside `drawDeferredElements()` — the very last line of
+     `renderWithTooltip(...)`, i.e. **strictly after** all of `this.render(...)` (panel
+     background, slots, item icons, foreground text) has already been drawn.
+  - **Net result: since `ScreenEvents.afterRender` wraps the whole `renderWithTooltip(...)`
+    call, anything you draw inside it renders on top of / after any tooltip that happened to
+    be showing that frame — not below it.** If your overlay's screen position can never
+    overlap where slot-hover tooltips appear (e.g. an icon/text placed outside the
+    `backgroundWidth`/`backgroundHeight` rect, in the panel's margin), this never matters in
+    practice. If exact "always below tooltip" ordering is a hard requirement, `ScreenEvents`
+    has no hook that fires between the end of `this.render(...)` and the
+    `drawDeferredElements()` flush — that would require a bespoke `@Inject` mixin targeting
+    the tail of `HandledScreen.renderMain(...)` (or the head of `drawDeferredElements()`)
+    instead of `ScreenEvents.afterRender`. Not needed for a panel-margin overlay that doesn't
+    sit under the slot grid.
+  - `ScreenEvents.afterBackground(Screen)` (fires right after `Screen.renderBackground(...)`
+    is called from inside `renderWithTooltip`, i.e. very early, before slots/items/foreground
+    text are drawn at all) is **too early** for a panel-relative overlay that should render on
+    top of the panel content — it fires before the panel's own background texture and slots
+    are even drawn, so anything drawn there gets immediately painted over.
+  - Standard `DrawText`/`drawTexture` calls used in `afterRender` are **not** deferred (no
+    `context.createNewRootLayer()`/`drawDeferredElements()` pairing needed on your part) —
+    they draw immediately in call order, same as documented elsewhere in this file's
+    `DrawContext` entries; this only matters relative to the *tooltip's own* deferred draw
+    described above.

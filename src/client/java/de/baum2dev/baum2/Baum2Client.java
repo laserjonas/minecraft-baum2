@@ -22,6 +22,7 @@ import de.baum2dev.baum2.registry.ModEntities;
 import software.bernie.geckolib.animatable.client.GeoRenderProvider;
 import software.bernie.geckolib.renderer.GeoItemRenderer;
 import de.baum2dev.baum2.ui.Baum2KeyBindings;
+import de.baum2dev.baum2.ui.BaumCreditsInventoryOverlay;
 import de.baum2dev.baum2.ui.MountKeyBindings;
 import de.baum2dev.baum2.ui.MobNameplateHud;
 import de.baum2dev.baum2.ui.SpellCastKeyBindings;
@@ -39,6 +40,7 @@ public class Baum2Client implements ClientModInitializer {
         SpellCastKeyBindings.register();
         MountKeyBindings.register();
         MobNameplateHud.register();
+        BaumCreditsInventoryOverlay.register();
 
         // Every fallen-comet-stone mini-boss shares the GeckoLib template (one geometry +
         // idle animation, per-stone texture named after the entity) - no model-layer

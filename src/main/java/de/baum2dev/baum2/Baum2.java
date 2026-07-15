@@ -82,7 +82,6 @@ public class Baum2 implements ModInitializer {
         LevelUpHandler.registerEvents();
         MobDeathHandler.registerEvents();
         CreditRewardHandler.registerEvents();
-        BaumCreditsManager.registerEvents();
         ProgressionTickHandler.registerEvents();
         ClassManager.registerEvents();
         VitalsTickHandler.registerEvents();

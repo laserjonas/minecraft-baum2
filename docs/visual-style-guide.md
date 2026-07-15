@@ -386,7 +386,6 @@ assets/baum2/
     item/
       gold_sword.png           (16x16, item icon - see Section 14)
       poison_dagger.png        (16x16, item icon - see Section 16)
-      baum_credits.png         (16x16, item icon - see Section 24)
       colossal_warclub.png     (16x16, item icon - see Section 18.3)
       drevathis_cursed_blade.png (16x16, item icon - see Section 19.4)
       risssplitter.png         (16x16, item icon - see Section 20.6)
@@ -3416,15 +3415,13 @@ specific existing game's currency branding; the tree glyph is unique to this mod
 
 - **Texture** (placeholder, per `MASTERPROMPT.md`'s asset rule — flat pixel art, no
   anti-aliasing, generated via `tools/gen_baum_credits_item.py`/Pillow, not hand-drawn final
-  art): `assets/baum2/textures/item/baum_credits.png`, 16x16, RGBA, transparent background
+  art): `assets/baum2/textures/gui/baum_credits.png`, 16x16, RGBA, transparent background
   outside the coin's circular silhouette. Verified 16x16 RGBA via Pillow after writing.
-- **Not produced by this pass** (explicitly out of scope per the brief that requested this
-  section — being written in a parallel session): the item-model/item-definition JSON pair
-  (`assets/baum2/models/item/baum_credits.json`, `assets/baum2/items/baum_credits.json`) and
-  all Java (`ModItems` registration, `ITEM_NAME` balance-display logic, monster drop wiring).
-  Whoever writes those should point the model at `baum2:item/baum_credits` following the exact
-  two-file pattern every other plain-`Item` icon in this doc already uses (e.g. Section 14.3's
-  Gold Sword, Section 22.5's mount flutes).
+- **Superseded (2026-07-12, same day)**: Baum Credits is NOT an item anymore — the user
+  rejected the wallet-item approach ("should not be an item; text in the inventory, icon at
+  the end"). The texture moved from `textures/item/` to `textures/gui/` and is drawn by the
+  client's inventory-screen overlay (`ui/BaumCreditsInventoryOverlay`) after the balance
+  text; the item-model/item-definition JSON pair and `ModItems` registration were removed.
 
 ---
 

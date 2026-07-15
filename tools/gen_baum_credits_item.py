@@ -1,5 +1,6 @@
-"""Generates the 16x16 placeholder icon for Baum Credits (`baum2:baum_credits`), the mod's
-currency item (see docs/visual-style-guide.md Section 24).
+"""Generates the 16x16 placeholder icon for Baum Credits, the mod's currency
+(see docs/visual-style-guide.md Section 24). Not an item: the coin renders as a GUI icon
+next to the balance text on the inventory screen (client ui/BaumCreditsInventoryOverlay).
 
 Concept: a flat brass coin (bevel = outline / rim / base / highlight, 4 flat tones, no
 anti-aliasing/noise - same "flat fills, small palette, outline" convention every other item
@@ -17,7 +18,7 @@ boss-tier content - Baum Credits is a common, global, UI-adjacent utility item, 
 its drop, so it ties back into the mod's existing chrome palette instead.
 
 Output (CWD): baum_credits.png (16x16 RGBA). Copy to:
-  src/main/resources/assets/baum2/textures/item/baum_credits.png
+  src/main/resources/assets/baum2/textures/gui/baum_credits.png
 """
 from PIL import Image, ImageDraw
 

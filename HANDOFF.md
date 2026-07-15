@@ -20,10 +20,12 @@ below) **plus the GeckoLib Sword Template v1** (the mod's first animated GeckoLi
 reusable sword line — shared geometry/animations, per-sword texture — whose first sword is
 the wooden "Espenklinge": idle/attack/mounted-attack animations, undroppable, uncraftable;
 see the "GeckoLib Sword Template v1" section below) **plus Money System v1 (2026-07-12,
-uncommitted): "Baum Credits" — persistent attachment balance, an undroppable wallet item
-pinned to one inventory slot showing the balance, level×type kill rewards (normal 1x /
-stone 5x / boss 10x), `/baum2 credits`; see the "Money System v1" section below**. `master`
-is fast-forwarded to match this branch up to the Heimgrund commit. See "Last change" below for detail.
+commit `773168b`, merged to master; the not-an-item rework on top is uncommitted):
+"Baum Credits" — persistent attachment balance, shown as text + coin icon drawn on the
+inventory screen (the originally-shipped wallet-ITEM display was user-rejected and removed),
+level×type kill rewards (normal 1x / stone 5x / boss 10x), `/baum2 credits`; see the "Money
+System v1" section below**. `master` is fast-forwarded to match this branch up to the Money
+System v1 commit. See "Last change" below for detail.
 
 - Fabric mod builds successfully (`./gradlew build` passes).
 - Client runs: `./gradlew runClient` loads, reaches the main menu, and joins a world cleanly
@@ -1647,27 +1649,43 @@ artifact — silhouette only, no game IP).
 
 ### Money System v1 (2026-07-12) — "Baum Credits", the mod's first currency
 
-User request: a money system. "Baum Credits" are shown in the inventory and take an inventory
-slot; every monster drops credits by level and type (normal 1x, boss 10x, stone 5x factor);
-credits will later buy items — **the purchase/shop side is explicitly out of scope for v1**
-(only a `spendCredits` API exists for it). New `economy/` package.
+User request: a money system. "Baum Credits" are shown in the inventory; every monster drops
+credits by level and type (normal 1x, boss 10x, stone 5x factor); credits will later buy
+items — **the purchase/shop side is explicitly out of scope for v1** (only a `spendCredits`
+API exists for it). New `economy/` package.
+
+**Reworked same day (user decision): NOT an item.** The first shipped version (commit
+`773168b`, merged to master) pinned an undroppable wallet ItemStack into an inventory slot;
+the user rejected that ("should not be an item — text in the inventory, icon at the end").
+The wallet item, its `ModItems` registration, item/model JSONs, lang entry, and all wallet
+upkeep (join/respawn/tick dedupe) are REMOVED; the balance now renders as an overlay on the
+inventory screen. `UndroppableItem`'s `boundMessage()` default method (added for the wallet)
+was kept — harmless, generally useful.
 
 - **Balance storage** (`economy/BaumCreditsManager.java`): persistent player Attachment
   (`baum2:baum_credits`, `Codec.LONG`, `.copyOnDeath()`, same pattern/bootstrap-ordering
   gotcha as `PlayerLevelSystem`) — the money itself survives restarts, disconnects, death.
   API: `getCredits`/`addCredits`/`spendCredits(player, amount): boolean` (floor-clamped at 0,
-  rejects negative/insufficient — the future shop system's entry point).
-- **Inventory display** (`items/BaumCreditsItem.java`, `baum2:baum_credits`): an undroppable
-  (`UndroppableItem`) wallet item pinned into every player's inventory — occupies exactly one
-  slot and shows the balance via the stack's `ITEM_NAME` component ("Baum Credits: 152", so
-  no client payload is needed; inventory sync carries it). **The stack is DISPLAY ONLY** — no
-  value lives on it, so losing/duping the stack can never lose/dupe money. Upkeep (exactly
-  one wallet, name current) runs on join, after respawn, and a once-per-second server-tick
-  pass (also removes extra wallets picked up off the ground — death still drops the wallet
-  like any item per `UndroppableItem`'s documented death-drop rule; the ground copy is
-  worthless and despawns). `maxCount(1)`, deliberately in no creative item group.
-  `UndroppableItem` gained a default `boundMessage()` (the old shared constant said "This
-  blade…" — wrong for a wallet); the drop-guard mixin now uses it.
+  rejects negative/insufficient — the future shop system's entry point). Now also
+  `.syncWith(PacketCodecs.VAR_LONG, AttachmentSyncPredicate.targetOnly())` (same pattern as
+  `ClassManager.SELECTED_CLASS`) so the owning client reads the live balance straight off the
+  attachment — no payload, no client cache; `getDisplayCredits(PlayerEntity)` is the
+  client-safe accessor (0 until first server set).
+- **Inventory display** (client `ui/BaumCreditsInventoryOverlay.java`): draws
+  "Baum Credits: N" + the coin icon (text first, icon at the end, per user decision) just
+  above the survival `InventoryScreen` panel's top-left corner. Uses `fabric-screen-api-v1`
+  (`ScreenEvents.AFTER_INIT` filtered to `InventoryScreen`, then
+  `ScreenEvents.afterRender(screen)`) — first use of that API in this project, researched and
+  documented in `docs/fabric-modding.md` ("Overlay (text + icon) on a vanilla HandledScreen",
+  ~line 4384): callback receives a real `DrawContext`; coordinates are ABSOLUTE screen space
+  (no active translation); and `afterRender` actually fires AFTER tooltips render (a
+  panel-margin overlay is unaffected). Panel origin comes from a new client accessor Mixin
+  `mixin/client/HandledScreenAccessor` (`x`/`y` are protected with no public getter in Yarn
+  1.21.11; Fabric's `Screens` utility doesn't expose them either) — **first entry in the
+  previously-empty `baum2.client.mixins.json`**. The recipe book reassigns `x` live, so
+  reading it every frame follows the shift automatically. Icon drawn 12x12 from the 16x16
+  source via the same `drawTexture(RenderPipelines.GUI_TEXTURED, ...)` call
+  `CharacterStatsScreen` uses; text uses `Colors.WHITE` (the documented alpha-byte gotcha).
 - **Kill rewards** (`economy/CreditRewardHandler.java`): on `AFTER_DEATH`, killer gets
   `credits = factor × max(1, monsterLevel)` — factors NORMAL 1x / STONE 5x (any
   `FallenCometStoneEntity`) / BOSS 10x (Drevathis L40 → 400, Zombie Colossus L25 → 250,
@@ -1682,11 +1700,12 @@ credits will later buy items — **the purchase/shop side is explicitly out of s
   `CreditRewardHandler.awardCredits` in `destroyAndReward`.
 - **Commands**: `/baum2 credits` (own balance), `/baum2 credits add <amount>` (gamemaster,
   testing — same permission gate as the other admin subcommands).
-- **Assets**: `textures/item/baum_credits.png` (16x16 placeholder by `graphics-designer`: flat
+- **Assets**: `textures/gui/baum_credits.png` (16x16 placeholder by `graphics-designer`: flat
   brass coin stamped with a tiny tree glyph — a pun on "Baum"; reuses the Deepwood & Verdigris
   chrome palette per Section 1.1's governance rule, documented in `docs/visual-style-guide.md`
-  Section 24, generator at `tools/gen_baum_credits_item.py`), plus standard item-definition/
-  model JSONs and the `en_us.json` entry.
+  Section 24, generator at `tools/gen_baum_credits_item.py`). Moved from `textures/item/`
+  during the not-an-item rework; the item-definition/model JSONs and `en_us.json` entry are
+  gone with the item.
 - **`ip-naming-compliance-checker`: clear** — "Baum Credits" is self-branded + a generic
   cross-genre currency word; no existing game's currency name is nearby (Metin2's is "Yang").
 - **`balance-reviewer` findings, logged, NOT fixed (judgment calls — see "Next recommended
@@ -1699,20 +1718,28 @@ credits will later buy items — **the purchase/shop side is explicitly out of s
   with health — intentional only if "waves pay XP, the stone pays credits" is the design;
   (c) boss credits (level-driven) and boss XP (health-driven) don't move together because
   bosses pick HP/level independently (20-30 HP/level across the 4) — minor.
-- **Verified**: `./gradlew build` passes. **Not yet play-verified** — checklist: join a world
-  → wallet appears in inventory named "Baum Credits: 0"; kill any zone mob → actionbar "+1
-  Baum Credits" and the wallet name ticks up; Q/Ctrl+Q and inventory-drag the wallet →
-  blocked with the wallet-specific message; die → wallet drops but reappears (balance intact)
-  on respawn, ground copy vanishes when picked up (dedupe pass); `/baum2 credits` matches the
-  wallet name; kill a stone → 5x its level; destroy a Rissobelisk → +50.
+- **Verified**: `./gradlew build` passes (both the committed item version and the reworked
+  overlay version). **Not yet play-verified** — checklist for the overlay version: join a
+  world, open the inventory (E) → "Baum Credits: 0" + coin icon just above the panel's
+  top-left corner; toggle the recipe book → the text follows the panel shift; kill any zone
+  mob → actionbar "+1 Baum Credits", reopen inventory → balance ticked up (also confirms the
+  attachment sync); die/respawn and relog → balance intact; `/baum2 credits` matches the
+  overlay; kill a stone → 5x its level; destroy a Rissobelisk → +50. Standing caveat: the
+  client accessor Mixin only proves itself when `HandledScreen` class-loads (first screen
+  open), not at build time — same class of risk as every other Mixin here.
 
 ## Last change (on `fischey_workbranch`)
 
-**Money System v1 — Baum Credits (2026-07-12, uncommitted)** — see the section directly
-above: persistent attachment balance, wallet display item pinned to one inventory slot,
-level×type kill rewards (1x/5x/10x), `/baum2 credits`, Rissobelisk credit fix, placeholder
-coin texture. Sits in the same uncommitted working tree as Mount System v1 and the GeckoLib
-Sword Template below.
+**Money System v1 rework — not an item (2026-07-12, uncommitted)** — user rejected the
+wallet-item display right after `773168b` shipped; the balance now renders as text + coin
+icon on the inventory screen (see the reworked "Money System v1" section above). Removes the
+wallet item/JSONs/lang, adds attachment `syncWith`, `ui/BaumCreditsInventoryOverlay`
+(client), and the project's first client Mixin (`HandledScreenAccessor`).
+
+**Money System v1 — Baum Credits (2026-07-12, commit `773168b`, merged to master)** — see
+the section above: persistent attachment balance, level×type kill rewards (1x/5x/10x),
+`/baum2 credits`, Rissobelisk credit fix, placeholder coin texture. (Its wallet-item display
+was reworked away by the entry above.)
 
 **GeckoLib Sword Template v1 + Espenklinge (2026-07-11, uncommitted, same working tree as
 Mount System v1)** — see the section directly above. Also in this change: `tools/
@@ -2598,9 +2625,10 @@ manual `JOIN`/`DISCONNECT` save/load hooks needed for persistence itself.
 
 ## Next recommended step
 
-**New (2026-07-12, latest): playtest Money System v1 + decide its two balance questions** —
-playtest checklist at the end of the "Money System v1" section above (wallet pinning,
-kill payouts, undroppable behavior, death/respawn). Decisions needed: (a) the
+**New (2026-07-12, latest): playtest Money System v1 (reworked, overlay version) + decide
+its two balance questions** — playtest checklist at the end of the "Money System v1" section
+above (inventory-screen overlay + recipe-book shift, kill payouts, death/respawn/relog
+balance persistence). Decisions needed: (a) the
 `StoneSlotManager.RESPAWN_DELAY_TICKS` 3s-vs-documented-5min discrepancy is now an ECONOMY
 problem, not just a loot one — at 3s a farmed high stone pays ~1,600-3,000x what zone
 grinding pays (this merges with Heimgrund decision (a) below — one respawn decision settles
